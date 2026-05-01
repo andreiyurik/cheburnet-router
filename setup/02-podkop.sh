@@ -30,6 +30,8 @@ if [ -f /lib/functions/network.sh ]; then
 fi
 if [ -z "$LAN_CIDR" ]; then
     LAN_IP=$(uci -q get network.lan.ipaddr || echo "")
+    # OpenWrt 25.12+ хранит ipaddr в CIDR-форме (192.168.1.1/24) — срезаем маску
+    LAN_IP=${LAN_IP%%/*}
     LAN_MASK=$(uci -q get network.lan.netmask || echo "255.255.255.0")
     if [ -n "$LAN_IP" ] && command -v ipcalc.sh >/dev/null 2>&1; then
         LAN_CIDR=$(ipcalc.sh "$LAN_IP" "$LAN_MASK" 2>/dev/null \
