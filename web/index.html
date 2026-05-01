@@ -67,7 +67,7 @@
   .log {
     background: #0a0c0f; color: #c0c8d0; border-radius: 8px; padding: 12px; margin: 12px 0;
     font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; line-height: 1.45;
-    overflow: auto; max-height: 320px; white-space: pre-wrap; word-break: break-word;
+    overflow: auto; max-height: 400px; white-space: pre-wrap; word-break: break-word;
     border: 1px solid var(--border);
   }
   .progress { height: 8px; background: var(--panel-2); border-radius: 6px; overflow: hidden; margin: 12px 0; }
@@ -237,6 +237,7 @@
     <h2>Установка</h2>
     <div id="install-step" class="muted">подготовка…</div>
     <div class="progress"><div id="install-bar" class="bar" style="width: 5%;"></div></div>
+    <div id="install-step-friendly" style="margin: 4px 0 8px 0; font-size: 14px;"></div>
     <pre id="install-log" class="log"></pre>
     <div class="row" style="justify-content: space-between;">
       <span class="muted" id="install-hint">Не закрывайте страницу до окончания.</span>
@@ -673,16 +674,11 @@ const STEP_PCT = {
     "12-travel-plus": 96, "done": 100
 };
 
-// Названия шагов → дружелюбное описание для пользователя.
-// Setup-скрипты НЕ переводим (логи нужны технарям и саппорту), переводим
-// только видимый юзеру заголовок шага.
-//
-// Формат: "Понятный смысл на русском (название технологии)" — проект
-// образовательный, и в скобках указываем ключевую технологию шага, чтобы
-// любопытный пользователь мог её загуглить и узнать как это работает.
-// Технологию добавляем ТОЛЬКО если её название узнаваемо и что-то объясняет
-// (AmneziaWG, podkop, kill switch, SQM). Не добавляем низкоуровневую
-// банальность (passwd, uci, dropbear) — это шум, не обучение.
+// Дружелюбное описание шага для блока над консолью. Технический заголовок
+// «текущий шаг: 07-killswitch» оставляем как есть — он нужен для отладки
+// и саппорта. А над консолью показываем смысл на русском + название
+// технологии в скобках для образовательного эффекта (любопытный пользователь
+// может загуглить термин). Если шаг неизвестен — блок просто пустой.
 const STEP_LABELS = {
     "starting":         "Подготовка установки",
     "00-prerequisites": "Проверка системы и пакетов",
@@ -707,10 +703,11 @@ async function pollProgress() {
     try {
         const p = await rpc("cheburnet", "install_progress");
         const stepRaw = (p.step || "").replace(/^\[STEP\] |\[|\]/g, "");
-        // Показываем дружелюбное название если знаем шаг, иначе fallback на raw —
-        // чтобы новые/незнакомые шаги хотя бы не ломали UI.
-        const stepLabel = STEP_LABELS[stepRaw] || stepRaw;
-        document.getElementById("install-step").textContent = "Сейчас: " + stepLabel;
+        document.getElementById("install-step").textContent = "текущий шаг: " + stepRaw;
+        // Дружелюбная подпись над консолью: для известных шагов показываем
+        // понятный текст + технологию в скобках; для неизвестных — оставляем
+        // пусто, чтобы не сбивать пользователя.
+        document.getElementById("install-step-friendly").textContent = STEP_LABELS[stepRaw] || "";
         document.getElementById("install-log").textContent  = p.log || "";
         const bar = document.getElementById("install-bar");
         let pct = STEP_PCT[stepRaw] || 50;
