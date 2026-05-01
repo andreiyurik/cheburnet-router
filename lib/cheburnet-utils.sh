@@ -20,11 +20,22 @@
 # Экранирует произвольную строку для безопасной вставки в JSON-литерал.
 # Делает: \ → \\, " → \", переносы строк → \n, tab → \t, \r → пусто.
 # Используется ВЕЗДЕ где пользовательские/uci-данные подставляются в JSON-ответ.
+#
+# КРИТИЧНО про кол-во backslash'ей в awk-replacement: POSIX-awk (и busybox-awk)
+# дважды интерпретируют escape-sequence в replacement-строке — сначала как
+# C-style string-literal, потом как gsub-replacement. Чтобы в выходе появился
+# literal `\"`, в repl надо написать `\\\\\"` (shell) → `\\\"` (awk source) →
+# `\\"` (string after C-escape) → `\"` (после gsub-substitution). Аналогично
+# для `\\` нужно 8 backslash'ей в shell. Раньше тут было `"\\\""` и `"\\\\"`,
+# которые awk сжимал в `"` и `\` соответственно — `json_escape` НЕ экранировал
+# ни `"`, ни `\`. install_progress генерил невалидный JSON каждый раз когда
+# в логе была кавычка (BOARD_MODEL="...", KERNEL="..." из cheburnet_diag_system),
+# rpcd возвращал ubus-code 2, UI зависал в pollProgress retry-loop.
 json_escape() {
     printf '%s' "$1" | awk 'BEGIN{ORS=""}
         {
-            gsub(/\\/, "\\\\");
-            gsub(/"/, "\\\"");
+            gsub(/\\/, "\\\\\\\\");
+            gsub(/"/, "\\\\\"");
             gsub(/\t/, "\\t");
             gsub(/\r/, "");
             if (NR > 1) printf "\\n";

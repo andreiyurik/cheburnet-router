@@ -94,9 +94,13 @@ case "$METHOD" in
         INSTALLING="false"
         [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null && INSTALLING="true"
 
-        # Сервисы running?
+        # adblock-lean — НЕ демон, а одноразовый job: запустился, скачал
+        # блок-лист, сконфигурировал dnsmasq, вышел. У него нет pidfile,
+        # и `service status` на разных версиях init-скрипта возвращает
+        # разное (от 'running' до пустоты). Поэтому проверяем артефакт —
+        # сжатый блок-лист, который 03-adblock.sh же и валидирует.
         ADBLOCK_UP="false"
-        "$ETC_INIT_D/adblock-lean" status 2>&1 | grep -qi running && ADBLOCK_UP="true"
+        [ -s /var/run/adblock-lean/abl-blocklist.gz ] && ADBLOCK_UP="true"
 
         PODKOP_UP="false"
         "$ETC_INIT_D/sing-box" status 2>&1 | grep -qi running && PODKOP_UP="true"
@@ -121,7 +125,14 @@ case "$METHOD" in
             AWG_HS_AGE=$(( $(date +%s) - HS ))
         fi
 
-        # Wi-Fi SSID — пропускаем через JSON-escape (может содержать ", \, и т.д.)
+        # Wi-Fi: на «голых» x86 / mini-PC и роутерах с неподдерживаемым
+        # wifi-чипом /etc/config/wireless либо отсутствует, либо пуст
+        # (нет wifi-device секций). Это валидный кейс — UI должен показать
+        # «нет беспроводного интерфейса», а не «(не задан)».
+        WIRELESS_PRESENT="false"
+        if [ -f /etc/config/wireless ] && uci -q show wireless 2>/dev/null | grep -q '=wifi-device'; then
+            WIRELESS_PRESENT="true"
+        fi
         SSID_RAW=$(uci -q get wireless.default_radio0.ssid || echo "")
         SSID=$(json_escape "$SSID_RAW")
         MODE_ESC=$(json_escape "$MODE")
@@ -141,6 +152,7 @@ case "$METHOD" in
     "installing": $INSTALLING,
     "install_token_required": $TOKEN_PRESENT,
     "mode": "$MODE_ESC",
+    "wireless_present": $WIRELESS_PRESENT,
     "ssid": "$SSID",
     "adblock_up": $ADBLOCK_UP,
     "podkop_up": $PODKOP_UP,

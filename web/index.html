@@ -804,7 +804,13 @@ async function renderMgmt(st) {
     rows.push(["DNS (DoH)",        up(st.dns_up)]);
     rows.push(["Adblock-lean",     up(st.adblock_up)]);
     rows.push(["Тир блок-листа",   st.blocklist_tier ? `hagezi:${escapeHtml(st.blocklist_tier)}` : "(неизвестно)"]);
-    rows.push(["Wi-Fi SSID",       st.ssid || "(не задан)"]);
+    // wireless_present === false → железа нет (x86, mini-PC, чип без драйвера),
+    // это валидный кейс «проводной роутер», не ошибка.
+    if (st.wireless_present === false) {
+        rows.push(["Wi-Fi SSID", muted("нет беспроводного интерфейса")]);
+    } else {
+        rows.push(["Wi-Fi SSID", st.ssid || "(не задан)"]);
+    }
 
     document.getElementById("mgmt-status").innerHTML =
         rows.map(([k, v]) => `<dt>${k}:</dt><dd>${v}</dd>`).join("");
