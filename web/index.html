@@ -520,11 +520,11 @@ async function init() {
     } catch (e) {
         document.getElementById("scr-loading").innerHTML =
             `<h2>Не получилось соединиться с роутером</h2>
-             <div class="err-msg"><strong>${e.message}</strong></div>
+             <div class="err-msg"><strong>${escapeHtml(e.message)}</strong></div>
              <p class="muted">Возможные причины:</p>
              <ul class="muted">
                <li>ubus не запущен или не поднят RPC-модуль</li>
-               <li>уhttpd-mod-ubus не установлен</li>
+               <li>uhttpd-mod-ubus не установлен</li>
                <li>bootstrap.sh не завершился успешно</li>
              </ul>
              <p>Запустите в SSH на роутере: <code>ubus list cheburnet</code>. Если ничего не возвращает — повторите bootstrap.sh.</p>`;
@@ -723,20 +723,22 @@ const STEP_LABELS = {
     "done":             "Установка завершена"
 };
 
+// Бар не должен ехать назад: если бэк сообщил неизвестный шаг, оставляем
+// предыдущий процент. Иначе fallback (по STEP_PCT отсутствие → undefined)
+// мог бы сбросить визуальный прогресс.
+let lastInstallPct = 0;
+
 async function pollProgress() {
     try {
         const p = await rpc("cheburnet", "install_progress");
         const stepRaw = (p.step || "").replace(/^\[STEP\] |\[|\]/g, "");
         document.getElementById("install-step").textContent = "текущий шаг: " + stepRaw;
-        // Дружелюбная подпись над консолью: для известных шагов показываем
-        // понятный текст + технологию в скобках; для неизвестных — оставляем
-        // пусто, чтобы не сбивать пользователя.
         document.getElementById("install-step-friendly").textContent = STEP_LABELS[stepRaw] || "";
         document.getElementById("install-log").textContent  = p.log || "";
         const bar = document.getElementById("install-bar");
-        let pct = STEP_PCT[stepRaw] || 50;
-        bar.style.width = pct + "%";
-        // автопрокрутка лога вниз
+        const known = STEP_PCT[stepRaw];
+        if (typeof known === "number" && known > lastInstallPct) lastInstallPct = known;
+        bar.style.width = lastInstallPct + "%";
         const lg = document.getElementById("install-log");
         lg.scrollTop = lg.scrollHeight;
 
@@ -746,8 +748,12 @@ async function pollProgress() {
                 setTimeout(() => goto("success"), 1200);
             } else {
                 bar.classList.add("err");
-                document.getElementById("install-step").innerHTML =
-                    `<span class="err-msg"><strong>Установка не удалась.</strong> Шаг: <code>${escapeHtml(p.result)}</code></span>`;
+                // "crashed" — синтетический результат от бэка (процесс умер без done-маркера),
+                // не имя шага. Показываем человеку понятным текстом, остальное — как есть.
+                const errHtml = p.result === "crashed"
+                    ? `<span class="err-msg"><strong>Процесс установки прервался неожиданно.</strong> Лог выше — пришлите его в поддержку.</span>`
+                    : `<span class="err-msg"><strong>Установка не удалась.</strong> Шаг: <code>${escapeHtml(p.result)}</code></span>`;
+                document.getElementById("install-step").innerHTML = errHtml;
                 document.getElementById("install-hint").classList.add("hidden");
                 document.getElementById("install-support").classList.remove("hidden");
             }
@@ -755,7 +761,6 @@ async function pollProgress() {
         }
         setTimeout(pollProgress, 2500);
     } catch (e) {
-        // Сеть моргнула — подождём и попробуем снова
         setTimeout(pollProgress, 4000);
     }
 }
@@ -764,11 +769,19 @@ async function pollProgress() {
 // Management screen
 // =====================================================================
 let mgmtRefreshTimer = null;
-let lastMgmtUpdate = 0;
+let mgmtTierInitialized = false;
+
+// Человекочитаемый возраст handshake: секунды → "12с", "5м 03с", "2ч 14м".
+// AmneziaWG может молчать минутами (handshake обновляется по rekey-таймеру),
+// поэтому сырое число секунд в UI смотрелось плохо.
+function formatHandshakeAge(s) {
+    if (s < 60) return `${s}с`;
+    if (s < 3600) return `${Math.floor(s / 60)}м ${String(s % 60).padStart(2, "0")}с`;
+    return `${Math.floor(s / 3600)}ч ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}м`;
+}
 
 async function renderMgmt(st) {
     if (!st) st = await rpc("cheburnet", "get_status");
-    lastMgmtUpdate = Date.now();
 
     const up  = (b) => b ? `<span class="dot dot-ok"></span>работает` : `<span class="dot dot-err"></span>не работает`;
     const muted = (txt) => `<span class="dot dot-muted"></span>${txt}`;
@@ -777,9 +790,10 @@ async function renderMgmt(st) {
     rows.push(["Тип установки", st.install_type === "vpn" ? "AmneziaWG + podkop" : "не установлено"]);
     if (st.install_type === "vpn") {
         rows.push(["Режим", st.mode || "не задан"]);
-        rows.push(["AmneziaWG tunnel", st.awg_handshake_age === null ? muted("нет handshake")
-                        : st.awg_handshake_age < 180 ? `<span class="dot dot-ok"></span>handshake ${st.awg_handshake_age}s назад`
-                        : `<span class="dot dot-err"></span>handshake ${st.awg_handshake_age}s назад (протух, рестартуйте VPN)`]);
+        const hsAge = st.awg_handshake_age;
+        rows.push(["AmneziaWG tunnel", hsAge === null ? muted("нет handshake")
+                        : hsAge < 180 ? `<span class="dot dot-ok"></span>handshake ${formatHandshakeAge(hsAge)} назад`
+                        : `<span class="dot dot-err"></span>handshake ${formatHandshakeAge(hsAge)} назад (протух, рестартуйте VPN)`]);
         rows.push(["podkop + sing-box", up(st.podkop_up)]);
     }
     rows.push(["DNS (DoH)",        up(st.dns_up)]);
@@ -790,15 +804,16 @@ async function renderMgmt(st) {
     document.getElementById("mgmt-status").innerHTML =
         rows.map(([k, v]) => `<dt>${k}:</dt><dd>${v}</dd>`).join("");
 
-    // Подсветить выбранный тир в dropdown
-    if (st.blocklist_tier) {
+    // Тир в dropdown подставляем только при первом рендере. Иначе авто-рефреш
+    // сбрасывал бы выбор пользователя, который ещё не нажал «Применить».
+    if (!mgmtTierInitialized && st.blocklist_tier) {
         const tierSel = document.getElementById("inp-tier");
         if (tierSel.querySelector(`option[value="${st.blocklist_tier}"]`)) {
             tierSel.value = st.blocklist_tier;
         }
+        mgmtTierInitialized = true;
     }
 
-    // Переключение режима показываем только когда установлен VPN
     const showMode = st.install_type === "vpn";
     document.getElementById("mgmt-mode-header").classList.toggle("hidden", !showMode);
     document.getElementById("mgmt-mode").classList.toggle("hidden", !showMode);
@@ -820,19 +835,25 @@ function stopMgmtAutoRefresh() {
     if (mgmtRefreshTimer) { clearInterval(mgmtRefreshTimer); mgmtRefreshTimer = null; }
 }
 
-async function mgmtCall(object, method, args, label) {
+// Единая точка показа сообщений в management-экране. Используем textContent
+// (не innerHTML) — безопасно для произвольного текста; html-вариант оставлен
+// только для factory-reset, где нам нужен <code>-блок.
+function setMgmtMsg(kind, text, html) {
     const msg = document.getElementById("mgmt-msg");
-    msg.className = "muted";
+    msg.className = kind; // "muted" | "ok-msg" | "err-msg"
     msg.classList.remove("hidden");
-    msg.textContent = `Выполняю: ${label}…`;
+    if (html) msg.innerHTML = html;
+    else msg.textContent = text;
+}
+
+async function mgmtCall(object, method, args, label) {
+    setMgmtMsg("muted", `Выполняю: ${label}…`);
     try {
-        const r = await rpc(object, method, args);
-        msg.className = "ok-msg";
-        msg.textContent = `${label}: ${JSON.stringify(r)}`;
-        setTimeout(() => renderMgmt(), 1500);
+        await rpc(object, method, args);
+        setMgmtMsg("ok-msg", `${label}: готово`);
+        setTimeout(() => renderMgmt().catch(() => {}), 1500);
     } catch (e) {
-        msg.className = "err-msg";
-        msg.textContent = `${label} — ошибка: ${e.message}`;
+        setMgmtMsg("err-msg", `${label} — ошибка: ${e.message}`);
     }
 }
 
@@ -857,27 +878,20 @@ document.getElementById("btn-factory-reset").onclick = async () => {
         "Введите RESET (заглавными), чтобы подтвердить:"
     );
     if (word !== "RESET") {
-        const msg = document.getElementById("mgmt-msg");
-        msg.className = "muted";
-        msg.classList.remove("hidden");
-        msg.textContent = "Сброс отменён.";
+        setMgmtMsg("muted", "Сброс отменён.");
         return;
     }
     try {
         await rpc("cheburnet", "factory_reset", { confirm: "RESET" });
-        const msg = document.getElementById("mgmt-msg");
-        msg.className = "ok-msg";
-        msg.classList.remove("hidden");
-        msg.innerHTML = "Сброс запланирован. Роутер перезагрузится через несколько секунд.<br>" +
-                        "После перезагрузки веб-мастер <code>/cheburnet/</code> исчезнет — потребуется заново выполнить " +
-                        "SSH-команду <code>bootstrap.sh</code> из README, и только тогда откроется " +
-                        `<code>http://${location.host || "192.168.1.1"}/cheburnet/</code>.`;
+        const host = escapeHtml(location.host || "192.168.1.1");
+        setMgmtMsg("ok-msg", null,
+            "Сброс запланирован. Роутер перезагрузится через несколько секунд.<br>" +
+            "После перезагрузки веб-мастер <code>/cheburnet/</code> исчезнет — потребуется заново выполнить " +
+            "SSH-команду <code>bootstrap.sh</code> из README, и только тогда откроется " +
+            `<code>http://${host}/cheburnet/</code>.`);
         stopMgmtAutoRefresh();
     } catch (e) {
-        const msg = document.getElementById("mgmt-msg");
-        msg.className = "err-msg";
-        msg.classList.remove("hidden");
-        msg.textContent = `Ошибка сброса: ${e.message}`;
+        setMgmtMsg("err-msg", `Ошибка сброса: ${e.message}`);
     }
 };
 
