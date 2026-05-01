@@ -406,7 +406,7 @@ async function rpcRaw(session, object, method, args) {
 async function rpc(object, method, args, opts) {
     opts = opts || {};
     let result = await rpcRaw(currentSession, object, method, args);
-    if (result[0] === 0) return result[1] || {};
+    if (result[0] === 0) return rpcUnwrap(object, method, result);
 
     // ACL отказ (UBUS_STATUS_NOT_FOUND=4 / PERMISSION_DENIED=6) — просим логин и повторяем.
     // JSON-RPC -32002 нормализован в rpcRaw в код 6, чтобы попасть сюда же.
@@ -425,9 +425,20 @@ async function rpc(object, method, args, opts) {
             }
         }
         result = await rpcRaw(currentSession, object, method, args);
-        if (result[0] === 0) return result[1] || {};
+        if (result[0] === 0) return rpcUnwrap(object, method, result);
     }
     throw new Error(`ubus code ${result[0]}`);
+}
+
+// Раскрывает успешный ubus-ответ. Превращает «code=0 без data» в видимую
+// ошибку, чтобы любой будущий serialization-баг в handler'е (как json_escape
+// regression 2026-04, см. lib/cheburnet-utils.sh) проявлялся как понятное
+// сообщение в UI, а не как зависший pollProgress / белый экран.
+function rpcUnwrap(object, method, result) {
+    if (result[1] === undefined || result[1] === null) {
+        throw new Error(`ubus ${object}.${method}: пустой ответ (handler вернул невалидный JSON)`);
+    }
+    return result[1];
 }
 
 async function doLogin(password) {

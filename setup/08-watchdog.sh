@@ -25,12 +25,23 @@ else
 fi
 
 # === 3. Cron ===
+# На свежем роутере crontab пустой → `crontab -l` ничего не печатает.
+# `grep -v PATTERN` на пустом вводе возвращает exit 1 (нечего выводить),
+# и под `set -e` весь шаг падает молча после строки "настраиваем cron".
+# Ломалось у пользователя на чистой OpenWrt 25.12.2: ровно эта регрессия.
+# Поэтому: `|| true` на pipe (на случай пустого crontab) и `-e` агрегирует
+# три pattern'а в один grep вместо трёх chained-вызовов.
 echo "→ настраиваем cron"
-crontab -l 2>/dev/null | grep -v awg-watchdog | grep -v conntrack-monitor | grep -v podkop-weekly > /tmp/cron.tmp
-echo "* * * * * /usr/bin/awg-watchdog" >> /tmp/cron.tmp
-echo "*/15 * * * * /usr/bin/conntrack-monitor" >> /tmp/cron.tmp
-# Еженедельный перезапуск podkop/sing-box в 4:00 пн (MSK) — предотвращает накопление состояния
-echo "0 4 * * 1 /etc/init.d/podkop restart 2>&1 | logger -t podkop-weekly" >> /tmp/cron.tmp
+{
+    crontab -l 2>/dev/null \
+        | grep -v -e awg-watchdog -e conntrack-monitor -e podkop-weekly \
+        || true
+    echo "* * * * * /usr/bin/awg-watchdog"
+    echo "*/15 * * * * /usr/bin/conntrack-monitor"
+    # Еженедельный перезапуск podkop/sing-box в 4:00 пн (MSK) —
+    # предотвращает накопление состояния
+    echo "0 4 * * 1 /etc/init.d/podkop restart 2>&1 | logger -t podkop-weekly"
+} > /tmp/cron.tmp
 crontab /tmp/cron.tmp
 rm /tmp/cron.tmp
 /etc/init.d/cron restart >/dev/null
