@@ -9,9 +9,22 @@ if [ -x /etc/init.d/adblock-lean ]; then
     echo "→ adblock-lean уже установлен"
 else
     echo "→ скачиваем и устанавливаем adblock-lean"
-    uclient-fetch -q \
-        https://raw.githubusercontent.com/lynxthecat/adblock-lean/master/abl-install.sh \
-        -O /tmp/abl-install.sh
+    UPSTREAM_URL="https://raw.githubusercontent.com/lynxthecat/adblock-lean/master/abl-install.sh"
+    VENDOR_FILE="${CHEBURNET_VENDOR:-/opt/cheburnet/vendor}/abl-install.sh"
+
+    # Upstream-first, vendor-fallback — см. 02-podkop.sh про DPI-блокировки.
+    if uclient-fetch -q --timeout=20 "$UPSTREAM_URL" -O /tmp/abl-install.sh 2>/dev/null && \
+       [ -s /tmp/abl-install.sh ]; then
+        echo "  ✓ скачан свежий установщик с upstream"
+    elif [ -f "$VENDOR_FILE" ]; then
+        echo "  ⚠ upstream недоступен — использую vendored-копию ($VENDOR_FILE)"
+        cp "$VENDOR_FILE" /tmp/abl-install.sh
+    else
+        echo "✗ Не удалось получить adblock-lean installer ни с upstream, ни локально." >&2
+        echo "  Проверьте: uclient-fetch $UPSTREAM_URL" >&2
+        exit 1
+    fi
+
     sh /tmp/abl-install.sh -v release
 fi
 

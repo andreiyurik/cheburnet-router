@@ -10,10 +10,28 @@ if [ -x /etc/init.d/podkop ]; then
     echo "→ podkop уже установлен"
 else
     echo "→ скачиваем и ставим podkop"
-    wget -qO /tmp/podkop-install.sh \
-        https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh
-    # Отвечаем "n" на все y/n вопросы (русский язык интерфейса не нужен)
-    printf 'n\nn\nn\n' | sh /tmp/podkop-install.sh 2>&1 | tail -20
+    UPSTREAM_URL="https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh"
+    VENDOR_FILE="${CHEBURNET_VENDOR:-/opt/cheburnet/vendor}/podkop-install.sh"
+
+    # Сначала пробуем upstream (свежая версия), потом fallback на vendored-копию.
+    # raw.githubusercontent.com периодически блокируют провайдеры по DPI —
+    # без vendor-копии пользователь без VPN никогда сюда не доберётся.
+    if wget -qO /tmp/podkop-install.sh --timeout=20 "$UPSTREAM_URL" 2>/dev/null && \
+       [ -s /tmp/podkop-install.sh ]; then
+        echo "  ✓ скачан свежий установщик с upstream"
+    elif [ -f "$VENDOR_FILE" ]; then
+        echo "  ⚠ upstream недоступен — использую vendored-копию ($VENDOR_FILE)"
+        cp "$VENDOR_FILE" /tmp/podkop-install.sh
+    else
+        echo "✗ Не удалось получить podkop installer ни с upstream, ни локально." >&2
+        echo "  Проверьте: wget $UPSTREAM_URL" >&2
+        exit 1
+    fi
+
+    # `yes n` шлёт бесконечный поток "n" — устойчиво к любому числу y/n-вопросов
+    # подкоповского установщика (раньше было `printf 'n\nn\nn\n'` — хрупко,
+    # ломалось бы если itdoginfo добавил четвёртый вопрос).
+    yes n | sh /tmp/podkop-install.sh 2>&1 | tail -20
 fi
 
 # === 2. UCI-конфигурация ===

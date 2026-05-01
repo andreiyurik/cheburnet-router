@@ -197,7 +197,10 @@ EOF
 
         # Сохраняем .conf для 01-amneziawg.sh
         mkdir -p "$ETC_AWG_DIR"
-        printf '%s\n' "$AWG_CONF" > "$ETC_AWG_DIR/awg0.conf"
+        # Нормализуем CRLF → LF (юзер мог вставить .conf из Windows Notepad).
+        # Висячий \r ломает не только наш парсер, но и сам awg-quick — он
+        # читает этот файл напрямую при `awg-quick up awg0`.
+        printf '%s\n' "$AWG_CONF" | tr -d '\r' > "$ETC_AWG_DIR/awg0.conf"
         chmod 600 "$ETC_AWG_DIR/awg0.conf"
 
         # Передаём root-пароль run-install.sh через короткоживущий файл (chmod 600)
