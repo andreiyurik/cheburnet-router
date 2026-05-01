@@ -220,8 +220,11 @@ EOF
 
         # setsid создаёт новую process-group (PGID=PID), чтобы install_cancel
         # мог убить весь дочерний дерево через kill -- -PID.
-        nohup setsid "$INSTALL_DIR/run-install.sh" \
-            > "$LOG_FILE" 2>&1 &
+        # nohup НЕ используем — на минимальной OpenWrt 25.12 его в PATH нет.
+        # setsid + явный </dev/null уже отвязывают от controlling terminal,
+        # поэтому SIGHUP из rpcd-сессии до потомка не доходит.
+        setsid "$INSTALL_DIR/run-install.sh" \
+            > "$LOG_FILE" 2>&1 < /dev/null &
         PID=$!
         echo "$PID" > "$PID_FILE"
 

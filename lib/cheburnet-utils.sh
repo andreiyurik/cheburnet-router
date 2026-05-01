@@ -39,16 +39,18 @@ json_escape() {
 # awg_get_iface FIELD FILE
 # Печатает первое значение `FIELD = ...` найденное в файле (включая [Interface]
 # секцию — она обычно идёт первой). Если поле не найдено — печатает пустую
-# строку без ошибки.
+# строку без ошибки. tr -d '\r' срезает висячий CR на CRLF-конфигах
+# (если юзер скопировал .conf из Windows) — иначе значение уезжает в UCI с CR
+# и proto-handler потом давится при awg-quick up.
 awg_get_iface() {
-    awk -F' *= *' "/^$1/{print \$2; exit}" "$2" | head -n1
+    awk -F' *= *' "/^$1/{print \$2; exit}" "$2" | head -n1 | tr -d '\r'
 }
 
 # awg_get_peer FIELD FILE
 # Печатает первое значение `FIELD = ...` после маркера [Peer]. Если [Peer]-секции
 # нет или поле в ней отсутствует — печатает пустую строку, не падает.
 awg_get_peer() {
-    awk -F' *= *' "BEGIN{f=0} /^\\[Peer\\]/{f=1; next} f && /^$1/{print \$2; exit}" "$2"
+    awk -F' *= *' "BEGIN{f=0} /^\\[Peer\\]/{f=1; next} f && /^$1/{print \$2; exit}" "$2" | tr -d '\r'
 }
 
 # awg_endpoint_host ENDPOINT
