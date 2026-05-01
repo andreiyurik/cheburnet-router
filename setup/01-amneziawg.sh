@@ -24,6 +24,15 @@ if [ ! -f "$CONF" ]; then
     exit 1
 fi
 
+# Защитный пояс: нормализуем CRLF → LF на случай, если .conf скопирован
+# из Windows-редактора (Notepad/Блокнот сохраняет с \r\n). awg-quick читает
+# этот файл напрямую и давится висячим \r — поэтому чиним один раз тут,
+# до парсинга и до netifd. Web-флоу делает то же при сохранении (rpcd-cheburnet),
+# но для ручного scp защита нужна именно здесь. Безусловная нормализация —
+# tr на 2КБ файле дешевле, чем условная проверка.
+tr -d '\r' < "$CONF" > "${CONF}.tmp" && mv "${CONF}.tmp" "$CONF"
+chmod 600 "$CONF"
+
 # === 1. Установка пакетов ===
 # Если модуль уже загружен — пропускаем установку
 if lsmod | grep -q '^amneziawg '; then
@@ -99,6 +108,27 @@ EP_PORT=$(awg_endpoint_port "$EP")
 [ -n "$PRIV" ] && [ -n "$PUB" ] && [ -n "$EP_HOST" ] || { echo "ERROR: .conf parse failed"; exit 1; }
 
 echo "→ parsed: Address=$ADDR, Endpoint=$EP_HOST:$EP_PORT, PSK=$([ -n "$PSK" ] && echo yes || echo no)"
+
+# === 2.5. Диагностика: ищем неизвестные поля в [Interface] ===
+# Если AmneziaWG в будущем добавит новые поля (X1, X2, ...), наш парсер их
+# проигнорирует, awg0 поднимется со старым набором и handshake не пройдёт.
+# Чтобы такая ситуация не выглядела как «непонятный баг», громко предупредим
+# и попросим прислать лог. Это диагностика, не починка.
+KNOWN_FIELDS='PrivateKey|Address|MTU|DNS|ListenPort|FwMark|Table|SaveConfig|PreUp|PostUp|PreDown|PostDown|Jc|Jmin|Jmax|S1|S2|S3|S4|H1|H2|H3|H4|I1|I2|I3|I4|I5'
+UNKNOWN=$(awk -F' *= *' '
+    /^\[Peer\]/ { exit }
+    /^\[Interface\]/ { next }
+    /^[[:space:]]*(#|;|$)/ { next }
+    /=/ { print $1 }
+' "$CONF" | tr -d ' \r' | grep -vxE "$KNOWN_FIELDS" || true)
+
+if [ -n "$UNKNOWN" ]; then
+    echo "⚠ В $CONF есть НЕИЗВЕСТНЫЕ поля в [Interface]:"
+    echo "$UNKNOWN" | sed 's/^/    /'
+    echo "  Возможно, это новая версия AmneziaWG-протокола, которую наш парсер"
+    echo "  ещё не знает. Если awg0 не поднимется или handshake не пройдёт —"
+    echo "  пришлите этот лог в Telegram (@industrialprofi) с пометкой про новые поля."
+fi
 
 # === 3. UCI network interface ===
 echo "→ создаём UCI network.awg0"
@@ -191,10 +221,18 @@ else
     echo "⚠ awg0 не поднялся за 20 сек. Диагностика:"
     echo "--- ip addr show awg0 ---"
     ip addr show awg0 2>&1 || true
-    echo "--- uci show network.awg0 ---"
-    uci show network.awg0 2>&1 | sed 's/private_key=.*/private_key=<скрыт>/' || true
+    echo "--- uci show network.awg0 (секреты замаскированы) ---"
+    # ВАЖНО: маскируем ОБА секрета — private_key и preshared_key.
+    # Этот дамп пользователь будет скриншотить и присылать в Telegram,
+    # поэтому он должен быть безопасен для публичной пересылки.
+    {
+        uci show network.awg0 2>&1
+        uci -q show network.@amneziawg_awg0[0] 2>&1
+    } | sed -E "s/(private_key|preshared_key)='[^']*'/\1='<СКРЫТ>'/g" || true
     echo "--- logread (amnezia/netifd/awg, последние 40 строк) ---"
-    logread 2>/dev/null | grep -iE 'amnezia|netifd|awg' | tail -40 || true
+    # logread -l 500: ограничиваем ВХОД в grep последними 500 записями syslog,
+    # чтобы на забитых роутерах не читать мегабайты с забитой flash.
+    logread -l 500 2>/dev/null | grep -iE 'amnezia|netifd|awg' | tail -40 || true
     echo "--- awg show ---"
     awg show 2>&1 || true
     exit 1
