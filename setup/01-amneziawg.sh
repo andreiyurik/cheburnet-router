@@ -102,7 +102,7 @@ echo "→ parsed: Address=$ADDR, Endpoint=$EP_HOST:$EP_PORT, PSK=$([ -n "$PSK" ]
 
 # === 3. UCI network interface ===
 echo "→ создаём UCI network.awg0"
-uci -q delete network.awg0
+uci -q delete network.awg0 2>/dev/null || true
 uci set network.awg0=interface
 uci set network.awg0.proto='amneziawg'
 uci set network.awg0.private_key="$PRIV"
