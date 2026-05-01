@@ -13,7 +13,13 @@
 #   http://<IP_роутера>/cheburnet/
 #
 # Всё остальное — настройку VPN, Wi-Fi, adblock — мастер сделает сам.
+#
+# Тело скрипта обёрнуто в main() — вызов в самом конце. Это защищает от
+# частичной загрузки: если `wget | sh` оборвётся, shell не дойдёт до `main "$@"`
+# и НИ ОДНА строка не выполнится, даже если файл скачался наполовину.
 set -e
+
+main() {
 
 REPO_TAR="https://codeload.github.com/yurik2718/cheburnet-router/tar.gz/refs/heads/main"
 INSTALL_DIR="/opt/cheburnet"
@@ -200,3 +206,7 @@ echo
 
 # Cleanup
 rm -rf /tmp/cheburnet-src
+
+}
+
+main "$@"

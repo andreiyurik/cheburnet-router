@@ -82,6 +82,21 @@
   .dot-err { background: var(--err); }
   .dot-muted { background: var(--muted); }
   .err-msg { color: var(--err); background: rgba(255, 107, 107, 0.08); border: 1px solid rgba(255, 107, 107, 0.3); padding: 10px 14px; border-radius: 8px; margin: 8px 0; font-size: 14px; }
+  .err-msg a { color: inherit; text-decoration: underline; font-weight: 600; }
+  .err-msg a:hover { text-decoration: none; }
+  .err-msg code { background: rgba(255, 107, 107, 0.12); color: inherit; }
+  .support-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin: 16px 0 4px; }
+  .support-card__title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: var(--text); margin: 0 0 4px 0; }
+  .support-card__title svg { color: var(--accent); flex: 0 0 auto; }
+  .support-card__lead { color: var(--muted); font-size: 13px; margin: 0 0 12px 0; }
+  .support-card__steps { margin: 0 0 16px 0; padding-left: 22px; font-size: 14px; color: var(--text); line-height: 1.6; }
+  .support-card__steps li { margin: 2px 0; }
+  .support-card__steps li::marker { color: var(--accent); font-weight: 600; }
+  .support-cta { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 500; font-size: 14px; border: 1px solid var(--accent); transition: background 0.1s; }
+  .support-cta:hover { background: var(--accent-hover); }
+  .support-cta svg { flex: 0 0 auto; }
+  .support-card__handle { display: block; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .support-card__handle code { font-size: 12px; }
   .ok-msg  { color: var(--ok);  background: rgba(59, 194, 114, 0.08); border: 1px solid rgba(59, 194, 114, 0.3);  padding: 10px 14px; border-radius: 8px; margin: 8px 0; font-size: 14px; }
   .hidden { display: none !important; }
   .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -226,6 +241,30 @@
     <div class="row" style="justify-content: space-between;">
       <span class="muted" id="install-hint">Не закрывайте страницу до окончания.</span>
       <button class="ghost hidden" id="btn-install-cancel">Отменить</button>
+    </div>
+    <div id="install-support" class="support-card hidden">
+      <div class="support-card__title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        Нужна помощь?
+      </div>
+      <p class="support-card__lead">Проект ещё в активной отладке — если установка падает, напишите мне напрямую, разберусь лично.</p>
+      <ol class="support-card__steps">
+        <li>Скопируйте полный лог установки выше (выделите и Ctrl+C).</li>
+        <li>Сделайте скриншот этой страницы.</li>
+        <li>Пришлите лог и скриншот в Telegram — отвечу как можно быстрее.</li>
+      </ol>
+      <a href="https://t.me/industrialprofi" target="_blank" rel="noopener" class="support-cta">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+        Написать в Telegram
+      </a>
+      <span class="support-card__handle">или вручную: <code>@industrialprofi</code></span>
     </div>
   </div>
 
@@ -604,6 +643,8 @@ async function startInstall() {
     goto("install");
     document.getElementById("install-step").textContent = "отправляю конфиг на роутер…";
     document.getElementById("install-log").textContent = "";
+    document.getElementById("install-support").classList.add("hidden");
+    document.getElementById("install-hint").classList.remove("hidden");
     try {
         await rpc("cheburnet", "install_start", {
             ssid:      state.ssid,
@@ -615,7 +656,10 @@ async function startInstall() {
         });
         pollProgress();
     } catch (e) {
-        document.getElementById("install-step").innerHTML = `<span class="err-msg">${e.message}</span>`;
+        document.getElementById("install-step").innerHTML =
+            `<span class="err-msg"><strong>Не удалось запустить установку.</strong> ${escapeHtml(e.message)}</span>`;
+        document.getElementById("install-hint").classList.add("hidden");
+        document.getElementById("install-support").classList.remove("hidden");
     }
 }
 
@@ -649,8 +693,9 @@ async function pollProgress() {
             } else {
                 bar.classList.add("err");
                 document.getElementById("install-step").innerHTML =
-                    `<span class="err-msg">Установка не удалась: ${p.result}. Полный лог выше — скопируйте его и откройте issue на GitHub.</span>`;
+                    `<span class="err-msg"><strong>Установка не удалась.</strong> Шаг: <code>${escapeHtml(p.result)}</code></span>`;
                 document.getElementById("install-hint").classList.add("hidden");
+                document.getElementById("install-support").classList.remove("hidden");
             }
             return;
         }

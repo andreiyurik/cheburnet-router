@@ -99,10 +99,7 @@ flowchart LR
 > · **Linux:** Ctrl+Alt+T (на большинстве дистрибутивов).
 
 ```bash
-ssh root@192.168.1.1 'BS=/tmp/bootstrap.sh && \
-  wget -qO "$BS" https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh && \
-  echo "221d1e57389f6c3030d5e2587c6b90d0864f318664209ed6fff3bdebcc7b3bfa  $BS" | sha256sum -c - && \
-  sh "$BS"'
+ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh'
 ```
 
 После этого открой в браузере **`http://192.168.1.1/cheburnet/`** — там пройдёшь 4 простых экрана: загрузишь `.conf`, придумаешь пароль администратора, придумаешь название Wi-Fi и пароль к нему, нажмёшь «Начать установку». Дальше роутер сделает всё сам — установка идёт ~12 минут, прогресс видно прямо в браузере.
