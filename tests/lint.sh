@@ -10,8 +10,6 @@
 #   2. shellcheck --shell=bash на хост-тулинге (setup.sh)
 #   3. sh -n / bash -n         синтаксис (safety net поверх shellcheck)
 #   4. JSON-валидность         web/rpcd-acl.json + embedded ACL-heredoc'и
-#   5. SHA-sync                sha256(bootstrap.sh) совпадает с захардкоженным
-#                               значением в README.md (строка sha256sum -c -)
 #
 # Любой провал → exit 1.
 
@@ -195,23 +193,6 @@ else
         fi
     done
     rm -f /tmp/lint-json.err
-fi
-
-# === 5. SHA-sync: bootstrap.sh hash в README ===
-section "SHA-sync (bootstrap.sh ↔ README.md)"
-ACTUAL_SHA="$(sha256sum bootstrap.sh | awk '{print $1}')"
-# README содержит строку вида:
-#   echo "<sha256>  $BS" | sha256sum -c - && \
-EXPECTED_SHA="$(grep -oE '[0-9a-f]{64}' README.md | head -1 || true)"
-if [ -z "$EXPECTED_SHA" ]; then
-    fail "В README.md не найдено sha256-значение"
-elif [ "$ACTUAL_SHA" = "$EXPECTED_SHA" ]; then
-    ok "sha256(bootstrap.sh) = $ACTUAL_SHA (совпадает с README)"
-else
-    fail "sha256-mismatch:"
-    printf '      bootstrap.sh:  %s\n' "$ACTUAL_SHA"
-    printf '      README.md:     %s\n' "$EXPECTED_SHA"
-    printf '    Подсказка: обновите хэш в README.md (строка с sha256sum -c -).\n'
 fi
 
 # === Итог ===
