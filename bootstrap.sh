@@ -179,6 +179,8 @@ else
 fi
 
 ROUTER_IP=$(uci -q get network.lan.ipaddr || echo "192.168.1.1")
+# OpenWrt 25.12+ хранит ipaddr в CIDR-форме (192.168.1.1/24) — срезаем маску
+ROUTER_IP=${ROUTER_IP%%/*}
 
 echo
 echo "╔══════════════════════════════════════════════════════╗"
