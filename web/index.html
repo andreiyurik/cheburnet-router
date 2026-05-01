@@ -364,6 +364,13 @@ const ANON_SESSION = "00000000000000000000000000000000";
 let currentSession = ANON_SESSION;
 let rpcId = 1;
 
+// Sentinel значение для случая когда rpcRaw получил JSON-RPC error -32002
+// (Access denied на ACL-уровне — до того как запрос дошёл до метода).
+// Возвращаем «как будто» ubus-код PERMISSION_DENIED (6), чтобы вышестоящий
+// rpc() сработал по существующей ветке логина и не пришлось дублировать
+// логику обработки в двух местах.
+const UBUS_PERMISSION_DENIED = 6;
+
 async function rpcRaw(session, object, method, args) {
     const body = {
         jsonrpc: "2.0",
@@ -378,7 +385,16 @@ async function rpcRaw(session, object, method, args) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
-    if (json.error) throw new Error(`ubus error: ${JSON.stringify(json.error)}`);
+    if (json.error) {
+        // -32002 = Access denied на JSON-RPC уровне (rpcd не пускает к методу
+        // из-за ACL). Это случай ровно как UBUS PERMISSION_DENIED — но приходит
+        // в виде error, а не result. Нормализуем чтобы rpc() выше показал
+        // диалог логина, как для обычного code=6.
+        if (json.error.code === -32002) {
+            return [UBUS_PERMISSION_DENIED, null];
+        }
+        throw new Error(`ubus error: ${JSON.stringify(json.error)}`);
+    }
     return json.result; // [code, data]
 }
 
@@ -387,7 +403,8 @@ async function rpc(object, method, args, opts) {
     let result = await rpcRaw(currentSession, object, method, args);
     if (result[0] === 0) return result[1] || {};
 
-    // ACL отказ (UBUS_STATUS_NOT_FOUND=4 / PERMISSION_DENIED=6) — просим логин и повторяем
+    // ACL отказ (UBUS_STATUS_NOT_FOUND=4 / PERMISSION_DENIED=6) — просим логин и повторяем.
+    // JSON-RPC -32002 нормализован в rpcRaw в код 6, чтобы попасть сюда же.
     if ((result[0] === 4 || result[0] === 6) && !opts.noLogin) {
         let lastErr = null;
         for (let i = 0; i < 3; i++) {
@@ -664,14 +681,21 @@ async function startInstall() {
     }
 }
 
-// Названия шагов → примерный процент прогресса
+// Названия шагов → примерный процент прогресса.
+// Должен покрывать ВСЕ значения, которые run-install.sh пишет в STATE
+// (12 setup-шагов + starting + root-password + lock-acl + done). Иначе
+// JS сделает fallback на 50% и бар будет прыгать назад.
+// Размер «куска» отражает реальную тяжесть шага: podkop/adblock тянут
+// пакеты из сети (большие), а быстрые шаги (07/09 после nft-редизайна,
+// root-password, lock-acl) занимают по 1-4%.
 const STEP_PCT = {
-    "starting": 3, "00-prerequisites": 7,
+    "starting": 5, "00-prerequisites": 7,
     "01-amneziawg": 18, "02-podkop": 35, "03-adblock": 48,
     "04-dns": 55, "05-wifi": 65,
     "06-vpn-mode": 72, "07-killswitch": 76, "08-watchdog": 80,
     "09-ssh-hardening": 83, "10-quality": 88, "11-travel": 92,
-    "12-travel-plus": 96, "done": 100
+    "12-travel-plus": 96, "root-password": 97, "lock-acl": 99,
+    "done": 100
 };
 
 // Дружелюбное описание шага для блока над консолью. Технический заголовок
