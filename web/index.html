@@ -673,11 +673,44 @@ const STEP_PCT = {
     "12-travel-plus": 96, "done": 100
 };
 
+// Названия шагов → дружелюбное описание для пользователя.
+// Setup-скрипты НЕ переводим (логи нужны технарям и саппорту), переводим
+// только видимый юзеру заголовок шага.
+//
+// Формат: "Понятный смысл на русском (название технологии)" — проект
+// образовательный, и в скобках указываем ключевую технологию шага, чтобы
+// любопытный пользователь мог её загуглить и узнать как это работает.
+// Технологию добавляем ТОЛЬКО если её название узнаваемо и что-то объясняет
+// (AmneziaWG, podkop, kill switch, SQM). Не добавляем низкоуровневую
+// банальность (passwd, uci, dropbear) — это шум, не обучение.
+const STEP_LABELS = {
+    "starting":         "Подготовка установки",
+    "00-prerequisites": "Проверка системы и пакетов",
+    "01-amneziawg":     "Настройка VPN-туннеля (AmneziaWG)",
+    "02-podkop":        "Маршрутизация по странам (podkop)",
+    "03-adblock":       "Блокировка рекламы и трекеров (adblock-lean)",
+    "04-dns":           "Настройка безопасного DNS (DNS-over-TLS)",
+    "05-wifi":          "Настройка Wi-Fi",
+    "06-vpn-mode":      "Режимы работы (дом / путешествие)",
+    "07-killswitch":    "Защита от утечек при сбое VPN (kill switch)",
+    "08-watchdog":      "Автовосстановление туннеля (watchdog)",
+    "09-ssh-hardening": "Защита удалённого доступа (SSH hardening)",
+    "10-quality":       "Оптимизация скорости (SQM)",
+    "11-travel":        "Гостевой режим",
+    "12-travel-plus":   "Расширенный гостевой режим",
+    "root-password":    "Установка пароля администратора",
+    "lock-acl":         "Защита веб-панели",
+    "done":             "Установка завершена"
+};
+
 async function pollProgress() {
     try {
         const p = await rpc("cheburnet", "install_progress");
         const stepRaw = (p.step || "").replace(/^\[STEP\] |\[|\]/g, "");
-        document.getElementById("install-step").textContent = "текущий шаг: " + stepRaw;
+        // Показываем дружелюбное название если знаем шаг, иначе fallback на raw —
+        // чтобы новые/незнакомые шаги хотя бы не ломали UI.
+        const stepLabel = STEP_LABELS[stepRaw] || stepRaw;
+        document.getElementById("install-step").textContent = "Сейчас: " + stepLabel;
         document.getElementById("install-log").textContent  = p.log || "";
         const bar = document.getElementById("install-bar");
         let pct = STEP_PCT[stepRaw] || 50;
