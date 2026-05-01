@@ -44,12 +44,7 @@ fi
 # Cleanup-by-name перед add: если правило уже есть, но повреждено руками
 # (без target/proto) — починим, не оставим как есть.
 echo "→ Block-SSH-from-WAN (REJECT tcp/22 from wan zone)"
-OLD_IDX=$(uci show firewall 2>/dev/null \
-    | awk -F'[][]' '/@rule.*name=.Block-SSH-from-WAN./{print $2}' \
-    | sort -rn)
-for i in $OLD_IDX; do
-    uci -q delete firewall.@rule["$i"] || true
-done
+cheburnet_uci_delete_rules_by_name "Block-SSH-from-WAN"
 
 uci add firewall rule >/dev/null
 uci set firewall.@rule[-1].name='Block-SSH-from-WAN'

@@ -70,12 +70,9 @@ echo "→ LAN=$LAN_CIDR, WAN-dev=$WAN_DEV"
 # === 2. UCI: пишем правила в /etc/config/firewall для персистентности.
 # При reboot fw4 регенерирует весь ruleset из UCI и наши правила вернутся
 # в forward_lan на штатном месте.
-OLD_IDX=$(uci show firewall \
-    | awk -F'[][]' '/@rule.*name=.KillSwitch-IPv[46]-LAN-direct-egress./{print $2}' \
-    | sort -rn)
-for i in $OLD_IDX; do
-    uci -q delete firewall.@rule["$i"] || true
-done
+# Cleanup перед add: чтобы повторный запуск установщика не плодил дубликаты
+# и чинил повреждённые правила (один паттерн ловит и IPv4, и IPv6 версии).
+cheburnet_uci_delete_rules_by_name "KillSwitch-IPv[46]-LAN-direct-egress"
 
 uci add firewall rule >/dev/null
 uci set firewall.@rule[-1].name='KillSwitch-IPv4-LAN-direct-egress'
