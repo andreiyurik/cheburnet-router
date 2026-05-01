@@ -36,7 +36,7 @@ else
     echo "→ добавляем правила"
 
     # IPv4: dropим любой пакет LAN → WAN с src $LAN_CIDR
-    uci add firewall rule
+    uci add firewall rule >/dev/null
     uci set firewall.@rule[-1].name='KillSwitch-IPv4-LAN-direct-egress'
     uci set firewall.@rule[-1].src='lan'
     uci set firewall.@rule[-1].dest='wan'
@@ -46,7 +46,7 @@ else
     uci set firewall.@rule[-1].target='DROP'
 
     # IPv6: весь LAN→WAN
-    uci add firewall rule
+    uci add firewall rule >/dev/null
     uci set firewall.@rule[-1].name='KillSwitch-IPv6-LAN-direct-egress'
     uci set firewall.@rule[-1].src='lan'
     uci set firewall.@rule[-1].dest='wan'
@@ -57,8 +57,11 @@ else
     uci commit firewall
 fi
 
-# Reload firewall
-/etc/init.d/firewall reload >/dev/null 2>&1
+# Reload firewall — на медленных роутерах с fw4/nftables может занять до минуты,
+# особенно если awg0 параллельно перетряхивается. НЕ глушим stderr — иначе юзер
+# смотрит на пустой экран и думает что зависло. Лучше показать прогресс fw4.
+echo "→ перезагружаю firewall (на медленных роутерах может занять до 1 минуты)..."
+/etc/init.d/firewall reload 2>&1 | tail -5 || true
 sleep 2
 
 # Проверка

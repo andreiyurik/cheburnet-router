@@ -200,9 +200,9 @@ fi
 uci commit firewall
 
 # === 5. Restart network (поднять awg0) ===
-echo "→ перезапуск сети"
-/etc/init.d/network restart
-/etc/init.d/firewall reload >/dev/null 2>&1
+echo "→ перезапуск сети (на медленных роутерах может занять до минуты)..."
+/etc/init.d/network restart 2>&1 | tail -5 || true
+/etc/init.d/firewall reload 2>&1 | tail -3 || true
 
 # === 6. Проверка — ждём awg0 до 20 сек, на медленных роутерах netifd
 # инициализируется не за 5 сек ===

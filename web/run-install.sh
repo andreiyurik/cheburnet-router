@@ -98,7 +98,8 @@ else
     uci set firewall.@rule[-1].dest_port='22'
     uci set firewall.@rule[-1].target='REJECT'
     uci commit firewall
-    /etc/init.d/firewall reload >/dev/null 2>&1
+    echo "→ перезагружаю firewall..."
+    /etc/init.d/firewall reload 2>&1 | tail -3 || true
 fi
 
 # Выключение password-auth — только при наличии ключа, иначе остаёмся с паролем
