@@ -11,11 +11,16 @@ set -e
 
 echo "== 07. Kill switch =="
 
-# === Подключаем хелпер ===
+# === Подключаем хелперы ===
 FW4_LIB="${CHEBURNET_FW4_LIB:-/opt/cheburnet/lib/cheburnet-fw4.sh}"
 [ -f "$FW4_LIB" ] || FW4_LIB="$(dirname "$0")/../lib/cheburnet-fw4.sh"
 # shellcheck source=../lib/cheburnet-fw4.sh disable=SC1090,SC1091
 . "$FW4_LIB"
+
+DIAG_LIB="${CHEBURNET_DIAG_LIB:-/opt/cheburnet/lib/cheburnet-diag.sh}"
+[ -f "$DIAG_LIB" ] || DIAG_LIB="$(dirname "$0")/../lib/cheburnet-diag.sh"
+# shellcheck source=../lib/cheburnet-diag.sh disable=SC1090,SC1091
+. "$DIAG_LIB"
 
 # === 1. Параметры из netifd ===
 # shellcheck disable=SC1091
@@ -39,15 +44,24 @@ if [ -z "$LAN_CIDR" ]; then
 fi
 if [ -z "$LAN_CIDR" ]; then
     echo "✗ Не удалось определить LAN-подсеть из uci." >&2
+    cheburnet_diag_network
     exit 1
 fi
 
 # WAN-устройство для oifname в nft. На разных платформах имя различается:
 # wan, eth1, wan@eth0 — резолвим через netifd, не угадываем.
+# Цепочка источников: netifd runtime → UCI config → fail.
+# UCI-fallback нужен потому, что netifd на свежем boot мог ещё не успеть
+# поднять линк и резолвинг через network_get_device возвращает пусто; имя
+# L2-устройства из конфига при этом уже доступно.
 WAN_DEV=""
 network_get_device WAN_DEV wan 2>/dev/null || true
 if [ -z "$WAN_DEV" ]; then
-    echo "✗ Не удалось определить WAN-устройство из uci." >&2
+    WAN_DEV=$(uci -q get network.wan.device || true)
+fi
+if [ -z "$WAN_DEV" ]; then
+    echo "✗ Не удалось определить WAN-устройство (ни через netifd, ни через uci network.wan.device)." >&2
+    cheburnet_diag_network
     exit 1
 fi
 
