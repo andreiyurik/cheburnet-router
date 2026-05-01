@@ -108,16 +108,19 @@ uci set network.awg0.proto='amneziawg'
 uci set network.awg0.private_key="$PRIV"
 uci add_list network.awg0.addresses="$ADDR"
 uci set network.awg0.mtu='1420'
-uci set network.awg0.awg_jc="$JC"
-uci set network.awg0.awg_jmin="$JMIN"
-uci set network.awg0.awg_jmax="$JMAX"
-uci set network.awg0.awg_s1="$S1"
-uci set network.awg0.awg_s2="$S2"
-uci set network.awg0.awg_h1="$H1"
-uci set network.awg0.awg_h2="$H2"
-uci set network.awg0.awg_h3="$H3"
-uci set network.awg0.awg_h4="$H4"
-# v1.5 опциональные параметры — устанавливаем только если есть в конфиге
+# Все AWG-параметры обфускации — ОПЦИОНАЛЬНЫ. Записываем только если поле
+# действительно присутствует в .conf — иначе proto-handler получает пустую
+# строку и netifd не может поднять интерфейс.
+[ -n "$JC" ]   && uci set network.awg0.awg_jc="$JC"
+[ -n "$JMIN" ] && uci set network.awg0.awg_jmin="$JMIN"
+[ -n "$JMAX" ] && uci set network.awg0.awg_jmax="$JMAX"
+[ -n "$S1" ]   && uci set network.awg0.awg_s1="$S1"
+[ -n "$S2" ]   && uci set network.awg0.awg_s2="$S2"
+[ -n "$H1" ]   && uci set network.awg0.awg_h1="$H1"
+[ -n "$H2" ]   && uci set network.awg0.awg_h2="$H2"
+[ -n "$H3" ]   && uci set network.awg0.awg_h3="$H3"
+[ -n "$H4" ]   && uci set network.awg0.awg_h4="$H4"
+# v1.5 опциональные параметры
 [ -n "$S3" ] && uci set network.awg0.awg_s3="$S3"
 [ -n "$S4" ] && uci set network.awg0.awg_s4="$S4"
 [ -n "$I1" ] && uci set network.awg0.awg_i1="$I1"
@@ -148,7 +151,7 @@ echo "→ создаём firewall zone 'vpn'"
 idx=$(uci show firewall | awk -F'[][]' '/@zone.*name=.vpn./{print $2; exit}')
 [ -n "$idx" ] && uci -q delete firewall.@zone[$idx] || true
 
-uci add firewall zone
+uci add firewall zone >/dev/null
 uci set firewall.@zone[-1].name='vpn'
 uci set firewall.@zone[-1].input='REJECT'
 uci set firewall.@zone[-1].output='ACCEPT'
@@ -159,7 +162,7 @@ uci add_list firewall.@zone[-1].network='awg0'
 
 # Forwarding lan → vpn
 if ! uci show firewall | grep -q "src='lan'.*dest='vpn'" 2>/dev/null; then
-    uci add firewall forwarding
+    uci add firewall forwarding >/dev/null
     uci set firewall.@forwarding[-1].src='lan'
     uci set firewall.@forwarding[-1].dest='vpn'
 fi
@@ -170,13 +173,30 @@ uci commit firewall
 echo "→ перезапуск сети"
 /etc/init.d/network restart
 /etc/init.d/firewall reload >/dev/null 2>&1
-sleep 5
 
-# === 6. Проверка ===
-if ip -4 addr show awg0 2>/dev/null | grep -q inet; then
+# === 6. Проверка — ждём awg0 до 20 сек, на медленных роутерах netifd
+# инициализируется не за 5 сек ===
+AWG_UP=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    sleep 2
+    if ip -4 addr show awg0 2>/dev/null | grep -q inet; then
+        AWG_UP=1
+        break
+    fi
+done
+
+if [ "$AWG_UP" = "1" ]; then
     echo "✓ awg0 interface UP: $(ip -4 addr show awg0 | awk '/inet/{print $2}')"
 else
-    echo "⚠ awg0 не поднялся — проверьте логи: logread | grep -i amnezia"
+    echo "⚠ awg0 не поднялся за 20 сек. Диагностика:"
+    echo "--- ip addr show awg0 ---"
+    ip addr show awg0 2>&1 || true
+    echo "--- uci show network.awg0 ---"
+    uci show network.awg0 2>&1 | sed 's/private_key=.*/private_key=<скрыт>/' || true
+    echo "--- logread (amnezia/netifd/awg, последние 40 строк) ---"
+    logread 2>/dev/null | grep -iE 'amnezia|netifd|awg' | tail -40 || true
+    echo "--- awg show ---"
+    awg show 2>&1 || true
     exit 1
 fi
 
