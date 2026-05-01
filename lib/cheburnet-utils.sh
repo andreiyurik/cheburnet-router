@@ -18,29 +18,23 @@
 
 # json_escape STRING
 # Экранирует произвольную строку для безопасной вставки в JSON-литерал.
-# Делает: \ → \\, " → \", переносы строк → \n, tab → \t, \r → пусто.
-# Используется ВЕЗДЕ где пользовательские/uci-данные подставляются в JSON-ответ.
+# Правила: \ → \\, " → \", tab → \t, \r → пусто, перенос строки → \n.
 #
-# КРИТИЧНО про кол-во backslash'ей в awk-replacement: POSIX-awk (и busybox-awk)
-# дважды интерпретируют escape-sequence в replacement-строке — сначала как
-# C-style string-literal, потом как gsub-replacement. Чтобы в выходе появился
-# literal `\"`, в repl надо написать `\\\\\"` (shell) → `\\\"` (awk source) →
-# `\\"` (string after C-escape) → `\"` (после gsub-substitution). Аналогично
-# для `\\` нужно 8 backslash'ей в shell. Раньше тут было `"\\\""` и `"\\\\"`,
-# которые awk сжимал в `"` и `\` соответственно — `json_escape` НЕ экранировал
-# ни `"`, ни `\`. install_progress генерил невалидный JSON каждый раз когда
-# в логе была кавычка (BOARD_MODEL="...", KERNEL="..." из cheburnet_diag_system),
-# rpcd возвращал ubus-code 2, UI зависал в pollProgress retry-loop.
+# Реализация на sed (НЕ awk gsub) — у awk gsub-replacement семантика
+# расходится между gawk (host) и busybox-awk (роутер): одна и та же
+# строка-replacement даёт разное число backslash'ей в выходе. У sed
+# правила replacement стандартизованы POSIX и одинаковы во всех
+# реализациях (BSD/GNU/busybox). Без этого install_progress генерил
+# невалидный JSON на каждой кавычке/backslash'е (BOARD_MODEL="...",
+# KERNEL="..." из cheburnet_diag_system) → rpcd ubus-code 2 → UI висел.
+# Тест busybox-awk-совместимости — tests/qemu/smoke.sh.
 json_escape() {
-    printf '%s' "$1" | awk 'BEGIN{ORS=""}
-        {
-            gsub(/\\/, "\\\\\\\\");
-            gsub(/"/, "\\\\\"");
-            gsub(/\t/, "\\t");
-            gsub(/\r/, "");
-            if (NR > 1) printf "\\n";
-            print
-        }'
+    printf '%s' "$1" \
+        | tr -d '\r' \
+        | sed -e 's/\\/\\\\/g' \
+              -e 's/"/\\"/g' \
+              -e "s/$(printf '\t')/\\\\t/g" \
+        | sed -e ':a;N;$!ba;s/\n/\\n/g'
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

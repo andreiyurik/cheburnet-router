@@ -49,9 +49,13 @@ net.netfilter.nf_conntrack_udp_timeout_stream=60
 SYSCTL
 echo "  записано в /etc/sysctl.conf"
 
-# @reboot cron — применяем сразу после загрузки (перекрываем sysctl.d)
-crontab -l 2>/dev/null | grep -v conntrack-tune > /tmp/cron.tmp
-echo "@reboot sleep 10 && /usr/bin/conntrack-tune" >> /tmp/cron.tmp
+# @reboot cron — применяем сразу после загрузки (перекрываем sysctl.d).
+# `crontab -l` на свежем роутере пустой → `grep -v` на пустом вводе exit 1
+# → `set -e` убивает шаг. Защищаем `|| true` (та же регрессия что в 08).
+{
+    crontab -l 2>/dev/null | grep -v conntrack-tune || true
+    echo "@reboot sleep 10 && /usr/bin/conntrack-tune"
+} > /tmp/cron.tmp
 crontab /tmp/cron.tmp
 rm /tmp/cron.tmp
 /etc/init.d/cron restart >/dev/null

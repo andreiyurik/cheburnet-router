@@ -79,6 +79,27 @@
 - **Схемы** — mermaid (GitHub renders это нативно).
 - **Эмодзи** — экономно, только как визуальные якоря для разделов (📘 📐 🔒 🧠 и т.п.), не в прозе.
 
+## Тесты
+
+Четыре уровня. Чем выше уровень — тем больше покрытия и тем дороже прогон.
+
+| Уровень | Команда | Время | Что проверяет |
+|---|---|---|---|
+| T1 — статика | `make lint` | <1с | shellcheck, `sh -n`, валидность JSON |
+| T2 — unit + mock-integration | `make test` | ~10с | pure-функции из `lib/`, `web/rpcd-cheburnet` против моков (uci/ubus/awg/...) |
+| T3a — VM smoke (hermetic) | `make qemu` | ~90с | rpcd-handler на **реальном** OpenWrt-snapshot в qemu/KVM. Без интернета. |
+| T3b — VM smoke + HTTP/UI | `make qemu-http` | ~3мин | то же + uhttpd-mod-ubus + кнопки UI через JSON-RPC, ACL anon-vs-authed, handler-валидация |
+
+**Когда что гонять**:
+- Каждое сохранение → T1 + T2.
+- Перед PR'ом, который касается `lib/`, `web/`, `setup/`, `bootstrap.sh` → дополнительно T3a.
+- Перед мерджем в main изменений в handler'е, ACL, или UI → T3b.
+- Перед релизом — обязательно прогнать на dirty-роутере (T3c, не автоматизируется в qemu: реальный AmneziaWG kernel-модуль, Wi-Fi, target-арка).
+
+**Почему T3 нужен помимо T2**: T2 моки гоняются на gawk/host-bash, T3 — на busybox-awk/-sh/-sed. У awk gsub-replacement РАЗНАЯ семантика между gawk и busybox-awk: одна и та же конструкция выдаёт разное число backslash'ей. Один такой gap уже приводил к продакшн-инциденту (json_escape возвращал невалидный JSON, UI висел). T3a гарантирует, что наш handler работает на реальной busybox-сборке, не только на host'е.
+
+См. `tests/qemu/README.md` про детали и архитектуру.
+
 ## Контакты / источники
 
 - Оригинальная сессия сборки: ChatGPT/Claude chat от апреля 2026

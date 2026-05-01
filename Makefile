@@ -1,21 +1,22 @@
 # cheburnet-router — test targets
 #
-# Цели:
-#   make lint   — статика (shellcheck + sh -n + JSON + SHA-sync). T1.
-#   make test   — unit-тесты на pure-функции (bats-core). T2 (заглушка).
-#   make qemu   — integration-тесты в OpenWrt-VM. T3 (заглушка).
+# Уровни тестов:
+#   make lint        — T1: статика (shellcheck + sh -n + JSON + SHA-sync).
+#   make test        — T2: unit + mock-integration на bats (host-only, ~10с).
+#   make qemu        — T3a: hermetic VM smoke в qemu/KVM (~90с, без интернета).
+#   make qemu-http   — T3b: VM smoke с HTTP/ubus + UI-кнопками (~3мин, нужен
+#                     интернет в VM для apk add uhttpd-mod-ubus).
 
-.PHONY: lint test test-unit test-integration qemu
+.PHONY: lint test test-unit test-integration qemu qemu-http
 
-# bats-core поставляется submodule'ом — никаких внешних зависимостей.
 BATS := tests/vendor/bats-core/bin/bats
 
 lint:
 	@bash tests/lint.sh
 
-# test = unit + integration. Оба гоняются на bats-core, разница только в том
+# test = unit + integration. Оба гоняются на bats-core, разница только в том,
 # что integration source'ит реальный web/rpcd-cheburnet через PATH-mock'и
-# (uci, ubus, awg, jsonfilter, nslookup и т.п.).
+# (uci, ubus, awg, jsonfilter, nslookup и т.п.) против fake rootfs.
 test: test-unit test-integration
 
 test-unit:
@@ -32,7 +33,17 @@ test-integration:
 	fi
 	@$(BATS) tests/integration/
 
-# T3b — реальный QEMU+OpenWrt стенд. Не реализован (см. AGENTS.md / RELEASE-CHECKLIST).
+# T3a — hermetic. Поднимает свежий OpenWrt snapshot в qemu/KVM, кладёт наш
+# rpcd-handler через ssh+cat (без apk, без интернета), проверяет что ubus
+# отвечает корректным JSON. Ловит регрессии типа gawk-vs-busybox-awk и
+# busybox-ash несовместимостей, которые mock-уровень T2 не видит.
 qemu:
-	@echo "→ T3b (QEMU-стенд) не реализован. Используйте 'make test' для T3a (mock-уровень)"
-	@exit 1
+	@./tests/qemu/smoke.sh
+
+# T3b — расширенный. Дополнительно ставит uhttpd-mod-ubus (apk update/add —
+# нужен интернет!) и тестирует то, что РЕАЛЬНО делают кнопки в UI: HTTP-POST
+# на /ubus с JSON-RPC, ACL anon-vs-authed, handler-валидация без destructive
+# побочных эффектов (factory_reset с неправильным confirm, mode_switch
+# c invalid mode и т.п.).
+qemu-http:
+	@./tests/qemu/smoke-http.sh

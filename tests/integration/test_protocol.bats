@@ -110,6 +110,68 @@ print(list(json.load(sys.stdin)["factory_reset"].keys())[0])
     printf '%s' "$output" | python3 -m json.tool >/dev/null
 }
 
+# Round-trip: после JSON-decode значение log/step/result должно совпадать
+# с исходными байтами файла. Слабая ассертация (только parse-валидность)
+# может пропустить case'ы, где escape добавляет/глотает байты, но JSON
+# остаётся синтаксически валидным.
+@test "install_progress: round-trip log с кавычками и backslash'ами" {
+    local payload='BOARD_MODEL="Xiaomi Mi Router 4A"
+KERNEL="Linux 5.10.176 #0 SMP"
+PATH=C:\Users\test'
+    printf '%s' "$payload" > "$STATE_DIR/install.log"
+    run run_rpcd install_progress
+    assert_success
+    decoded="$(printf '%s' "$output" | python3 -c '
+import json, sys
+print(json.load(sys.stdin)["log"], end="")
+')"
+    [ "$decoded" = "$payload" ] || {
+        echo "log round-trip failed:"
+        echo "  expected: $(printf '%q' "$payload")"
+        echo "  decoded:  $(printf '%q' "$decoded")"
+        return 1
+    }
+}
+
+@test "install_progress: round-trip step с кавычками" {
+    # cheburnet_diag_system пишет в state такие строки как
+    # `[STEP] failed: BOARD="ASUS" not supported`
+    printf '%s' '[STEP] failed: BOARD="ASUS" not supported' > "$STATE_DIR/state"
+    run run_rpcd install_progress
+    assert_success
+    decoded="$(printf '%s' "$output" | python3 -c '
+import json, sys
+print(json.load(sys.stdin)["step"], end="")
+')"
+    [ "$decoded" = '[STEP] failed: BOARD="ASUS" not supported' ]
+}
+
+@test "install_progress: round-trip result с кавычками" {
+    printf '%s' '[STEP] state' > "$STATE_DIR/state"
+    printf '%s' 'failed at "01-prerequisites"' > "$STATE_DIR/done"
+    run run_rpcd install_progress
+    assert_success
+    decoded="$(printf '%s' "$output" | python3 -c '
+import json, sys
+print(json.load(sys.stdin)["result"], end="")
+')"
+    [ "$decoded" = 'failed at "01-prerequisites"' ]
+}
+
+@test "install_progress: log с многобайтовой UTF-8 (кириллица + emoji) — round-trip" {
+    # awk на старых busybox-сборках любит ломать многобайтовые последовательности.
+    # Если json_escape не транзитен по UTF-8 — decoded будет отличаться от input.
+    local payload='✗ Шаг 03 не удался: 🚀 launch failed'
+    printf '%s' "$payload" > "$STATE_DIR/install.log"
+    run run_rpcd install_progress
+    assert_success
+    decoded="$(printf '%s' "$output" | python3 -c '
+import json, sys
+print(json.load(sys.stdin)["log"], end="")
+')"
+    [ "$decoded" = "$payload" ]
+}
+
 # ─── токен-flow: повторная установка после успешной — невозможна ────────────
 
 @test "post-install: install_start с любым токеном → 'install token not found'" {
