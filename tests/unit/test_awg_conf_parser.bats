@@ -9,10 +9,17 @@ load '../helpers/setup'
 @test "awg_get_iface: PrivateKey из v1.0 минимального конфига" {
     run awg_get_iface PrivateKey "$FIXTURES/awg-v1.0-minimal.conf"
     assert_success
-    # awk -F' *= *' обрезает trailing '=' base64-padding — это поведение
-    # оригинального get_iface, сохраняем его (воссоздание AWG-ключа делает
-    # awg(8), а не парсер).
-    assert_output 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA'
+    # КРИТИЧНО: base64-padding '=' ДОЛЖЕН сохраняться. WG-ключи — это 32 байта =
+    # ровно 44 base64-символа, ВСЕГДА с одним '=' в конце. Если падать без '=',
+    # awg-tool отвергает ключ как "invalid key length", awg0 не поднимается.
+    # Был исторический баг: awk -F' *= *' срезал padding — починили регулярку.
+    assert_output 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA='
+}
+
+@test "awg_get_iface: PublicKey тоже сохраняет base64 padding" {
+    run awg_get_iface PublicKey "$FIXTURES/awg-v1.0-minimal.conf"
+    assert_success
+    assert_output 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbA='
 }
 
 @test "awg_get_iface: Address" {
@@ -68,15 +75,15 @@ load '../helpers/setup'
 
 # ─── awg_get_peer — поля после [Peer] маркера ──────────────────────────────
 
-@test "awg_get_peer: PublicKey" {
+@test "awg_get_peer: PublicKey сохраняет base64 padding" {
     run awg_get_peer PublicKey "$FIXTURES/awg-v1.0-minimal.conf"
     assert_success
-    assert_output 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbA'
+    assert_output 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbA='
 }
 
-@test "awg_get_peer: PresharedKey" {
+@test "awg_get_peer: PresharedKey сохраняет base64 padding" {
     run awg_get_peer PresharedKey "$FIXTURES/awg-v1.0-minimal.conf"
-    assert_output 'ccccccccccccccccccccccccccccccccccccccccccA'
+    assert_output 'ccccccccccccccccccccccccccccccccccccccccccA='
 }
 
 @test "awg_get_peer: Endpoint (IPv4)" {
