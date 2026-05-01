@@ -20,6 +20,19 @@ mkdir -p "$STATE_DIR"
 # из-за отсутствующего ключа в STEP_PCT).
 echo "[STEP] starting" > "$STATE"
 
+# === Подключаем диагностические хелперы ===
+# Источник: на роутере /opt/cheburnet/lib (туда копирует bootstrap.sh).
+# shellcheck source=../lib/cheburnet-diag.sh disable=SC1090,SC1091
+[ -f "$INSTALL_DIR/lib/cheburnet-diag.sh" ] && . "$INSTALL_DIR/lib/cheburnet-diag.sh"
+
+# === Системный паспорт — печатается один раз в самом начале ===
+# Без него нельзя интерпретировать ни одну ошибку: «у юзера 64 МБ overlay —
+# adblock не влезет», «arch=mipsel — awg-kmod собран только под 25.12.2», и т.п.
+# Это тот самый блок, который мы хотим видеть В КАЖДОМ отчёте о падении.
+if command -v cheburnet_diag_system >/dev/null 2>&1; then
+    cheburnet_diag_system
+fi
+
 # === Подготовка /tmp/scripts и /tmp/configs ===
 # Setup-скрипты исторически ожидают файлы в этих путях (их раньше scp'шил full-deploy).
 # На роутере мы просто копируем из /opt/cheburnet/.
@@ -83,6 +96,14 @@ for STEP in $STEPS; do
     if ! sh "$INSTALL_DIR/setup/$STEP"; then
         echo
         echo "✗ ШАГ $STEP завершился с ошибкой."
+        # Универсальный снимок состояния системы — печатается на ветке фейла
+        # ЛЮБОГО шага. Покрывает причины, не привязанные к конкретному скрипту:
+        # OOM-killer, нехватка disk-space, kernel-warnings. Если у шага есть
+        # своя domain-диагностика (07-killswitch, 01-amneziawg) — она уже
+        # отработала выше; этот снимок её дополняет, а не дублирует.
+        if command -v cheburnet_diag_runtime >/dev/null 2>&1; then
+            cheburnet_diag_runtime
+        fi
         echo "fail-$SHORT" > "$DONE"
         exit 1
     fi

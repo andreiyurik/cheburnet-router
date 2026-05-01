@@ -90,3 +90,44 @@ cheburnet_fw4_apply_rule() {
     unset _chain _comment _expr
     return 0
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# cheburnet_uci_delete_rules_by_name PATTERN
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Удаляет ВСЕ правила firewall, имя которых матчит awk-regex PATTERN.
+# Используется setup-скриптами перед `uci add firewall rule`, чтобы повторный
+# запуск установщика не плодил дубликаты с тем же name (а также чинил правила,
+# повреждённые ручной правкой /etc/config/firewall — мы их сносим и
+# пересоздаём целиком).
+#
+# Аргументы:
+#   PATTERN — awk extended-regex (без слешей), матчится против
+#             `name='<...>'` в выводе `uci show firewall`. Примеры:
+#               "Block-SSH-from-WAN"                 — литерал
+#               "KillSwitch-IPv[46]-LAN-direct-egress"  — regex (ipv4+ipv6 за раз)
+#
+# Возвращает:
+#   0 — всегда (даже если ничего не найдено: cleanup идемпотентный).
+#
+# Сортировка по убыванию индексов критична: индексы UCI сдвигаются после
+# delete, и удаляя [3] ДО [5] мы бы получили mismatch. С `sort -rn` сначала
+# идёт самый большой — остальные не сдвигаются.
+cheburnet_uci_delete_rules_by_name() {
+    _pattern="$1"
+    if [ -z "$_pattern" ]; then
+        echo "✗ cheburnet_uci_delete_rules_by_name: нужен PATTERN" >&2
+        unset _pattern
+        return 1
+    fi
+
+    _idx=$(uci show firewall 2>/dev/null \
+        | awk -F'[][]' -v p="$_pattern" '$0 ~ "@rule.*name=." p "." {print $2}' \
+        | sort -rn)
+    for _i in $_idx; do
+        uci -q delete firewall.@rule["$_i"] || true
+    done
+
+    unset _pattern _idx _i
+    return 0
+}
