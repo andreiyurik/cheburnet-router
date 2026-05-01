@@ -154,7 +154,15 @@ cat > /usr/share/rpcd/acl.d/cheburnet.json <<'ACL'
     }
 }
 ACL
-/etc/init.d/rpcd reload >/dev/null 2>&1
+# ВАЖНО: именно restart, а не reload. На ряде OpenWrt-сборок rpcd HUP
+# (то, что делает reload) НЕ перечитывает JSON-файлы из /usr/share/rpcd/acl.d/
+# — они грузятся только при start. Без restart рестрикция unauth и роль
+# cheburnet-admin не подхватываются: get_status работает (он был и в старом
+# ACL), но mode_switch / service_restart / factory_reset возвращают
+# `ubus code 6` даже после login, потому что роль cheburnet-admin для
+# rpcd «не существует». Один прецедент с этим багом уже был в продакшне.
+# Restart роняет rpcd на 1-2 сек — фронт переживёт через свой retry-loop.
+/etc/init.d/rpcd restart >/dev/null 2>&1
 echo "✓ ACL заблокирован: чтение без логина, мутации требуют пароль root"
 
 # === Финальное сообщение для пользователя ===
