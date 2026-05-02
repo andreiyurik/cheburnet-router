@@ -28,13 +28,22 @@ else
     sh /tmp/abl-install.sh -v release
 fi
 
-# === 2. Генерация конфига ===
-if [ ! -f /etc/adblock-lean/config ]; then
-    echo "→ генерируем дефолтный конфиг"
+# === 2. Конфиг ===
+# Раньше тут вызывался `adblock-lean gen_config`, но он на свежей установке
+# регулярно рожал неполный конфиг (essential vars unset → adblock-lean
+# падал в `get_def_preset` и сервис вставал в stopped). Кладём готовый
+# референс из репозитория целиком — он содержит все нужные пресет-переменные
+# (DNSMASQ_INDEXES, MAX_PARALLEL_JOBS, boot_start_delay_s и т.д.).
+mkdir -p /etc/adblock-lean
+if [ -f /tmp/configs/adblock-lean.config.txt ]; then
+    echo "→ кладём конфиг из /tmp/configs/adblock-lean.config.txt"
+    cp /tmp/configs/adblock-lean.config.txt /etc/adblock-lean/config
+elif [ ! -f /etc/adblock-lean/config ]; then
+    echo "→ референс-конфиг не найден, fallback на gen_config"
     /etc/init.d/adblock-lean gen_config
 fi
 
-# Убедимся что блок-лист — Hagezi Pro
+# Убедимся что блок-лист — Hagezi Pro (на случай если конфиг подменили вручную)
 if ! grep -q 'raw_block_lists="hagezi:pro"' /etc/adblock-lean/config; then
     echo "→ ставим hagezi:pro"
     sed -i 's|^raw_block_lists=.*|raw_block_lists="hagezi:pro"|' /etc/adblock-lean/config

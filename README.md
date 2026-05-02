@@ -329,6 +329,8 @@ travel-check       # полная диагностика
 
 ## 🙏 Благодарности
 
+### Open-source проекты
+
 - [AmneziaVPN](https://amnezia.org/) — open-source VPN с обфускацией ([Amnezia Premium](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG) — подписка через реф-ссылку)
 - [itdoginfo/podkop](https://github.com/itdoginfo/podkop) — split-routing для OpenWrt
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box) — прокси-роутер
@@ -337,5 +339,13 @@ travel-check       # полная диагностика
 - [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists) — блок-списки доменов
 - [Quad9](https://www.quad9.net/) — DoH-резолвер
 - [OpenWrt](https://openwrt.org/) — свободная ОС для роутеров
+
+### Люди
+
+Проект живёт благодаря тем, кто тестирует, находит баги, предлагает улучшения и просто пишет — спасибо каждому.
+
+Особая благодарность **Сергею Ш.** — за активное участие в развитии проекта, ценные идеи и постоянную обратную связь.
+
+---
 
 [MIT License](LICENSE) — форкайте, адаптируйте, шлите PR.
