@@ -24,16 +24,35 @@ echo "→ настраиваем cron"
 mkdir -p /etc/crontabs
 {
     crontab -l 2>/dev/null \
-        | grep -v -e awg-watchdog -e conntrack-monitor -e podkop-weekly \
+        | grep -v -e awg-watchdog -e conntrack-monitor -e dns-healthcheck \
+                  -e log-snapshot -e podkop-weekly \
         || true
     echo "* * * * * /usr/bin/awg-watchdog"
     [ -x /usr/bin/conntrack-monitor ] && echo "*/15 * * * * /usr/bin/conntrack-monitor"
+    # DNS автофейловер Quad9 ⇄ Cloudflare. Скрипт сам кэширует state в /tmp,
+    # 5 минут — компромисс между «быстро среагировать на падение upstream»
+    # и «не штормить DoH-резолверы».
+    [ -x /usr/bin/dns-healthcheck ] && echo "*/5 * * * * /usr/bin/dns-healthcheck"
+    # Снапшот логов раз в сутки в 23:55 — чтобы не терять контекст инцидентов
+    # (logd ring-buffer переполняется за часы под нагрузкой).
+    [ -x /usr/bin/log-snapshot ] && echo "55 23 * * * /usr/bin/log-snapshot"
     # Еженедельный перезапуск podkop/sing-box в 4:00 пн (MSK) —
     # предотвращает накопление состояния
     echo "0 4 * * 1 /etc/init.d/podkop restart 2>&1 | logger -t podkop-weekly"
 } > /tmp/cron.tmp
 crontab /tmp/cron.tmp
 rm /tmp/cron.tmp
+
+# === 4. Тише, crond ===
+# По умолчанию OpenWrt запускает busybox crond с loglevel=5 (NOTICE) — это
+# пишет в logd КАЖДЫЙ запуск задачи: при `* * * * * awg-watchdog` это
+# 1440 строк в день при нулевой полезной нагрузке. Сами скрипты логируют
+# только аномалии (через `logger -t`), поэтому ставим демон на 8 (только
+# критические ошибки самого crond), а собственные сообщения скриптов
+# попадают в logd напрямую и не страдают.
+uci set system.@system[0].cronloglevel='8'
+uci commit system
+
 if [ -x /etc/init.d/cron ]; then
     /etc/init.d/cron enable 2>/dev/null || true
     /etc/init.d/cron restart >/dev/null 2>&1 || echo "  ⚠ cron restart вернул ошибку (демон подхватит при ребуте)"

@@ -21,9 +21,15 @@ cmd="$1"; shift
 case "$cmd" in
     get)
         key="$1"
-        val="$(awk -F= -v k="$key" '$1==k{ $1=""; sub(/^=/,""); print; exit }' "$STATE")"
+        # Раньше тут было `$1=""; sub(/^=/,""); print` — awk при $1="" пересобирает
+        # $0 c OFS=" ", и значение печаталось с ведущим пробелом
+        # (uci-set'нутый "192.168.1.1/24" → " 192.168.1.1/24"). В реальном
+        # uci такого нет, и net_lan_ip / parser'ы в проде падали бы.
+        # Берём substring после первого "=" — POSIX parameter expansion,
+        # никаких сюрпризов с separator'ами.
+        val="$(grep -m1 "^${key}=" "$STATE" 2>/dev/null)"
         if [ -n "$val" ]; then
-            printf '%s\n' "$val"
+            printf '%s\n' "${val#*=}"
             exit 0
         fi
         # default-ы для известных ключей

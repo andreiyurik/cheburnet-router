@@ -361,7 +361,7 @@ printf "  Подключиться к роутеру:  ${BOLD}ssh root@%s${N}\n\
 printf "  vpn-mode status    — текущий режим\n"
 printf "  vpn-mode home      — .ru напрямую + остальное через VPN\n"
 printf "  vpn-mode travel    — весь трафик через VPN\n"
-printf "  travel-check       — полная диагностика\n"
+printf "  vpn-mode status    — статус VPN-туннеля и режима\n"
 printf "\n"
 hr
 printf "\n"

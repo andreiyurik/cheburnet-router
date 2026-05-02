@@ -350,7 +350,7 @@
     <div id="mgmt-msg" class="hidden"></div>
 
     <p class="muted" style="margin-top: 24px;">
-      Статус обновляется каждые 15 секунд. Расширенная диагностика через SSH: <code>ssh root@ROUTER_IP travel-check</code>
+      Статус обновляется каждые 15 секунд. Полные логи через SSH: <code>ssh root@ROUTER_IP logread</code>
     </p>
   </div>
 
@@ -698,19 +698,19 @@ async function startInstall() {
 }
 
 // Названия шагов → примерный процент прогресса.
-// Должен покрывать ВСЕ значения, которые run-install.sh пишет в STATE
-// (12 setup-шагов + starting + root-password + lock-acl + done). Иначе
+// Должен покрывать ВСЕ значения, которые setup/install.sh пишет в STATE
+// (10 setup-шагов + starting + root-password + lock-acl + done). Иначе
 // JS сделает fallback на 50% и бар будет прыгать назад.
 // Размер «куска» отражает реальную тяжесть шага: podkop/adblock тянут
 // пакеты из сети (большие), а быстрые шаги (07/09 после nft-редизайна,
 // root-password, lock-acl) занимают по 1-4%.
 const STEP_PCT = {
-    "starting": 5, "00-prerequisites": 7,
-    "01-amneziawg": 18, "02-podkop": 35, "03-adblock": 48,
-    "04-dns": 55, "05-wifi": 65,
-    "06-vpn-mode": 72, "07-killswitch": 76, "08-watchdog": 80,
-    "09-ssh-hardening": 83, "10-quality": 88, "11-travel": 92,
-    "12-travel-plus": 96, "root-password": 97, "lock-acl": 99,
+    "starting": 5, "00-prerequisites": 8,
+    "01-amneziawg": 22, "02-podkop": 40, "03-adblock": 55,
+    "04-dns": 65, "05-wifi": 75,
+    "06-vpn-mode": 82, "07-killswitch": 87, "08-watchdog": 91,
+    "09-ssh-hardening": 94, "10-quality": 97,
+    "root-password": 98, "lock-acl": 99,
     "done": 100
 };
 
@@ -727,13 +727,11 @@ const STEP_LABELS = {
     "03-adblock":       "Блокировка рекламы и трекеров (adblock-lean)",
     "04-dns":           "Настройка безопасного DNS (DNS-over-TLS)",
     "05-wifi":          "Настройка Wi-Fi",
-    "06-vpn-mode":      "Режимы работы (дом / путешествие)",
+    "06-vpn-mode":      "Режимы работы (дом / полный туннель)",
     "07-killswitch":    "Защита от утечек при сбое VPN (kill switch)",
     "08-watchdog":      "Автовосстановление туннеля (watchdog)",
     "09-ssh-hardening": "Защита удалённого доступа (SSH hardening)",
     "10-quality":       "Оптимизация скорости (SQM)",
-    "11-travel":        "Гостевой режим",
-    "12-travel-plus":   "Расширенный гостевой режим",
     "root-password":    "Установка пароля администратора",
     "lock-acl":         "Защита веб-панели",
     "done":             "Установка завершена"

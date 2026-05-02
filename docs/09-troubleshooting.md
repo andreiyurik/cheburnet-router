@@ -235,27 +235,92 @@ wifi reload
 
 ## Логи — куда смотреть
 
-OpenWrt использует **logd** (in-memory ring buffer, 128 KB) с доступом через `logread`. После ребута логи теряются. Текущие:
+### Реалтайм (пока проблема ПРОИСХОДИТ)
+
+OpenWrt использует **logd** (in-memory ring buffer, 64 KB) с доступом через `logread`. После ребута содержимое теряется. Алгоритм отладки: открыть `logread -f` в одном SSH-окне и воспроизвести проблему в другом — события появятся в реальном времени.
 
 ```bash
-logread                               # всё подряд
-logread -f                            # follow (tail -f)
-logread -e <tag>                      # только один tag
-
-# Полезные теги:
-logread -e vpn-mode
-logread -e dns-provider
-logread -e dns-health
-logread -e adblock-lean
-logread -e sing-box
-logread -e podkop
-logread -e hostapd
-logread -e dnsmasq
+logread                               # всё подряд (то, что сейчас в буфере)
+logread -f                            # follow (tail -f), стримит новые события
+logread -e <tag>                      # фильтр по тегу одного компонента
+dmesg | tail -30                      # kernel: OOM, USB-disconnect, link up/down
 ```
 
-Персистентные логи:
+**Полезные теги** (наши скрипты пишут с этими `logger -t`-метками):
+
+| Тег | Когда пишется |
+|---|---|
+| `awg-watchdog` | Только при рестарте интерфейса awg0 (handshake протух >180с). В норме молчит. |
+| `conntrack-monitor` | **Только** при ≥80% (WARN) или ≥95% (CRITICAL+flush). При норме `<80%` — молчит. |
+| `dns-health` | Только при автофейловере Quad9 ⇄ Cloudflare. В норме молчит. |
+| `vpn-mode` | Каждое переключение HOME/TRAVEL (через CLI или физическую кнопку). |
+| `dns-provider` | Ручной свитч DNS-провайдера. |
+| `adblock-lean` | Загрузка/обновление блок-листа (~раз в сутки). |
+| `sing-box`, `podkop` | Внутренности split-routing (объём большой, фильтруйте `\| tail`). |
+| `hostapd`, `dnsmasq` | Wi-Fi и локальный DNS — стандартные демоны. |
+| `podkop-weekly` | Еженедельный (4:00 пн MSK) перезапуск podkop/sing-box. |
+
+> **Если тег молчит — это не баг, это норма.** До OpenWrt 25.12.x наши cron-задачи писали «OK …» каждый запуск (1800+ строк/день шума). После рефакторинга они логируют **только** аномалии. Если `logread -e conntrack-monitor` пустой — значит conntrack <80%, всё хорошо.
+
+### История за прошлые дни (`/root/logs/`)
+
+`log-snapshot` пишет каждый день в **23:55** файл `/root/logs/system-YYYY-MM-DD.log` — это полный снапшот того, что было в `logread` на момент снимка. Хранятся 14 дней, потом авто-чистка.
+
+```bash
+ls /root/logs/                                # какие даты есть
+cat /root/logs/system-2026-05-01.log          # лог за конкретный день
+grep -h awg-watchdog /root/logs/*.log         # все рестарты VPN за 14 дней
+grep '^Tue Apr 30 18' /root/logs/system-2026-04-30.log   # «что было 30 апр в 18:00»
+
+/usr/bin/log-snapshot                         # ручной снапшот «прямо сейчас»
+```
+
+### Live-state без логов («что прямо сейчас»)
+
+Часть состояния хранится не в logd, а в файлах `/tmp/`. Это полезно когда «событий нет, но что-то не так»:
+
+| Файл / команда | Что показывает |
+|---|---|
+| `awg show awg0` | Когда последний handshake (свежий = <180с), сколько байт прошло |
+| `cat /tmp/awg-watchdog/fails` | Сколько раз подряд watchdog рестартил awg0. >3 = проблема upstream-сервера |
+| `cat /tmp/awg-watchdog/last-restart` | Unix timestamp последнего рестарта |
+| `cat /tmp/dns-health/fails` | DNS-пробинг фейлится прямо сейчас? |
+| `cat /proc/sys/net/netfilter/nf_conntrack_count` | Текущая загрузка conntrack |
+| `cat /proc/sys/net/netfilter/nf_conntrack_max` | Лимит conntrack |
+| `vpn-mode status` | Какой режим (HOME/TRAVEL), куда смотрят домены |
+| `/etc/init.d/sing-box status`, `/etc/init.d/dnsmasq status` | Запущен ли split-routing и DNS |
+
+### Логи установки
+
+Если что-то упало во время `setup.sh` или веб-мастера — логи **не теряются**:
+
+```bash
+cat /tmp/cheburnet/install.log          # полный stdout всех setup-шагов
+cat /tmp/cheburnet/done                 # код выхода ("ok" или "fail-NN-stepname")
+cat /tmp/cheburnet/state                # на каком шаге остановилось
+```
+
+Веб-мастер показывает `install.log` в браузере при сбое; CLI пишет в терминал.
+
+### Прочие персистентные логи
+
 - `/var/log/apk.log` — установки/удаления пакетов
-- `/tmp/log/*` — временные (теряются)
+- `/tmp/log/*` — временные, теряются при ребуте
+
+### Что прислать в саппорт (Telegram `@industrialprofi`)
+
+Минимум, который покрывает 90% проблем:
+
+```bash
+vpn-mode status                         # → скопировать вывод
+awg show awg0                           # → скопировать (БЕЗ AllowedIPs/PrivateKey-секций)
+/etc/init.d/sing-box status             # → скопировать вывод
+/etc/init.d/dnsmasq status              # → скопировать вывод
+logread | tail -200                     # → скопировать вывод
+ls /root/logs/ && cat /root/logs/system-$(date +%Y-%m-%d).log | tail -200
+```
+
+Если проблема была давно — приложите соответствующий файл из `/root/logs/`. Никогда не присылайте `awg show awg0` целиком — там есть public-ключ пира (не секрет, но и публиковать не нужно). Приватные ключи лежат в `/etc/amnezia/amneziawg/awg0.conf` (chmod 600) — **никогда не присылайте этот файл**.
 
 ## Перезапуск «всего и сразу»
 
