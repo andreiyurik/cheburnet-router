@@ -1,10 +1,14 @@
 #!/bin/sh
-# run-install.sh — orchestrator установки, запускается на роутере в фоне из
-# RPC-метода install_start. Заменяет ssh/scp-часть full-deploy.sh для случая
-# когда мы УЖЕ на роутере.
+# install.sh — единственный оркестратор установки. Всегда запускается НА РОУТЕРЕ.
+#
+# Точки входа:
+#   • Веб-мастер: rpcd-cheburnet → setsid /opt/cheburnet/setup/install.sh (фоном).
+#   • CLI с ноутбука: setup.sh scp'шит репо в /opt/cheburnet/ и делает
+#     ssh root@router '/opt/cheburnet/setup/install.sh'.
 #
 # Пишет прогресс в /tmp/cheburnet/state, итоговый результат в /tmp/cheburnet/done.
-# Логи уходят в stdout/stderr → перехватываются вызывающим кодом в /tmp/cheburnet/install.log
+# Логи уходят в stdout/stderr → перехватываются вызывающим кодом в
+# /tmp/cheburnet/install.log (для веб-мастера) или печатаются в терминал (CLI).
 set -e
 
 INSTALL_DIR="/opt/cheburnet"
@@ -53,7 +57,9 @@ cp "$INSTALL_DIR/scripts/init.d/vpn-mode"  /tmp/scripts/init.d/ 2>/dev/null || t
 cp "$INSTALL_DIR/configs/sysupgrade.conf"  /tmp/configs/ 2>/dev/null || true
 cp "$INSTALL_DIR/configs/adblock-lean.config.txt" /tmp/configs/ 2>/dev/null || true
 
-# Wi-Fi параметры (положены rpcd-хендлером в configs/)
+# Wi-Fi параметры. Для веб-мастера — кладёт rpcd-cheburnet (RPC install_start
+# принимает SSID/key/country и пишет файл). Для CLI — кладёт setup.sh
+# (он же rsync'ит репо целиком). В обоих случаях файл должен быть в configs/.
 if [ ! -f "$INSTALL_DIR/configs/wireless-actual.txt" ]; then
     echo "✗ configs/wireless-actual.txt не найден"
     echo "fail-no-wifi-config" > "$DONE"
@@ -64,7 +70,8 @@ fi
 export WIFI_SSID WIFI_KEY WIFI_COUNTRY
 
 # === Список шагов ===
-# .conf должен быть уже в /etc/amnezia/amneziawg/awg0.conf (положен rpcd-handler'ом)
+# AWG-конфиг должен быть в каноническом месте. Кладёт его либо rpcd-cheburnet
+# (веб-мастер сохраняет тело .conf из RPC-вызова), либо setup.sh (CLI scp'шит).
 if [ ! -f /etc/amnezia/amneziawg/awg0.conf ]; then
     echo "✗ /etc/amnezia/amneziawg/awg0.conf не найден"
     echo "fail-no-awg-config" > "$DONE"
@@ -111,7 +118,7 @@ for STEP in $STEPS; do
     fi
 done
 
-# === Применяем root-пароль (положен rpcd-handler'ом в $STATE_DIR/root_pass) ===
+# === Применяем root-пароль (положен в $STATE_DIR/root_pass либо rpcd-handler'ом, либо setup.sh) ===
 if [ -s "$STATE_DIR/root_pass" ]; then
     echo "[STEP] root-password" > "$STATE"
     echo

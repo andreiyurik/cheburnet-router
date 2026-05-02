@@ -92,7 +92,7 @@ fi
 ok "OpenWrt подтверждён"
 
 # === Бутстрап SSH-ключа ===
-# Дальнейшая установка идёт через full-deploy.sh, который делает десятки SSH-команд.
+# Дальнейшая установка делает rsync репо + ssh-запуск install.sh.
 # Каждый раз вводить пароль мучительно, поэтому сейчас один раз кладём публичный
 # ключ на роутер — после этого всё пойдёт без запроса пароля.
 if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1; then
@@ -299,9 +299,46 @@ ok "Wi-Fi конфиг сохранён"
 cp "$CONF_PATH" "$REPO_ROOT/configs/awg0.conf"
 chmod 600 "$REPO_ROOT/configs/awg0.conf"
 ok "VPN конфиг сохранён"
+
+# ── Развёртывание на роутере ───────────────────────────────────────────
+# Раньше тут вызывался setup/full-deploy.sh, который делал десятки
+# ssh-команд (по команде на каждый scp + по команде на каждый шаг).
+# Теперь оркестратор один — setup/install.sh — и живёт он на роутере.
+# Алгоритм: один rsync/scp репо в /opt/cheburnet/, один ssh-вызов install.sh.
 printf "\n  ${BOLD}Запускаем установку (~12 минут)...${N}\n\n"
-ROOT_PASS="$ROOT_PASS" "$REPO_ROOT/setup/full-deploy.sh" "$ROUTER"
+
+INSTALL_DIR="/opt/cheburnet"
+info "Копирую репозиторий на роутер в $INSTALL_DIR"
+ssh "$ROUTER" "mkdir -p '$INSTALL_DIR' /etc/amnezia/amneziawg /tmp/cheburnet"
+
+# rsync если есть (быстрее и надёжнее), иначе fallback на tar|ssh.
+# Исключаем .git/, tests/, docs/ — они не нужны на роутере и съедают место.
+if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete \
+        --exclude='.git' --exclude='tests' --exclude='docs' \
+        --exclude='backup' --exclude='assets' --exclude='*.md' \
+        "$REPO_ROOT/" "$ROUTER:$INSTALL_DIR/"
+else
+    tar -C "$REPO_ROOT" -czf - \
+        --exclude='.git' --exclude='tests' --exclude='docs' \
+        --exclude='backup' --exclude='assets' --exclude='*.md' \
+        . | ssh "$ROUTER" "tar -C '$INSTALL_DIR' -xzf -"
+fi
+
+# AWG-конфиг кладётся в каноническое место (где его ждёт 01-amneziawg.sh)
+scp -q "$REPO_ROOT/configs/awg0.conf" "$ROUTER:/etc/amnezia/amneziawg/awg0.conf"
+ssh "$ROUTER" 'chmod 600 /etc/amnezia/amneziawg/awg0.conf'
+
+# Root-пароль передаём через короткоживущий файл (chmod 600), как и веб-мастер.
+# Не светим в args/env — иначе виден в `ps`/`history`. printf | ssh даёт пароль
+# на stdin без интерполяции на стороне сервера.
+printf '%s' "$ROOT_PASS" | ssh "$ROUTER" \
+    'umask 077 && cat > /tmp/cheburnet/root_pass && chmod 600 /tmp/cheburnet/root_pass'
 unset ROOT_PASS
+
+ok "Файлы скопированы — запускаю установку"
+printf "\n"
+ssh -t "$ROUTER" "$INSTALL_DIR/setup/install.sh"
 
 # ══════════════════════════════════════════════════════════════════════
 # Финал

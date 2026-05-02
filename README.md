@@ -232,7 +232,7 @@ git clone https://github.com/yurik2718/cheburnet-router.git
 cd cheburnet-router && ./setup.sh
 ```
 
-`setup.sh` пройдёт через те же 5 шагов, что и веб-мастер, и запустит `full-deploy.sh` для развёртывания на роутере по SSH.
+`setup.sh` пройдёт через те же 5 шагов, что и веб-мастер: скопирует репо в `/opt/cheburnet/` на роутере по SSH и запустит там `setup/install.sh` — тот же оркестратор, что использует и веб-мастер.
 
 ---
 

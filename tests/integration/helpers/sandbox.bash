@@ -130,7 +130,7 @@ ACL
 echo "Service podkop is running"
 EOF
     chmod +x "$FAKE_ROOT/etc/init.d/podkop"
-    # Удаляем токен (как run-install.sh)
+    # Удаляем токен (как setup/install.sh)
     sandbox_remove_token
 }
 

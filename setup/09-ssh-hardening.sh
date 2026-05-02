@@ -6,7 +6,7 @@
 # Поведение зависит от env-переменной CHEBURNET_KEY_REQUIRED:
 #   "1" (по умолчанию, standalone-запуск) — требуем ключ, иначе exit 1.
 #                                            Защита от блокировки роутера.
-#   "0" (вызов из web/run-install.sh)     — не требуем ключ. Block-SSH-from-WAN
+#   "0" (вызов из setup/install.sh)       — не требуем ключ. Block-SSH-from-WAN
 #                                            ставится безусловно, password-auth
 #                                            выключается только при наличии
 #                                            ключа (recovery-доступ через пароль
