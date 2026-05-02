@@ -46,13 +46,6 @@
 - [ ] **`/etc/cheburnet/install-token`** удалён (`ls -la` — нет файла).
 - [ ] Повторный `install_start` с любым токеном → `install token not found`.
 
-## Сценарии Travel
-
-- [ ] **`travel-scan`** видит окружающие сети, сортирует по сигналу.
-- [ ] **`travel-connect "<SSID>" "<password>"`** подключается к гостевому Wi-Fi, получает IP.
-- [ ] **Captive portal** (если есть на гостевой сети) — `travel-portal` редиректит на login-страницу.
-- [ ] **Travel-VPN-on** — поверх hotel Wi-Fi поднимается AWG-туннель.
-
 ## Стабильность / watchdog
 
 - [ ] **AWG watchdog** (`scripts/awg-watchdog`) — после `wg-quick down awg0` восстанавливает соединение в течение 1 минуты.

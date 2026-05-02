@@ -235,7 +235,12 @@ vm_deploy_handler() {
             /usr/libexec/rpcd /usr/share/rpcd/acl.d"
     vm_scp "$REPO_ROOT/web/rpcd-cheburnet"     "/usr/libexec/rpcd/cheburnet"
     vm_scp "$REPO_ROOT/web/rpcd-acl.json"      "/usr/share/rpcd/acl.d/cheburnet.json"
+    # rpcd-cheburnet source'ит cheburnet-utils.sh и net-detect.sh из lib/.
+    # Список держим в синхроне с тем, что rpcd-cheburnet реально подключает —
+    # иначе rpcd при старте падает «Not found», ubus list cheburnet пуст,
+    # и smoke-test диагностирует это как «handler не зарегистрирован».
     vm_scp "$REPO_ROOT/lib/cheburnet-utils.sh" "/opt/cheburnet/lib/cheburnet-utils.sh"
+    vm_scp "$REPO_ROOT/lib/net-detect.sh"      "/opt/cheburnet/lib/net-detect.sh"
     vm_ssh "chmod +x /usr/libexec/rpcd/cheburnet"
     vm_ssh "/etc/init.d/rpcd restart"
     sleep 2

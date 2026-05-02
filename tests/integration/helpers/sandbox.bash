@@ -64,10 +64,13 @@ sandbox_init() {
     export ETC_VPN_MODE_STATE="$FAKE_ROOT/etc/vpn-mode.state"
     export USR_BIN_VPN_MODE="$FAKE_ROOT/usr/bin/vpn-mode"
 
-    # lib подкладываем — rpcd-cheburnet source'ит cheburnet-utils.sh из
-    # $INSTALL_DIR/lib/. Используем cp (не симлинк) чтобы тест видел тот же
-    # код что в репо.
+    # lib подкладываем — rpcd-cheburnet source'ит cheburnet-utils.sh и
+    # net-detect.sh из $INSTALL_DIR/lib/. Используем cp (не симлинк) чтобы
+    # тест видел тот же код что в репо. Список держим в синхроне с тем,
+    # что rpcd-cheburnet и подkop-config реально source'ят.
     cp "$REPO_ROOT/lib/cheburnet-utils.sh" "$INSTALL_DIR/lib/"
+    cp "$REPO_ROOT/lib/net-detect.sh"      "$INSTALL_DIR/lib/"
+    cp "$REPO_ROOT/lib/podkop-config.sh"   "$INSTALL_DIR/lib/"
 
     # Моки в начале PATH
     MOCKDIR="$SANDBOX/mockdir"

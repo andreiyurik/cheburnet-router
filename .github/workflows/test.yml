@@ -4,8 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Ручной запуск из вкладки Actions — для отладки QEMU-job'ов и release-gates.
+  workflow_dispatch:
 
 jobs:
+  # ── T1+T2: статика и mock-тесты (быстрые, на каждый push/PR) ────────────────
   test:
     runs-on: ubuntu-latest
     steps:
@@ -16,3 +19,91 @@ jobs:
 
       - name: Run unit + integration tests (bats-core)
         run: make test
+
+  # ── T3a + T3b: QEMU smoke (rpcd + HTTP/UI) ──────────────────────────────────
+  # ~3-5 минут с KVM. Запускаем только на push в main и по ручному запросу,
+  # чтобы не задерживать каждый PR на старте VM.
+  qemu-smoke:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install QEMU + ncat
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              qemu-system-x86 qemu-utils ncat
+          qemu-system-x86_64 --version | head -1
+
+      - name: Enable KVM access
+        # GitHub Actions ubuntu-24.04 runner имеет /dev/kvm, но по умолчанию
+        # доступ только у группы kvm. Этот udev-rule даёт всем (включая
+        # текущего пользователя без перелогина) RW-доступ. Если runner KVM
+        # не поддерживает — наш lib.sh сам падает на TCG (медленнее, но
+        # всё равно работает; CI-таймаут это переживает).
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+              | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm 2>/dev/null || echo "(KVM недоступен — ожидаем TCG-fallback)"
+
+      - name: T3a — hermetic VM smoke (rpcd + ubus)
+        run: make qemu
+
+      - name: T3b — VM smoke с HTTP/UI
+        run: make qemu-http
+
+      - name: Upload serial-лог при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-smoke-serial-log
+          path: tests/qemu/.work/serial.log
+          retention-days: 7
+
+  # ── T3c: полный прогон setup/install.sh на VM ───────────────────────────────
+  # Самый медленный тест (~5-10 мин с KVM, до 20+ без). Запускается только
+  # на push в main и по ручному запросу — это release-gate, не PR-gate.
+  # Поймал реальные регрессии (busybox-несовместимость `install -m`,
+  # отсутствующие зависимости manifest) — не убирать без замены.
+  qemu-install:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: qemu-smoke
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install QEMU + ncat
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              qemu-system-x86 qemu-utils ncat python3
+          qemu-system-x86_64 --version | head -1
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+              | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm 2>/dev/null || echo "(KVM недоступен — ожидаем TCG-fallback)"
+
+      - name: T3c — полный setup/install.sh на VM
+        run: make qemu-install
+
+      - name: Upload install-лог при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-install-logs
+          path: |
+            tests/qemu/.work/serial.log
+            /tmp/install-test*.log
+          retention-days: 7

@@ -250,9 +250,10 @@ cd cheburnet-router && ./setup.sh
 ```bash
 ssh root@192.168.1.1
 vpn-mode home      # .ru напрямую + остальное через VPN (по умолчанию)
-vpn-mode travel    # весь трафик через VPN (например, в отеле)
+vpn-mode travel    # весь трафик через VPN (полный туннель)
 vpn-mode status    # текущий режим
-travel-check       # полная диагностика
+logread | tail -50 # последние события системы
+awg show awg0      # статус VPN-туннеля
 ```
 
 ---

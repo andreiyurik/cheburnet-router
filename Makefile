@@ -6,8 +6,12 @@
 #   make qemu        — T3a: hermetic VM smoke в qemu/KVM (~90с, без интернета).
 #   make qemu-http   — T3b: VM smoke с HTTP/ubus + UI-кнопками (~3мин, нужен
 #                     интернет в VM для apk add uhttpd-mod-ubus).
+#   make qemu-install — T3c: полный прогон setup/install.sh на VM (~5-10мин,
+#                     нужен интернет — apk + github для podkop/adblock).
+#                     Release-gate. Поймал uci/busybox-несовместимости,
+#                     которые mock-тесты T2 пропускают.
 
-.PHONY: lint test test-unit test-integration qemu qemu-http
+.PHONY: lint test test-unit test-integration qemu qemu-http qemu-install
 
 BATS := tests/vendor/bats-core/bin/bats
 
@@ -47,3 +51,13 @@ qemu:
 # c invalid mode и т.п.).
 qemu-http:
 	@./tests/qemu/smoke-http.sh
+
+# T3c — полный install. Поднимает VM, заливает репо в /opt/cheburnet,
+# запускает setup/install.sh целиком на реальном busybox-OpenWrt. Ловит
+# coreutils-vs-busybox несовместимости (например, отсутствие команды
+# `install`), регрессии в порядке шагов, проблемы манифеста и т.п.
+# Шаги 01-amneziawg и 05-wifi на x86-snapshot падают ожидаемо
+# (нет kmod-amneziawg / нет Wi-Fi-чипа). Реальный полный happy-path
+# тестируется на Cudy/Beryl AX вручную.
+qemu-install:
+	@./tests/qemu/install.sh

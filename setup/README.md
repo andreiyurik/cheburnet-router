@@ -10,7 +10,7 @@
 
 | Entrypoint | Что ставит | Время |
 |---|---|---|
-| `setup/install.sh` | AmneziaWG + podkop/sing-box + adblock + DoH + kill-switch + watchdog + travel-tooling | ~12 мин |
+| `setup/install.sh` | AmneziaWG + podkop/sing-box + adblock + DoH + kill-switch + watchdog + Wi-Fi + SQM | ~10 мин |
 
 ## Требования к роутеру
 
@@ -39,8 +39,6 @@
 | `08-watchdog.sh` | `awg-watchdog` + cron (перезапуск при протухшем handshake) | ~10 сек |
 | `09-ssh-hardening.sh` | Отключение password-auth в dropbear, REJECT SSH с WAN | ~20 сек |
 | `10-quality.sh` | Timezone MSK, persistent logs, SQM (установка), sysupgrade.conf | ~1 мин |
-| `11-travel.sh` | travel-connect / travel-portal / travel-vpn-on | ~20 сек |
-| `12-travel-plus.sh` | USB tethering (kmods) + travel-scan/wifi/mac/check | ~1 мин |
 
 ## Поштучный запуск (для отладки)
 

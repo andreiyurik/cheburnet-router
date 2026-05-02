@@ -38,8 +38,6 @@ POSIX_FILES=(
     setup/08-watchdog.sh
     setup/09-ssh-hardening.sh
     setup/10-quality.sh
-    setup/11-travel.sh
-    setup/12-travel-plus.sh
     setup/post-upgrade.sh
     scripts/awg-watchdog
     scripts/conntrack-monitor
@@ -49,14 +47,6 @@ POSIX_FILES=(
     scripts/log-snapshot
     scripts/net-benchmark
     scripts/sqm-tune
-    scripts/travel-check
-    scripts/travel-connect
-    scripts/travel-mac
-    scripts/travel-portal
-    scripts/travel-scan
-    scripts/travel-tether
-    scripts/travel-vpn-on
-    scripts/travel-wifi
     scripts/vpn-mode
     scripts/hotplug/button/10-vpn-mode
     scripts/init.d/vpn-mode
@@ -222,6 +212,43 @@ else
         esac
     done < "$MANIFEST"
     [ "$manifest_fail" -eq 0 ] && ok "$MANIFEST — все источники на месте, dst абсолютные, modes валидны"
+fi
+
+# === 6. Manifest coverage ===
+# setup/0X-*.sh после рефакторинга ничего не копируют сами, а полагаются
+# на манифест: `[ -x /usr/bin/X ]`-проверки и cron-задачи `/usr/bin/Y`
+# верят, что файл уже на месте. Если кто-то удалит строку из манифеста
+# или переименует destination — установка либо упадёт на конкретном шаге,
+# либо тихо пропустит компонент. Ловим оба класса: каждое упоминание
+# /usr/bin/ в setup-шагах должно иметь соответствующий dst в манифесте.
+section "manifest coverage"
+if [ ! -f "$MANIFEST" ]; then
+    fail "$MANIFEST не найден — пропускаем coverage"
+else
+    # Список dst'ов из манифеста — для быстрого `grep -F`-сравнения.
+    manifest_dsts="$(awk '$1 !~ /^#/ && NF==3 {print $2}' "$MANIFEST")"
+
+    # Все упоминания /usr/bin/X в setup-шагах. Сначала вырезаем строки-
+    # комментарии (там бывают glob-паттерны вида `/usr/bin/vpn-*`,
+    # которые дают false-positive); затем извлекаем уникальные пути.
+    # Echo-строки cron-задач включаем намеренно: они тоже зависят
+    # от наличия бинаря (cron не упадёт, но команда будет no-op).
+    setup_refs="$(grep -hv '^[[:space:]]*#' setup/*.sh 2>/dev/null \
+                  | grep -oE '/usr/bin/[a-zA-Z][a-zA-Z0-9._-]*[a-zA-Z0-9]' \
+                  | sort -u)"
+
+    coverage_fail=0
+    for ref in $setup_refs; do
+        if ! printf '%s\n' "$manifest_dsts" | grep -qxF "$ref"; then
+            fail "$ref упоминается в setup/ но НЕ устанавливается манифестом"
+            coverage_fail=$((coverage_fail + 1))
+        fi
+    done
+
+    if [ "$coverage_fail" -eq 0 ]; then
+        n=$(printf '%s\n' "$setup_refs" | grep -c '^/usr/bin/' || true)
+        ok "$n путей /usr/bin/* из setup/ покрыты манифестом"
+    fi
 fi
 
 # === Итог ===

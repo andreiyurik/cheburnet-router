@@ -62,7 +62,10 @@ while read src dst mode; do
         continue
     fi
     mkdir -p "$(dirname "$dst")"
-    install -m "$mode" "$full_src" "$dst"
+    # cp + chmod, не `install -m mode` — busybox-конфиг OpenWrt не включает
+    # утилиту install в дефолтный набор. Поймали в QEMU smoke на свежем
+    # snapshot: установка падала на первом файле манифеста.
+    cp "$full_src" "$dst" && chmod "$mode" "$dst"
 done < "$MANIFEST"
 
 if [ "$missing" -gt 0 ]; then
@@ -94,7 +97,7 @@ if [ ! -f /etc/amnezia/amneziawg/awg0.conf ]; then
 fi
 STEPS="00-prerequisites.sh 01-amneziawg.sh 02-podkop.sh 03-adblock.sh \
        04-dns.sh 05-wifi.sh 06-vpn-mode.sh 07-killswitch.sh 08-watchdog.sh \
-       09-ssh-hardening.sh 10-quality.sh 11-travel.sh 12-travel-plus.sh"
+       09-ssh-hardening.sh 10-quality.sh"
 
 # 09-ssh-hardening в режиме инсталляции не должен валиться при пустом
 # authorized_keys — мы хотим хотя бы Block-SSH-from-WAN всегда поставить.

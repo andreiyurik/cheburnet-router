@@ -17,6 +17,9 @@ if [ "$pct" -ge 95 ]; then
     conntrack -F 2>/dev/null || true
 elif [ "$pct" -ge 80 ]; then
     logger -t conntrack-monitor "WARN: ${cur}/${max} (${pct}%) — high, check traffic"
-else
-    logger -t conntrack-monitor "OK: ${cur}/${max} (${pct}%)"
 fi
+# При <80% не логируем — это норма. Текущие значения всегда доступны через
+#   cat /proc/sys/net/netfilter/nf_conntrack_count
+#   cat /proc/sys/net/netfilter/nf_conntrack_max
+# Раньше тут писалось "OK: ..." каждые 15 минут (96 строк/день) — это
+# забивало logd ring-buffer и log-snapshot реальными инцидентами.
