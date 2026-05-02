@@ -1,47 +1,25 @@
 #!/bin/sh
-# 06-vpn-mode.sh — установить vpn-mode CLI и поддержку физической кнопки.
+# 06-vpn-mode.sh — настроить vpn-mode CLI и поддержку физической кнопки.
 #
-# Что делает:
-#   1. Устанавливает /usr/bin/vpn-mode — команда переключения режимов
-#   2. Устанавливает hotplug-обработчик кнопки (Cudy TR3000, Beryl AX)
-#   3. Устанавливает init.d-сервис для синхронизации режима при загрузке
-#   4. Выставляет режим по умолчанию: home (.ru напрямую, остальное через VPN)
+# Файлы (vpn-mode, hotplug-handler, init.d-сервис) уже разложены по местам
+# через setup/manifest.txt в setup/install.sh. Здесь только активируем
+# init.d и применяем дефолтный режим.
 set -e
 
 echo "== 06. vpn-mode CLI + кнопка =="
 
-# === 1. vpn-mode CLI ===
-if [ -f /tmp/scripts/vpn-mode ]; then
-    cp /tmp/scripts/vpn-mode /usr/bin/vpn-mode
-    chmod +x /usr/bin/vpn-mode
-    echo "→ установлен /usr/bin/vpn-mode"
-else
-    echo "✗ /tmp/scripts/vpn-mode не найден"; exit 1
-fi
+# === 1. Sanity: бинари на месте ===
+[ -x /usr/bin/vpn-mode ] || { echo "✗ /usr/bin/vpn-mode отсутствует (манифест?)"; exit 1; }
 
-# === 2. Hotplug-обработчик физической кнопки ===
-# Cudy TR3000: нажатие VPN-кнопки → vpn-mode toggle
-# Beryl AX: нажатие кнопки → vpn-mode toggle (GPIO-слайдер читается отдельно при загрузке)
-mkdir -p /etc/hotplug.d/button
-if [ -f /tmp/scripts/hotplug/button/10-vpn-mode ]; then
-    cp /tmp/scripts/hotplug/button/10-vpn-mode /etc/hotplug.d/button/10-vpn-mode
-    chmod +x /etc/hotplug.d/button/10-vpn-mode
-    echo "→ установлен hotplug-обработчик кнопки"
-else
-    echo "⚠ hotplug/button/10-vpn-mode не найден — физическая кнопка работать не будет"
-fi
-
-# === 3. Init.d для синхронизации режима при загрузке ===
-if [ -f /tmp/scripts/init.d/vpn-mode ]; then
-    cp /tmp/scripts/init.d/vpn-mode /etc/init.d/vpn-mode
-    chmod +x /etc/init.d/vpn-mode
+# === 2. Init.d-автозапуск ===
+if [ -x /etc/init.d/vpn-mode ]; then
     /etc/init.d/vpn-mode enable
-    echo "→ установлен init.d/vpn-mode (автозапуск)"
+    echo "→ init.d/vpn-mode включён в автозагрузку"
 else
-    echo "⚠ init.d/vpn-mode не найден — режим не будет восстанавливаться при перезагрузке"
+    echo "⚠ /etc/init.d/vpn-mode отсутствует — режим не будет восстанавливаться при перезагрузке"
 fi
 
-# === 4. Режим по умолчанию ===
+# === 3. Режим по умолчанию ===
 # Если режим ещё не задан — применяем home (безопасный дефолт)
 if [ ! -f /etc/vpn-mode.state ]; then
     /usr/bin/vpn-mode home

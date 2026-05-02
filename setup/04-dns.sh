@@ -11,14 +11,8 @@ uci set podkop.settings.dns_server='dns.quad9.net/dns-query'
 uci set podkop.settings.bootstrap_dns_server='1.1.1.1'
 uci commit podkop
 
-# === 2. Копируем dns-provider (используется vpn-mode для отображения статуса) ===
-if [ -f /tmp/scripts/dns-provider ]; then
-    cp /tmp/scripts/dns-provider /usr/bin/dns-provider
-    chmod +x /usr/bin/dns-provider
-    echo "→ установлен /usr/bin/dns-provider"
-else
-    echo "⚠ /tmp/scripts/dns-provider не найден"
-fi
+# === 2. Sanity: dns-provider на месте (разложен через манифест) ===
+[ -x /usr/bin/dns-provider ] || echo "⚠ /usr/bin/dns-provider отсутствует — статус через vpn-mode не будет показывать DNS"
 
 # === 3. Reload podkop для применения нового DNS ===
 /etc/init.d/podkop reload >/dev/null 2>&1 &

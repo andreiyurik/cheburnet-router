@@ -1,20 +1,19 @@
 #!/bin/sh
-# 11-travel.sh — установить скрипты для TRAVEL-режима (WISP + captive portal).
+# 11-travel.sh — sanity-check скриптов для TRAVEL-режима (WISP + captive portal).
+# Файлы разложены через setup/manifest.txt — здесь только проверяем что бинари
+# на месте и печатаем шпаргалку.
 set -e
 
 echo "== 11. Travel mode helpers =="
 
-for SRC in travel-connect travel-portal travel-vpn-on; do
-    if [ -f /tmp/scripts/$SRC ]; then
-        cp /tmp/scripts/$SRC /usr/bin/$SRC
-        chmod +x /usr/bin/$SRC
-        echo "→ установлен /usr/bin/$SRC"
+for BIN in /usr/bin/travel-connect /usr/bin/travel-portal /usr/bin/travel-vpn-on; do
+    if [ -x "$BIN" ]; then
+        echo "→ $BIN на месте"
     else
-        echo "⚠ /tmp/scripts/$SRC отсутствует"
+        echo "✗ $BIN отсутствует (манифест?)"
         exit 1
     fi
 done
-
 
 echo "✓ travel-mode scripts OK"
 echo

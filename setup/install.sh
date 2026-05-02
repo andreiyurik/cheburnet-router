@@ -37,25 +37,40 @@ if command -v cheburnet_diag_system >/dev/null 2>&1; then
     cheburnet_diag_system
 fi
 
-# === Подготовка /tmp/scripts и /tmp/configs ===
-# Setup-скрипты исторически ожидают файлы в этих путях (их раньше scp'шил full-deploy).
-# На роутере мы просто копируем из /opt/cheburnet/.
-echo "[prepare] копирую скрипты в /tmp/scripts и /tmp/configs"
-rm -rf /tmp/scripts /tmp/configs
-mkdir -p /tmp/scripts/hotplug/button /tmp/scripts/init.d /tmp/configs
+# === Применяем манифест ===
+# Раньше тут было два слоя копирования: сначала /opt/cheburnet/scripts/* →
+# /tmp/scripts/, потом setup/0X-*.sh → /tmp/scripts/* в /usr/bin/. Это давало
+# два места где можно «забыть скопировать файл» (см. историю с conntrack-monitor).
+# Теперь один манифест → один проход install — финальные пути сразу.
+# Setup-шаги после этого только настраивают сервисы и cron, не копируют файлы.
+MANIFEST="$INSTALL_DIR/setup/manifest.txt"
+if [ ! -f "$MANIFEST" ]; then
+    echo "✗ $MANIFEST не найден — ставить нечего"
+    echo "fail-no-manifest" > "$DONE"
+    exit 1
+fi
 
-cp "$INSTALL_DIR/scripts/vpn-mode"         /tmp/scripts/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/dns-provider"     /tmp/scripts/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/dns-healthcheck"  /tmp/scripts/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/awg-watchdog"     /tmp/scripts/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/conntrack-monitor" /tmp/scripts/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/log-snapshot"     /tmp/scripts/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/sqm-tune"         /tmp/scripts/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/travel-"*         /tmp/scripts/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/hotplug/button/10-vpn-mode" /tmp/scripts/hotplug/button/ 2>/dev/null || true
-cp "$INSTALL_DIR/scripts/init.d/vpn-mode"  /tmp/scripts/init.d/ 2>/dev/null || true
-cp "$INSTALL_DIR/configs/sysupgrade.conf"  /tmp/configs/ 2>/dev/null || true
-cp "$INSTALL_DIR/configs/adblock-lean.config.txt" /tmp/configs/ 2>/dev/null || true
+echo "[prepare] раскладываю файлы по манифесту"
+missing=0
+# shellcheck disable=SC2162  # POSIX read без -r — нам не нужно интерпретировать backslash в путях
+while read src dst mode; do
+    case "$src" in ''|\#*) continue;; esac
+    full_src="$INSTALL_DIR/$src"
+    if [ ! -f "$full_src" ]; then
+        echo "  ✗ источник отсутствует: $src"
+        missing=$((missing + 1))
+        continue
+    fi
+    mkdir -p "$(dirname "$dst")"
+    install -m "$mode" "$full_src" "$dst"
+done < "$MANIFEST"
+
+if [ "$missing" -gt 0 ]; then
+    echo "✗ манифест ссылается на $missing отсутствующих файла(ов) — установка прервана"
+    echo "fail-manifest-missing" > "$DONE"
+    exit 1
+fi
+echo "  ✓ манифест применён"
 
 # Wi-Fi параметры. Для веб-мастера — кладёт rpcd-cheburnet (RPC install_start
 # принимает SSID/key/country и пишет файл). Для CLI — кладёт setup.sh
