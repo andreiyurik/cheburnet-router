@@ -27,9 +27,11 @@ else
 fi
 
 # Живой тест — резолвим через локальный dnsmasq роутера, а не через хардкод 192.168.1.1
-LAN_IP=$(uci -q get network.lan.ipaddr || echo "127.0.0.1")
-# OpenWrt 25.12+ хранит ipaddr в CIDR-форме (192.168.1.1/24) — срезаем маску
-LAN_IP=${LAN_IP%%/*}
+NET_LIB="${CHEBURNET_NET_LIB:-/opt/cheburnet/lib/net-detect.sh}"
+[ -f "$NET_LIB" ] || NET_LIB="$(dirname "$0")/../lib/net-detect.sh"
+# shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
+. "$NET_LIB"
+LAN_IP=$(net_lan_ip 127.0.0.1)
 if nslookup cloudflare.com "$LAN_IP" 2>/dev/null | grep -q Address; then
     echo "✓ резолвинг работает (через $LAN_IP)"
 else

@@ -37,61 +37,32 @@ fi
 # === 2. UCI-конфигурация ===
 echo "→ настраиваем podkop UCI"
 
-# Определяем реальную LAN-подсеть (а не хардкод 192.168.1.0/24).
-# Сначала пробуем стандартный helper OpenWrt; на старых сборках fallback через ipcalc.sh.
-LAN_CIDR=""
-if [ -f /lib/functions/network.sh ]; then
-    # shellcheck disable=SC1091
-    . /lib/functions/network.sh
-    network_flush_cache
-    network_get_subnet LAN_CIDR lan 2>/dev/null || true
-fi
-if [ -z "$LAN_CIDR" ]; then
-    LAN_IP=$(uci -q get network.lan.ipaddr || echo "")
-    # OpenWrt 25.12+ хранит ipaddr в CIDR-форме (192.168.1.1/24) — срезаем маску
-    LAN_IP=${LAN_IP%%/*}
-    LAN_MASK=$(uci -q get network.lan.netmask || echo "255.255.255.0")
-    if [ -n "$LAN_IP" ] && command -v ipcalc.sh >/dev/null 2>&1; then
-        LAN_CIDR=$(ipcalc.sh "$LAN_IP" "$LAN_MASK" 2>/dev/null \
-            | awk -F= '/^NETWORK/{n=$2} /^PREFIX/{p=$2} END{if(n && p) print n"/"p}')
-    fi
-fi
-if [ -z "$LAN_CIDR" ]; then
+# Подключаем общие хелперы. На роутере lib живёт в /opt/cheburnet/lib/
+# (туда копирует bootstrap.sh / setup.sh). Fallback на относительный путь
+# нужен для запуска шага напрямую из репо-чекаута без bootstrap'а.
+LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
+[ -f "$LIB_DIR/net-detect.sh" ] || LIB_DIR="$(dirname "$0")/../lib"
+# shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
+. "$LIB_DIR/net-detect.sh"
+# shellcheck source=../lib/podkop-config.sh disable=SC1090,SC1091
+. "$LIB_DIR/podkop-config.sh"
+
+LAN_CIDR=$(net_lan_cidr) || {
     echo "✗ Не удалось определить LAN-подсеть из uci." >&2
     echo "  Проверьте: uci show network.lan" >&2
     exit 1
-fi
+}
 echo "  LAN-подсеть: $LAN_CIDR"
 
-# main section: всё от LAN → через AWG
-# ВАЖНО: подkop пропускает секцию ("Section 'main' does not have any enabled list, skipping"),
-# если в ней нет ни community_lists, ни user_domains, ни user_domain_list_type.
-# В HOME-режиме main должен ловить "всё кроме .ru" — для этого даём ему
-# user_domain_list_type='dynamic' (без user_domains это значит "все домены").
-uci set podkop.main.connection_type='vpn'
-uci set podkop.main.interface='awg0'
-uci set podkop.main.user_domain_list_type='dynamic'
-uci -q delete podkop.main.community_lists 2>/dev/null || true
-uci -q delete podkop.main.proxy_config_type 2>/dev/null || true
-uci -q delete podkop.main.proxy_string 2>/dev/null || true
-uci -q delete podkop.main.fully_routed_ips 2>/dev/null || true
-uci add_list podkop.main.fully_routed_ips="$LAN_CIDR"
-
-# exclude_ru section: исключения для RU-сервисов
-uci set podkop.exclude_ru=section
-uci set podkop.exclude_ru.connection_type='exclusion'
-uci set podkop.exclude_ru.user_domain_list_type='dynamic'
-uci -q delete podkop.exclude_ru.community_lists 2>/dev/null || true
-uci add_list podkop.exclude_ru.community_lists='russia_outside'
-uci -q delete podkop.exclude_ru.user_domains 2>/dev/null || true
-uci add_list podkop.exclude_ru.user_domains='.ru'
-uci add_list podkop.exclude_ru.user_domains='.su'
-uci add_list podkop.exclude_ru.user_domains='.xn--p1ai'
-uci add_list podkop.exclude_ru.user_domains='vk.com'
+# main: всё через AWG. exclude_ru: исключения для RU-сервисов (HOME-режим
+# применяется по умолчанию — запускаем установку как "обычно дома").
+# Логика обеих секций живёт в lib/podkop-config.sh, чтобы scripts/vpn-mode
+# при переключении HOME/TRAVEL не дублировал ту же UCI-простыню.
+podkop_apply_main_section "$LAN_CIDR"
+podkop_apply_home
 
 # Лог-уровень — warn (чтобы не забивать logd дебагом)
 uci set podkop.settings.log_level='warn'
-
 uci commit podkop
 
 # === 3. Enable + start ===

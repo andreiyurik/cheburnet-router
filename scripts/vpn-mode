@@ -18,27 +18,22 @@ reload_podkop() {
     /etc/init.d/podkop reload >/dev/null 2>&1 &
 }
 
+# UCI-логика HOME/TRAVEL живёт в lib/podkop-config.sh — общий источник правды
+# с setup/02-podkop.sh. Фоллбэк на репо-чекаут нужен для прогона тестов
+# из исходников; на роутере всегда отрабатывает первая ветка.
+LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
+[ -f "$LIB_DIR/podkop-config.sh" ] || LIB_DIR="$(dirname "$0")/../lib"
+# shellcheck source=../lib/podkop-config.sh disable=SC1090,SC1091
+. "$LIB_DIR/podkop-config.sh"
+
 apply_home() {
-    uci set podkop.exclude_ru=section
-    uci set podkop.exclude_ru.connection_type='exclusion'
-    uci set podkop.exclude_ru.user_domain_list_type='dynamic'
-    uci -q delete podkop.exclude_ru.community_lists
-    uci add_list podkop.exclude_ru.community_lists='russia_outside'
-    uci -q delete podkop.exclude_ru.user_domains
-    uci add_list podkop.exclude_ru.user_domains='.ru'
-    uci add_list podkop.exclude_ru.user_domains='.su'
-    uci add_list podkop.exclude_ru.user_domains='.xn--p1ai'
-    uci add_list podkop.exclude_ru.user_domains='vk.com'
-    uci commit podkop
+    podkop_apply_home
     echo home > "$STATE_FILE"
     log "mode=HOME applied (VPN for all except RU)"
 }
 
 apply_travel() {
-    uci -q delete podkop.exclude_ru.community_lists
-    uci -q delete podkop.exclude_ru.user_domains
-    uci -q delete podkop.exclude_ru.user_domain_list_type
-    uci commit podkop
+    podkop_apply_travel
     echo travel > "$STATE_FILE"
     log "mode=TRAVEL applied (full tunnel)"
 }

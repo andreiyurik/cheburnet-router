@@ -40,6 +40,12 @@ LIB="${CHEBURNET_LIB:-$INSTALL_DIR/lib/cheburnet-utils.sh}"
 # shellcheck source=../lib/cheburnet-utils.sh disable=SC1090,SC1091
 . "$LIB"
 
+# net-detect: net_lan_ip с CIDR-стрипом (используется в DNS probe для get_status)
+NET_LIB="${CHEBURNET_NET_LIB:-$INSTALL_DIR/lib/net-detect.sh}"
+[ -f "$NET_LIB" ] || NET_LIB="$(dirname "$0")/../../../opt/cheburnet/lib/net-detect.sh"
+# shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
+. "$NET_LIB"
+
 # === list: описание доступных методов ===
 if [ "$1" = "list" ]; then
     cat <<'EOF'
@@ -110,9 +116,7 @@ case "$METHOD" in
         # podkop_up недостаточен — dnsmasq может упасть отдельно.
         DNS_UP="false"
         if "$ETC_INIT_D/dnsmasq" status 2>&1 | grep -qi running; then
-            LAN_IP=$(uci -q get network.lan.ipaddr || echo "127.0.0.1")
-            # OpenWrt 25.12+ хранит ipaddr в CIDR-форме (192.168.1.1/24) — срезаем маску
-            LAN_IP=${LAN_IP%%/*}
+            LAN_IP=$(net_lan_ip 127.0.0.1)
             if nslookup cloudflare.com "$LAN_IP" 2>/dev/null | grep -q Address; then
                 DNS_UP="true"
             fi

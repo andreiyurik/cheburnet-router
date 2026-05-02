@@ -186,9 +186,9 @@ else
     echo "    sh -x $RPCD_BIN list"
 fi
 
-ROUTER_IP=$(uci -q get network.lan.ipaddr || echo "192.168.1.1")
-# OpenWrt 25.12+ хранит ipaddr в CIDR-форме (192.168.1.1/24) — срезаем маску
-ROUTER_IP=${ROUTER_IP%%/*}
+# shellcheck source=lib/net-detect.sh disable=SC1090,SC1091
+. "$INSTALL_DIR/lib/net-detect.sh"
+ROUTER_IP=$(net_lan_ip 192.168.1.1)
 
 echo
 echo "╔══════════════════════════════════════════════════════╗"
