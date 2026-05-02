@@ -23,6 +23,8 @@ cd "$REPO" || exit 1
 POSIX_FILES=(
     bootstrap.sh
     lib/cheburnet-utils.sh
+    lib/net-detect.sh
+    lib/podkop-config.sh
     web/rpcd-cheburnet
     setup/install.sh
     setup/00-prerequisites.sh

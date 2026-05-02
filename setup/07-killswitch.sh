@@ -22,31 +22,27 @@ DIAG_LIB="${CHEBURNET_DIAG_LIB:-/opt/cheburnet/lib/cheburnet-diag.sh}"
 # shellcheck source=../lib/cheburnet-diag.sh disable=SC1090,SC1091
 . "$DIAG_LIB"
 
-# === 1. Параметры из netifd ===
-# shellcheck disable=SC1091
-. /lib/functions/network.sh
-network_flush_cache
+NET_LIB="${CHEBURNET_NET_LIB:-/opt/cheburnet/lib/net-detect.sh}"
+[ -f "$NET_LIB" ] || NET_LIB="$(dirname "$0")/../lib/net-detect.sh"
+# shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
+. "$NET_LIB"
 
+# === 1. Параметры из netifd ===
 # LAN-подсеть для IPv4-фильтра. Не хардкодим 192.168.1.0/24 — иначе на
 # нестандартных подсетях правило не сматчится и kill-switch будет тихо
-# дырявым.
-LAN_CIDR=""
-network_get_subnet LAN_CIDR lan 2>/dev/null || true
-if [ -z "$LAN_CIDR" ]; then
-    LAN_IP=$(uci -q get network.lan.ipaddr || echo "")
-    # OpenWrt 25.12+ хранит ipaddr в CIDR-форме (192.168.1.1/24) — срезаем маску
-    LAN_IP=${LAN_IP%%/*}
-    LAN_MASK=$(uci -q get network.lan.netmask || echo "255.255.255.0")
-    if [ -n "$LAN_IP" ] && command -v ipcalc.sh >/dev/null 2>&1; then
-        LAN_CIDR=$(ipcalc.sh "$LAN_IP" "$LAN_MASK" 2>/dev/null \
-            | awk -F= '/^NETWORK/{n=$2} /^PREFIX/{p=$2} END{if(n && p) print n"/"p}')
-    fi
-fi
-if [ -z "$LAN_CIDR" ]; then
+# дырявым. net_lan_cidr делает netifd → uci+ipcalc fallback.
+LAN_CIDR=$(net_lan_cidr) || {
     echo "✗ Не удалось определить LAN-подсеть из uci." >&2
     cheburnet_diag_network
     exit 1
-fi
+}
+
+# /lib/functions/network.sh для последующего network_get_device.
+# net_lan_cidr его уже подсорсил, но повторный source безопасен
+# (idempotent функции) — оставляем явный вызов для читаемости.
+# shellcheck disable=SC1091
+. /lib/functions/network.sh
+network_flush_cache
 
 # WAN-устройство для oifname в nft. На разных платформах имя различается:
 # wan, eth1, wan@eth0 — резолвим через netifd, не угадываем.

@@ -197,8 +197,9 @@ echo "✓ ACL заблокирован: чтение без логина, мут
 # ВАЖНО: не печатаем секреты (Wi-Fi password, root password) — лог
 # доступен через install_progress RPC без авторизации.
 FINAL_SSID="${WIFI_SSID:-<ваш SSID>}"
-FINAL_LAN_IP=$(uci -q get network.lan.ipaddr 2>/dev/null | sed 's|/.*||')
-[ -z "$FINAL_LAN_IP" ] && FINAL_LAN_IP="192.168.1.1"
+# shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
+. "$INSTALL_DIR/lib/net-detect.sh"
+FINAL_LAN_IP=$(net_lan_ip 192.168.1.1)
 
 cat <<EOF
 
