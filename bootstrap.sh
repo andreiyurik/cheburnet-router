@@ -123,10 +123,9 @@ cp -r "$SRC/lib"      "$INSTALL_DIR/"
 # vendor/ — запасные копии podkop/adblock-lean инсталлеров на случай,
 # если raw.githubusercontent.com заблокирован у пользователя на DPI.
 [ -d "$SRC/vendor" ] && cp -r "$SRC/vendor" "$INSTALL_DIR/"
-# run-install.sh + rpcd-handler поставляются в web/
-cp "$SRC/web/run-install.sh" "$INSTALL_DIR/run-install.sh"
-chmod +x "$INSTALL_DIR/run-install.sh"
-# Все setup-скрипты тоже должны быть исполняемые
+# Все setup-скрипты + установочные тулзы должны быть исполняемые.
+# Оркестратор живёт в setup/install.sh — отдельная копия не нужна, он
+# лежит в setup/ и попадает на роутер через `cp -r setup/`.
 chmod +x "$INSTALL_DIR/setup/"*.sh 2>/dev/null || true
 chmod +x "$INSTALL_DIR/scripts/"* 2>/dev/null || true
 

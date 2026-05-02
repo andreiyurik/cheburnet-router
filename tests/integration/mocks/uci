@@ -49,7 +49,7 @@ case "$cmd" in
         : # no-op для теста
         ;;
     show)
-        # Используется в run-install.sh для grep'а Block-SSH-from-WAN.
+        # Используется в setup/install.sh для grep'а Block-SSH-from-WAN.
         # Ничего не печатаем — пусть grep вернёт false, мок-флоу простой.
         :
         ;;

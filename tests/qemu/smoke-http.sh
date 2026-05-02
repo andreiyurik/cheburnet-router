@@ -112,7 +112,7 @@ vm_scp "$REPO_ROOT/web/index.html" "/www/cheburnet/index.html"
 
 vm_deploy_handler
 
-# В проде после установки run-install.sh заменяет начальный ACL на post-install
+# В проде после установки setup/install.sh заменяет начальный ACL на post-install
 # (anon read-only, мутации требуют login через cheburnet-admin role). UI после
 # установки работает именно с этой конфигурацией — её мы и тестируем здесь.
 echo "→ Подменяю ACL на post-install (anon read-only, admin требует login)"

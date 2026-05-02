@@ -3,7 +3,7 @@
 #
 # Реальный rpcd-enforce'ит ACL только в полной OpenWrt-VM (T3b). На уровне
 # протокола мы можем гарантировать главное: ACL-файлы (pre-install и тот, что
-# run-install.sh пишет post-install) имеют ПРАВИЛЬНУЮ структуру. Если эти
+# setup/install.sh пишет post-install) имеют ПРАВИЛЬНУЮ структуру. Если эти
 # инварианты сломаются — атаку через unauth.write словит злоумышленник, не CI.
 
 load 'helpers/sandbox'
@@ -22,8 +22,7 @@ extract_acl_heredoc() {
 }
 
 PRE_ACL="$REPO_ROOT/web/rpcd-acl.json"
-POST_ACL_RUN="$REPO_ROOT/web/run-install.sh"
-POST_ACL_FULL="$REPO_ROOT/setup/full-deploy.sh"
+POST_ACL_RUN="$REPO_ROOT/setup/install.sh"
 
 # ─── Pre-install ACL (web/rpcd-acl.json) ────────────────────────────────────
 
@@ -53,14 +52,10 @@ POST_ACL_FULL="$REPO_ROOT/setup/full-deploy.sh"
     done
 }
 
-# ─── Post-install ACL (записан run-install.sh / full-deploy.sh) ─────────────
+# ─── Post-install ACL (записан setup/install.sh) ────────────────────────────
 
-@test "post-install ACL: heredoc в run-install.sh — валидный JSON" {
+@test "post-install ACL: heredoc в setup/install.sh — валидный JSON" {
     extract_acl_heredoc "$POST_ACL_RUN" | python3 -m json.tool >/dev/null
-}
-
-@test "post-install ACL: heredoc в full-deploy.sh — валидный JSON" {
-    extract_acl_heredoc "$POST_ACL_FULL" | python3 -m json.tool >/dev/null
 }
 
 @test "post-install ACL: unauth.write ОТСУТСТВУЕТ — мутации только через login" {
@@ -93,20 +88,10 @@ assert write is None or write == {} or write == {"ubus": {}}, \
     [ "$methods" = "get_status install_progress" ]
 }
 
-@test "post-install ACL: run-install.sh и full-deploy.sh пишут БИТ-в-БИТ одинаковый ACL" {
-    a="$(extract_acl_heredoc "$POST_ACL_RUN")"
-    b="$(extract_acl_heredoc "$POST_ACL_FULL")"
-    [ "$a" = "$b" ]
-}
-
 # ─── install-токен: post-install контракт ───────────────────────────────────
 
-@test "post-install: run-install.sh удаляет install-токен (grep'ом по коду)" {
+@test "post-install: setup/install.sh удаляет install-токен (grep'ом по коду)" {
     grep -q "rm -f /etc/cheburnet/install-token" "$POST_ACL_RUN"
-}
-
-@test "post-install: full-deploy.sh тоже удаляет install-токен" {
-    grep -q "rm -f /etc/cheburnet/install-token" "$POST_ACL_FULL"
 }
 
 @test "bootstrap.sh создаёт install-токен (32 hex символа, chmod 600)" {

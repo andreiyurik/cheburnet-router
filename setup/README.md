@@ -6,11 +6,11 @@
 
 ## Что устанавливается
 
-`setup.sh` проводит пользователя через 4 шага (адрес роутера → .conf → Wi-Fi → подтверждение) и затем запускает `full-deploy.sh`, который ставит на роутер AmneziaWG-стек.
+`setup.sh` проводит пользователя через 4 шага (адрес роутера → .conf → Wi-Fi → подтверждение), `rsync`'ит репо в `/opt/cheburnet/` на роутере и запускает там единственный оркестратор `setup/install.sh`. Веб-мастер (через `bootstrap.sh` + RPC `install_start`) запускает тот же самый `setup/install.sh`.
 
 | Entrypoint | Что ставит | Время |
 |---|---|---|
-| `full-deploy.sh` | AmneziaWG + podkop/sing-box + adblock + DoH + kill-switch + watchdog + travel-tooling | ~12 мин |
+| `setup/install.sh` | AmneziaWG + podkop/sing-box + adblock + DoH + kill-switch + watchdog + travel-tooling | ~12 мин |
 
 ## Требования к роутеру
 
@@ -22,7 +22,7 @@
 
 ## Шаги установки
 
-`full-deploy.sh` выполняет следующие скрипты по порядку (на роутере):
+`setup/install.sh` выполняет следующие скрипты по порядку (на роутере):
 
 | Скрипт | Что делает | Время |
 |---|---|---|
@@ -50,13 +50,16 @@ export ROUTER=root@192.168.1.1
 # Сначала подготовьте configs/wireless-actual.txt через ./setup.sh
 # и положите .conf в configs/awg0.conf
 
+# Зальём репозиторий на роутер один раз (то же делает setup.sh):
+rsync -a --exclude='.git' --exclude='tests' --exclude='docs' \
+      ./ "$ROUTER":/opt/cheburnet/
 scp configs/awg0.conf "$ROUTER":/etc/amnezia/amneziawg/awg0.conf
-ssh "$ROUTER" 'mkdir -p /tmp/scripts /tmp/configs'
-scp scripts/* "$ROUTER":/tmp/scripts/
 
-ssh "$ROUTER" 'sh -s' < setup/00-prerequisites.sh
-ssh "$ROUTER" 'sh -s' < setup/01-amneziawg.sh
-# ... и т.д.
+# Дальше можно запускать любой шаг отдельно:
+ssh "$ROUTER" 'sh /opt/cheburnet/setup/00-prerequisites.sh'
+ssh "$ROUTER" 'sh /opt/cheburnet/setup/01-amneziawg.sh'
+# ... или весь оркестратор сразу:
+ssh "$ROUTER" '/opt/cheburnet/setup/install.sh'
 ```
 
 ## Портирование на другое железо

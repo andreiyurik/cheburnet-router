@@ -23,8 +23,8 @@ cd "$REPO" || exit 1
 POSIX_FILES=(
     bootstrap.sh
     lib/cheburnet-utils.sh
-    web/run-install.sh
     web/rpcd-cheburnet
+    setup/install.sh
     setup/00-prerequisites.sh
     setup/01-amneziawg.sh
     setup/02-podkop.sh
@@ -38,7 +38,6 @@ POSIX_FILES=(
     setup/10-quality.sh
     setup/11-travel.sh
     setup/12-travel-plus.sh
-    setup/full-deploy.sh
     setup/post-upgrade.sh
     scripts/awg-watchdog
     scripts/conntrack-monitor
@@ -172,26 +171,23 @@ else
         fail "web/rpcd-acl.json — невалидный JSON"
     fi
 
-    # 4b. Embedded heredoc'и <<'ACL' ... ACL в run-install.sh и full-deploy.sh.
+    # 4b. Embedded heredoc <<'ACL' ... ACL в setup/install.sh.
     # Извлекаем содержимое между маркерами и валидируем.
     extract_acl() {
         # $1 — путь к скрипту. Печатает содержимое первого ACL-heredoc'а.
         sed -n "/<<'ACL'/,/^ACL$/p" "$1" | sed "/<<'ACL'/d;/^ACL$/d"
     }
 
-    for src in web/run-install.sh setup/full-deploy.sh; do
-        body="$(extract_acl "$src")"
-        if [ -z "$body" ]; then
-            fail "$src — heredoc <<'ACL' не найден (формат поменялся?)"
-            continue
-        fi
-        if printf '%s\n' "$body" | python3 -m json.tool >/dev/null 2>/tmp/lint-json.err; then
-            ok "$src (embedded ACL heredoc)"
-        else
-            fail "$src — невалидный embedded JSON"
-            cat /tmp/lint-json.err
-        fi
-    done
+    src=setup/install.sh
+    body="$(extract_acl "$src")"
+    if [ -z "$body" ]; then
+        fail "$src — heredoc <<'ACL' не найден (формат поменялся?)"
+    elif printf '%s\n' "$body" | python3 -m json.tool >/dev/null 2>/tmp/lint-json.err; then
+        ok "$src (embedded ACL heredoc)"
+    else
+        fail "$src — невалидный embedded JSON"
+        cat /tmp/lint-json.err
+    fi
     rm -f /tmp/lint-json.err
 fi
 

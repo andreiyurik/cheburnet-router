@@ -50,7 +50,7 @@ make lint
 | 1 | `shellcheck --shell=sh --severity=warning` на 39 POSIX-скриптах | Большинство кода идёт в busybox-ash на роутер; нужен POSIX-режим |
 | 2 | `shellcheck --shell=bash --severity=warning` на `setup.sh` | Хост-тулинг, использует bash-фичи |
 | 3 | `sh -n` / `bash -n` на всех скриптах | Safety net поверх shellcheck |
-| 4 | `python3 -m json.tool` на `web/rpcd-acl.json` + двух embedded-ACL heredoc'ах в `web/run-install.sh` и `setup/full-deploy.sh` | Кривая ACL-JSON ломает rpcd → веб-мастер мёртв |
+| 4 | `python3 -m json.tool` на `web/rpcd-acl.json` + embedded-ACL heredoc'е в `setup/install.sh` | Кривая ACL-JSON ломает rpcd → веб-мастер мёртв |
 | 5 | `sha256(bootstrap.sh)` совпадает с хэшем в `README.md` | Если рассинхронить — пользователь делает bootstrap, проверка подписи проваливается, установка не идёт |
 
 CI: `.github/workflows/lint.yml` (push/PR → ubuntu-latest, `apt-get install shellcheck`, `make lint`).
@@ -128,7 +128,7 @@ QEMU, никакого реального ubus.
 | `test_get_status.bats` | 6 | pre/post-install statе, dns_up probe, валидность JSON |
 | `test_install_start.bats` | 10 | защита токеном (нет файла / нет в payload / неверный / префикс), валидация ssid/wifi_key/root_pass/awg_conf |
 | `test_mutations.bats` | 18 | factory_reset / mode_switch / set_blocklist_tier / service_restart / install_cancel + защита от shell-инъекций |
-| `test_acl_lockdown.bats` | 17 | контракт `web/rpcd-acl.json` (pre-install) + heredoc-ACL в `run-install.sh` и `full-deploy.sh` (post-install) — bit-for-bit одинаковы, никаких лишних методов в unauth.write |
+| `test_acl_lockdown.bats` | 11 | контракт `web/rpcd-acl.json` (pre-install) + heredoc-ACL в `setup/install.sh` (post-install) — никаких лишних методов в unauth.write, install-токен удаляется после успеха |
 | `test_protocol.bats` | 13 | `list` возвращает все 8 методов, `install_progress` (idle / step / done / crashed), unknown method → JSON-error |
 
 ### Что НЕ покрывает T3a (намеренно)
