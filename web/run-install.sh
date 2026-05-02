@@ -44,12 +44,14 @@ cp "$INSTALL_DIR/scripts/vpn-mode"         /tmp/scripts/ 2>/dev/null || true
 cp "$INSTALL_DIR/scripts/dns-provider"     /tmp/scripts/ 2>/dev/null || true
 cp "$INSTALL_DIR/scripts/dns-healthcheck"  /tmp/scripts/ 2>/dev/null || true
 cp "$INSTALL_DIR/scripts/awg-watchdog"     /tmp/scripts/ 2>/dev/null || true
+cp "$INSTALL_DIR/scripts/conntrack-monitor" /tmp/scripts/ 2>/dev/null || true
 cp "$INSTALL_DIR/scripts/log-snapshot"     /tmp/scripts/ 2>/dev/null || true
 cp "$INSTALL_DIR/scripts/sqm-tune"         /tmp/scripts/ 2>/dev/null || true
 cp "$INSTALL_DIR/scripts/travel-"*         /tmp/scripts/ 2>/dev/null || true
 cp "$INSTALL_DIR/scripts/hotplug/button/10-vpn-mode" /tmp/scripts/hotplug/button/ 2>/dev/null || true
 cp "$INSTALL_DIR/scripts/init.d/vpn-mode"  /tmp/scripts/init.d/ 2>/dev/null || true
 cp "$INSTALL_DIR/configs/sysupgrade.conf"  /tmp/configs/ 2>/dev/null || true
+cp "$INSTALL_DIR/configs/adblock-lean.config.txt" /tmp/configs/ 2>/dev/null || true
 
 # Wi-Fi параметры (положены rpcd-хендлером в configs/)
 if [ ! -f "$INSTALL_DIR/configs/wireless-actual.txt" ]; then

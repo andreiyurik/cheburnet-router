@@ -45,6 +45,7 @@ ssh "$ROUTER" 'mkdir -p /tmp/scripts/hotplug/button /tmp/scripts/init.d /tmp/con
 scp -q "$REPO_ROOT/scripts/vpn-mode"       "$ROUTER":/tmp/scripts/
 scp -q "$REPO_ROOT/scripts/dns-provider"   "$ROUTER":/tmp/scripts/
 scp -q "$REPO_ROOT/scripts/awg-watchdog"   "$ROUTER":/tmp/scripts/
+scp -q "$REPO_ROOT/scripts/conntrack-monitor" "$ROUTER":/tmp/scripts/
 scp -q "$REPO_ROOT/scripts/travel-connect" "$ROUTER":/tmp/scripts/
 scp -q "$REPO_ROOT/scripts/travel-portal"  "$ROUTER":/tmp/scripts/
 scp -q "$REPO_ROOT/scripts/travel-vpn-on"  "$ROUTER":/tmp/scripts/
@@ -54,6 +55,7 @@ scp -q "$REPO_ROOT/scripts/init.d/vpn-mode"            "$ROUTER":/tmp/scripts/in
 scp -q "$REPO_ROOT/configs/awg0.conf" "$ROUTER":/etc/amnezia/amneziawg/awg0.conf
 ssh "$ROUTER" 'chmod 600 /etc/amnezia/amneziawg/awg0.conf'
 scp -q "$REPO_ROOT/configs/sysupgrade.conf" "$ROUTER":/tmp/configs/sysupgrade.conf
+scp -q "$REPO_ROOT/configs/adblock-lean.config.txt" "$ROUTER":/tmp/configs/adblock-lean.config.txt
 echo "✓ файлы скопированы"
 
 # === 2. Поочерёдно запускаем setup-скрипты ===

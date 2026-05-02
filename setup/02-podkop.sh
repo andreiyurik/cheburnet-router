@@ -64,8 +64,13 @@ fi
 echo "  LAN-подсеть: $LAN_CIDR"
 
 # main section: всё от LAN → через AWG
+# ВАЖНО: подkop пропускает секцию ("Section 'main' does not have any enabled list, skipping"),
+# если в ней нет ни community_lists, ни user_domains, ни user_domain_list_type.
+# В HOME-режиме main должен ловить "всё кроме .ru" — для этого даём ему
+# user_domain_list_type='dynamic' (без user_domains это значит "все домены").
 uci set podkop.main.connection_type='vpn'
 uci set podkop.main.interface='awg0'
+uci set podkop.main.user_domain_list_type='dynamic'
 uci -q delete podkop.main.community_lists 2>/dev/null || true
 uci -q delete podkop.main.proxy_config_type 2>/dev/null || true
 uci -q delete podkop.main.proxy_string 2>/dev/null || true
