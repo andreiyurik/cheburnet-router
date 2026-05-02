@@ -350,7 +350,7 @@
     <div id="mgmt-msg" class="hidden"></div>
 
     <p class="muted" style="margin-top: 24px;">
-      Статус обновляется каждые 15 секунд. Полные логи через SSH: <code>ssh root@ROUTER_IP logread</code>
+      Статус обновляется каждые 15 секунд. Полные логи через SSH: <code>ssh root@<span class="js-router-host">192.168.1.1</span> logread</code>
     </p>
   </div>
 
@@ -931,6 +931,13 @@ document.addEventListener("visibilitychange", () => {
 function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
+
+// Подставляем реальный hostname в статичные .js-router-host placeholders
+// (в инструкциях вида `ssh root@... logread`). При открытии через 192.168.42.1
+// или http://router/ юзер увидит ровно ту строку, которую можно скопировать.
+document.querySelectorAll(".js-router-host").forEach(el => {
+    el.textContent = location.hostname || el.textContent;
+});
 
 init();
 </script>

@@ -85,6 +85,27 @@ awg_endpoint_port() {
     printf '%s\n' "${1##*:}"
 }
 
+# awg_validate_conf FILE
+# Проверяет, что .conf содержит минимальный набор полей, без которых
+# 01-amneziawg.sh упадёт ПОСЛЕ скачивания и установки трёх apk-пакетов
+# (~3 МБ, ~30 сек) с непонятным "ERROR: .conf parse failed". Цель —
+# поймать обрезанный конфиг на entry-point'е (rpcd / setup.sh) и сразу
+# показать пользователю, что именно не хватает.
+#
+# Печатает имя первого недостающего поля в stdout, return 1.
+# При успехе молчит, return 0.
+awg_validate_conf() {
+    _conf="$1"
+    [ -f "$_conf" ] || { printf '%s\n' "file not found: $_conf"; return 1; }
+    grep -q '^\[Interface\]' "$_conf" || { printf '%s\n' '[Interface] section'; return 1; }
+    [ -n "$(awg_get_iface PrivateKey "$_conf")" ] || { printf '%s\n' 'PrivateKey in [Interface]'; return 1; }
+    grep -q '^\[Peer\]' "$_conf"      || { printf '%s\n' '[Peer] section'; return 1; }
+    [ -n "$(awg_get_peer PublicKey "$_conf")" ]   || { printf '%s\n' 'PublicKey in [Peer]'; return 1; }
+    [ -n "$(awg_get_peer Endpoint  "$_conf")" ]   || { printf '%s\n' 'Endpoint in [Peer]'; return 1; }
+    unset _conf
+    return 0
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Выбор версии awg-openwrt-пакета
 # ─────────────────────────────────────────────────────────────────────────────

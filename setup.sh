@@ -5,6 +5,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 AMNEZIA_REF_URL="https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG"
+
+# Подключаем общий валидатор .conf (тот же, что использует web/rpcd-cheburnet).
+# shellcheck source=lib/cheburnet-utils.sh disable=SC1091
+. "$REPO_ROOT/lib/cheburnet-utils.sh"
 BOLD='\033[1m'; G='\033[0;32m'; R='\033[0;31m'; Y='\033[0;33m'; B='\033[0;34m'; N='\033[0m'
 
 ok()   { printf "  ${G}✓${N} %s\n" "$1"; }
@@ -194,19 +198,15 @@ if [ ! -f "$CONF_PATH" ]; then
     printf "    • На macOS — перетащите файл в окно терминала, путь подставится\n"
     die "Файл не найден: $CONF_PATH"
 fi
-if ! grep -q '\[Interface\]' "$CONF_PATH"; then
+if ! AWG_ERR=$(awg_validate_conf "$CONF_PATH"); then
     printf "\n"
-    printf "  Это не похоже на AmneziaWG-конфиг — нет секции [Interface].\n\n"
+    printf "  В файле отсутствует: ${BOLD}%s${N}\n\n" "$AWG_ERR"
+    printf "  Скорее всего вы экспортировали публичную или обрезанную часть\n"
+    printf "  вместо полной конфигурации.\n\n"
     printf "  Откуда берётся правильный конфиг:\n"
-    printf "    • Приложение Amnezia VPN → Настройки → Экспорт конфигурации\n"
-    printf "    • Получится файл вида: [Interface]...PrivateKey=...[Peer]...\n"
-    die "Неправильный формат файла"
-fi
-if ! grep -q 'PrivateKey' "$CONF_PATH" || ! grep -q '\[Peer\]' "$CONF_PATH"; then
-    printf "\n"
-    printf "  В файле отсутствуют критичные секции (PrivateKey и/или [Peer]).\n"
-    printf "  Скорее всего вы экспортировали публичную часть вместо полной.\n"
-    printf "  Попробуйте ещё раз экспортировать конфиг в приложении Amnezia.\n"
+    printf "    • Приложение Amnezia VPN → Настройки → Сервер → Поделиться →\n"
+    printf "      Экспорт конфигурации → файл .conf\n"
+    printf "    • Минимальный набор полей: [Interface]/PrivateKey, [Peer]/PublicKey/Endpoint\n"
     die "Неполный AmneziaWG-конфиг"
 fi
 ok "Конфиг найден и выглядит правильно"

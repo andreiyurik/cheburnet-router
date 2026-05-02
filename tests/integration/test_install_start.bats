@@ -128,6 +128,24 @@ valid_payload() {
     assert_output --partial "[Peer]"
 }
 
+@test "install_start: AWG-конфиг с [Peer] но без PublicKey → ошибка валидации" {
+    token="$(sandbox_set_token)"
+    bad_conf="$(printf '[Interface]\nPrivateKey = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA=\n[Peer]\nEndpoint = 1.2.3.4:51820\n')"
+    payload="$(build_payload "X" "longenough" "longenough" "$bad_conf" "$token")"
+    run run_rpcd install_start "$payload"
+    assert_output --partial "PublicKey"
+}
+
+@test "install_start: AWG-конфиг с [Peer] но без Endpoint → ошибка валидации (РЕАЛЬНЫЙ кейс)" {
+    # Раньше этот случай проходил entry-point и падал на 01-amneziawg.sh
+    # после ~30 сек установки kmod-amneziawg с непонятным "ERROR: parse failed".
+    token="$(sandbox_set_token)"
+    bad_conf="$(printf '[Interface]\nPrivateKey = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA=\n[Peer]\nPublicKey = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbA=\n')"
+    payload="$(build_payload "X" "longenough" "longenough" "$bad_conf" "$token")"
+    run run_rpcd install_start "$payload"
+    assert_output --partial "Endpoint"
+}
+
 @test "install_start: токен сравнивается побайтно (timing-safe не требуется, но префикс != полный токен)" {
     token="$(sandbox_set_token "abcdef1234567890abcdef1234567890")"
     # Префикс правильного токена — должен быть отвергнут
