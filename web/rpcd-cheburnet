@@ -207,16 +207,26 @@ EOF
         [ "${#ROOT_PASS}" -lt 8 ] && { echo '{"error": "root_pass must be >= 8 chars"}'; exit 0; }
 
         [ -z "$AWG_CONF" ] && { echo '{"error": "awg_conf required"}'; exit 0; }
-        echo "$AWG_CONF" | grep -q '\[Interface\]' || { echo '{"error": "awg_conf does not contain [Interface] section"}'; exit 0; }
-        echo "$AWG_CONF" | grep -q 'PrivateKey'    || { echo '{"error": "awg_conf does not contain PrivateKey"}'; exit 0; }
-        echo "$AWG_CONF" | grep -q '\[Peer\]'      || { echo '{"error": "awg_conf does not contain [Peer] section"}'; exit 0; }
 
-        # Сохраняем .conf для 01-amneziawg.sh
+        # Сохраняем .conf во временный файл для валидации, потом — в финальное
+        # место. Нормализуем CRLF → LF (юзер мог вставить .conf из Windows
+        # Notepad) — висячий \r ломает не только наш парсер, но и сам awg-quick,
+        # который читает этот файл напрямую при `awg-quick up awg0`.
+        TMP_AWG="$STATE_DIR/awg0.conf.candidate"
+        printf '%s\n' "$AWG_CONF" | tr -d '\r' > "$TMP_AWG"
+        chmod 600 "$TMP_AWG"
+        # Полная валидация: [Interface]/PrivateKey/[Peer]/PublicKey/Endpoint.
+        # Без проверки PublicKey/Endpoint в обоих entry-point'ах обрезанный
+        # конфиг проходил сюда, потом 01-amneziawg.sh скачивал ~3 МБ kmod-
+        # пакетов и падал через 30 сек с непонятным "ERROR: .conf parse failed".
+        if ! AWG_ERR=$(awg_validate_conf "$TMP_AWG"); then
+            rm -f "$TMP_AWG"
+            ESC=$(json_escape "$AWG_ERR")
+            echo "{\"error\": \"awg_conf is missing: $ESC\"}"
+            exit 0
+        fi
         mkdir -p "$ETC_AWG_DIR"
-        # Нормализуем CRLF → LF (юзер мог вставить .conf из Windows Notepad).
-        # Висячий \r ломает не только наш парсер, но и сам awg-quick — он
-        # читает этот файл напрямую при `awg-quick up awg0`.
-        printf '%s\n' "$AWG_CONF" | tr -d '\r' > "$ETC_AWG_DIR/awg0.conf"
+        mv "$TMP_AWG" "$ETC_AWG_DIR/awg0.conf"
         chmod 600 "$ETC_AWG_DIR/awg0.conf"
 
         # Передаём root-пароль setup/install.sh через короткоживущий файл (chmod 600)

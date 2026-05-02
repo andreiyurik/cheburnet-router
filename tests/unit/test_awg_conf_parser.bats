@@ -166,3 +166,83 @@ load '../helpers/setup'
     [ "$(awg_endpoint_host "$ep")" = '[2001:db8::1]' ]
     [ "$(awg_endpoint_port "$ep")" = '51820' ]
 }
+
+# ─── awg_validate_conf — entry-point валидация ───────────────────────────────
+# Цель: поймать обрезанный конфиг до того, как 01-amneziawg.sh потратит
+# 30 секунд на скачивание и установку apk-пакетов (kmod-amneziawg ~3 МБ).
+# Используется обоими entry-point'ами: setup.sh (CLI) и web/rpcd-cheburnet.
+
+@test "awg_validate_conf: полный v1.0 конфиг → success, тишина" {
+    run awg_validate_conf "$FIXTURES/awg-v1.0-minimal.conf"
+    assert_success
+    assert_output ''
+}
+
+@test "awg_validate_conf: полный v1.5 конфиг → success" {
+    run awg_validate_conf "$FIXTURES/awg-v1.5-full.conf"
+    assert_success
+    assert_output ''
+}
+
+@test "awg_validate_conf: отсутствует файл → ошибка с понятным сообщением" {
+    run awg_validate_conf "/nonexistent/foo.conf"
+    assert_failure
+    [[ "$output" == *"file not found"* ]]
+}
+
+@test "awg_validate_conf: нет [Interface] секции → ошибка указывает поле" {
+    cat > "$BATS_TEST_TMPDIR/no-iface.conf" <<EOF
+[Peer]
+PublicKey = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbA=
+Endpoint = 1.2.3.4:51820
+EOF
+    run awg_validate_conf "$BATS_TEST_TMPDIR/no-iface.conf"
+    assert_failure
+    [[ "$output" == *"[Interface]"* ]]
+}
+
+@test "awg_validate_conf: нет PrivateKey → ошибка указывает поле" {
+    cat > "$BATS_TEST_TMPDIR/no-priv.conf" <<EOF
+[Interface]
+Address = 10.8.0.2/32
+[Peer]
+PublicKey = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbA=
+Endpoint = 1.2.3.4:51820
+EOF
+    run awg_validate_conf "$BATS_TEST_TMPDIR/no-priv.conf"
+    assert_failure
+    [[ "$output" == *PrivateKey* ]]
+}
+
+@test "awg_validate_conf: нет [Peer] секции → ошибка указывает поле" {
+    run awg_validate_conf "$FIXTURES/awg-incomplete-no-peer.conf"
+    assert_failure
+    [[ "$output" == *"[Peer]"* ]]
+}
+
+@test "awg_validate_conf: нет PublicKey в [Peer] → ошибка указывает поле" {
+    cat > "$BATS_TEST_TMPDIR/no-pub.conf" <<EOF
+[Interface]
+PrivateKey = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA=
+[Peer]
+Endpoint = 1.2.3.4:51820
+EOF
+    run awg_validate_conf "$BATS_TEST_TMPDIR/no-pub.conf"
+    assert_failure
+    [[ "$output" == *PublicKey* ]]
+}
+
+@test "awg_validate_conf: нет Endpoint в [Peer] → ошибка указывает поле (РЕАЛЬНЫЙ кейс)" {
+    # Самый частый «обрезанный» конфиг: пользователь экспортирует только
+    # публичную часть пира без endpoint'а. Раньше этот случай проходил
+    # entry-point валидацию и падал на 01-amneziawg.sh после ~30 сек установки.
+    cat > "$BATS_TEST_TMPDIR/no-ep.conf" <<EOF
+[Interface]
+PrivateKey = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaA=
+[Peer]
+PublicKey = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbA=
+EOF
+    run awg_validate_conf "$BATS_TEST_TMPDIR/no-ep.conf"
+    assert_failure
+    [[ "$output" == *Endpoint* ]]
+}

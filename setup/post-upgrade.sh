@@ -33,7 +33,11 @@ fi
 if ! lsmod | grep -q '^amneziawg '; then
     echo "→ AmneziaWG пакеты"
 
-    # Автодетект архитектуры/версии (см. 01-amneziawg.sh — логика синхронизирована)
+    # Подключаем общую awg_pick_version — ту же, что использует 01-amneziawg.sh.
+    # Без неё этот блок дублировал цикл fallback-версий и потенциально
+    # расходился при добавлении новых версий апстрима.
+    # shellcheck source=/dev/null
+    . /opt/cheburnet/lib/cheburnet-utils.sh
     # shellcheck disable=SC1091
     . /etc/openwrt_release
     if [ -z "${DISTRIB_ARCH:-}" ] || [ -z "${DISTRIB_TARGET:-}" ] || [ -z "${DISTRIB_RELEASE:-}" ]; then
@@ -42,14 +46,7 @@ if ! lsmod | grep -q '^amneziawg '; then
     fi
     ARCH="${DISTRIB_ARCH}_$(echo "$DISTRIB_TARGET" | tr '/' '_')"
 
-    AWG_VER=""
-    for TRY in "$DISTRIB_RELEASE" "25.12.2"; do
-        [ -z "$TRY" ] && continue
-        URL="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${TRY}/kmod-amneziawg_v${TRY}_${ARCH}.apk"
-        if wget -q --spider --timeout=15 "$URL" 2>/dev/null; then
-            AWG_VER="$TRY"; break
-        fi
-    done
+    AWG_VER="$(awg_pick_version "$DISTRIB_RELEASE" "$ARCH")" || AWG_VER=""
     if [ -z "$AWG_VER" ]; then
         echo "✗ Нет совместимого релиза awg-openwrt для OpenWrt ${DISTRIB_RELEASE} / ${ARCH}." >&2
         exit 1
@@ -71,17 +68,38 @@ fi
 # === 4. Podkop + sing-box ===
 if [ ! -x /etc/init.d/podkop ]; then
     echo "→ podkop + sing-box"
-    wget -qO /tmp/podkop-install.sh \
-        https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh
-    printf 'n\nn\nn\n' | sh /tmp/podkop-install.sh 2>&1 | tail -5
+    UPSTREAM_URL="https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh"
+    VENDOR_FILE="${CHEBURNET_VENDOR:-/opt/cheburnet/vendor}/podkop-install.sh"
+    if wget -qO /tmp/podkop-install.sh --timeout=20 "$UPSTREAM_URL" 2>/dev/null && \
+       [ -s /tmp/podkop-install.sh ]; then
+        :
+    elif [ -f "$VENDOR_FILE" ]; then
+        echo "  ⚠ upstream недоступен — использую vendored-копию ($VENDOR_FILE)"
+        cp "$VENDOR_FILE" /tmp/podkop-install.sh
+    else
+        echo "✗ Не удалось получить podkop installer ни с upstream, ни локально." >&2
+        exit 1
+    fi
+    # `yes n` шлёт бесконечный поток "n" — устойчиво к любому числу y/n-вопросов
+    # подкоповского установщика. См. 02-podkop.sh — здесь та же причина.
+    yes n | sh /tmp/podkop-install.sh 2>&1 | tail -5
 fi
 
 # === 5. adblock-lean ===
 if [ ! -x /etc/init.d/adblock-lean ]; then
     echo "→ adblock-lean"
-    uclient-fetch -q \
-        https://raw.githubusercontent.com/lynxthecat/adblock-lean/master/abl-install.sh \
-        -O /tmp/abl-install.sh
+    UPSTREAM_URL="https://raw.githubusercontent.com/lynxthecat/adblock-lean/master/abl-install.sh"
+    VENDOR_FILE="${CHEBURNET_VENDOR:-/opt/cheburnet/vendor}/abl-install.sh"
+    if uclient-fetch -q --timeout=20 "$UPSTREAM_URL" -O /tmp/abl-install.sh 2>/dev/null && \
+       [ -s /tmp/abl-install.sh ]; then
+        :
+    elif [ -f "$VENDOR_FILE" ]; then
+        echo "  ⚠ upstream недоступен — использую vendored-копию ($VENDOR_FILE)"
+        cp "$VENDOR_FILE" /tmp/abl-install.sh
+    else
+        echo "✗ Не удалось получить adblock-lean installer ни с upstream, ни локально." >&2
+        exit 1
+    fi
     sh /tmp/abl-install.sh -v release
 fi
 
