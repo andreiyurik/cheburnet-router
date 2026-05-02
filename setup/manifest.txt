@@ -1,0 +1,35 @@
+# setup/manifest.txt — что копируется на роутер во время установки.
+#
+# Формат: <source-relative-to-/opt/cheburnet>  <destination-on-router>  <mode>
+# Пустые строки и строки, начинающиеся с '#', игнорируются.
+# Применяется в setup/install.sh ровно ОДИН раз, до запуска setup/*.sh.
+# После применения setup-шаги проверяют что бинари на месте, а НЕ копируют их.
+#
+# Добавил новый скрипт/конфиг? — добавь сюда строку, не плодите cp в setup/*.sh.
+
+# === Runtime-команды (вызываются пользователем, cron'ом, hotplug'ом) ===
+scripts/vpn-mode                       /usr/bin/vpn-mode                       755
+scripts/dns-provider                   /usr/bin/dns-provider                   755
+scripts/awg-watchdog                   /usr/bin/awg-watchdog                   755
+scripts/conntrack-monitor              /usr/bin/conntrack-monitor              755
+scripts/conntrack-tune                 /usr/bin/conntrack-tune                 755
+
+# === Travel mode (Tier 1 — 11-travel.sh) ===
+scripts/travel-connect                 /usr/bin/travel-connect                 755
+scripts/travel-portal                  /usr/bin/travel-portal                  755
+scripts/travel-vpn-on                  /usr/bin/travel-vpn-on                  755
+
+# === Travel plus (Tier 2 — 12-travel-plus.sh) ===
+scripts/travel-tether                  /usr/bin/travel-tether                  755
+scripts/travel-scan                    /usr/bin/travel-scan                    755
+scripts/travel-wifi                    /usr/bin/travel-wifi                    755
+scripts/travel-mac                     /usr/bin/travel-mac                     755
+scripts/travel-check                   /usr/bin/travel-check                   755
+
+# === Hotplug + init.d (kernel-вызовы, не пользовательские) ===
+scripts/hotplug/button/10-vpn-mode     /etc/hotplug.d/button/10-vpn-mode       755
+scripts/init.d/vpn-mode                /etc/init.d/vpn-mode                    755
+
+# === Системные конфиги ===
+configs/sysupgrade.conf                /etc/sysupgrade.conf                    644
+configs/adblock-lean.config.txt        /etc/adblock-lean/config                644

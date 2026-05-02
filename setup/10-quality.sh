@@ -12,29 +12,20 @@ uci commit system
 /etc/init.d/system reload
 echo "  date: $(date)"
 
-# === 2. /etc/sysupgrade.conf — сохранить кастомные файлы при обновлении прошивки ===
-echo "→ /etc/sysupgrade.conf (сохранение файлов при sysupgrade)"
-if [ -f /tmp/configs/sysupgrade.conf ]; then
-    cp /tmp/configs/sysupgrade.conf /etc/sysupgrade.conf
-    echo "  установлен, protect-list:"
-    cat /etc/sysupgrade.conf | grep -v '^#' | grep -v '^$' | head -15
+# === 2. /etc/sysupgrade.conf — protect-list разложен манифестом ===
+if [ -f /etc/sysupgrade.conf ]; then
+    echo "→ /etc/sysupgrade.conf на месте, protect-list:"
+    grep -v '^#' /etc/sysupgrade.conf | grep -v '^$' | head -15
 else
-    echo "  ⚠ /tmp/configs/sysupgrade.conf отсутствует — protect-list не обновлён"
+    echo "  ⚠ /etc/sysupgrade.conf отсутствует — protect-list не обновлён"
 fi
 
 # === 3. conntrack тайм-ауты — предотвращение переполнения таблицы ===
 # Симптом переполнения: VPN замедляется в 100x через 1-2 недели, лечится ребутом.
-echo "→ conntrack-tune (уменьшаем тайм-ауты, предотвращаем переполнение)"
-if [ -f /tmp/scripts/conntrack-tune ]; then
-    cp /tmp/scripts/conntrack-tune /usr/bin/conntrack-tune
-    chmod +x /usr/bin/conntrack-tune
-    echo "  установлен /usr/bin/conntrack-tune"
-else
-    echo "  ⚠ /tmp/scripts/conntrack-tune не найден — пропускаю"
-fi
+[ -x /usr/bin/conntrack-tune ] || echo "  ⚠ /usr/bin/conntrack-tune отсутствует"
 
 # Применяем немедленно
-/usr/bin/conntrack-tune 2>/dev/null && echo "  применено" || true
+/usr/bin/conntrack-tune 2>/dev/null && echo "→ conntrack-tune применён" || true
 
 # Прописываем в sysctl.conf чтобы пережить ребут
 # (sysctl.d/11-nf-conntrack.conf нельзя редактировать — теряется при sysupgrade)

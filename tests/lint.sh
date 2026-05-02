@@ -191,6 +191,37 @@ else
     rm -f /tmp/lint-json.err
 fi
 
+# === 5. Smoke-test манифеста ===
+# setup/manifest.txt — единственный источник правды о том, какие файлы едут
+# на роутер. Если в манифесте есть ссылка на отсутствующий в репо файл,
+# установка упадёт на этапе [prepare] с "источник отсутствует". Ловим в CI.
+section "manifest sanity"
+MANIFEST="setup/manifest.txt"
+if [ ! -f "$MANIFEST" ]; then
+    fail "$MANIFEST не найден"
+else
+    manifest_fail=0
+    # POSIX read; backslash-escapes в путях нам не нужны — пути обычные.
+    while read -r src dst mode; do
+        case "$src" in ''|\#*) continue;; esac
+        if [ ! -f "$src" ]; then
+            fail "manifest: источник отсутствует: $src"
+            manifest_fail=$((manifest_fail + 1))
+        fi
+        case "$dst" in
+            /*) ;;
+            *)  fail "manifest: dst должен быть абсолютным путём: $dst"
+                manifest_fail=$((manifest_fail + 1));;
+        esac
+        case "$mode" in
+            [0-7][0-7][0-7]) ;;
+            *) fail "manifest: mode должен быть 3-значным octal: $mode (для $src)"
+               manifest_fail=$((manifest_fail + 1));;
+        esac
+    done < "$MANIFEST"
+    [ "$manifest_fail" -eq 0 ] && ok "$MANIFEST — все источники на месте, dst абсолютные, modes валидны"
+fi
+
 # === Итог ===
 echo
 if [ "$FAILS" -eq 0 ]; then

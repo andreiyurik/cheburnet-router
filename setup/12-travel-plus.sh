@@ -23,13 +23,10 @@ apk add --no-interactive \
     usbutils \
     comgt 2>&1 | tail -3 || true
 
-# === 2. Scripts ===
-for SRC in travel-tether travel-scan travel-wifi travel-mac travel-check; do
-    if [ -f /tmp/scripts/$SRC ]; then
-        cp /tmp/scripts/$SRC /usr/bin/$SRC
-        chmod +x /usr/bin/$SRC
-        echo "→ установлен /usr/bin/$SRC"
-    fi
+# === 2. Scripts (разложены через манифест, тут только sanity) ===
+for BIN in /usr/bin/travel-tether /usr/bin/travel-scan /usr/bin/travel-wifi \
+           /usr/bin/travel-mac /usr/bin/travel-check; do
+    [ -x "$BIN" ] || echo "  ⚠ $BIN отсутствует"
 done
 
 # === 3. Directory для Wi-Fi profiles ===

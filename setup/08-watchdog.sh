@@ -4,25 +4,9 @@ set -e
 
 echo "== 08. AWG Watchdog =="
 
-# === 1. Копируем скрипт ===
-if [ -f /tmp/scripts/awg-watchdog ]; then
-    cp /tmp/scripts/awg-watchdog /usr/bin/awg-watchdog
-    chmod +x /usr/bin/awg-watchdog
-    echo "→ установлен /usr/bin/awg-watchdog"
-else
-    echo "⚠ /tmp/scripts/awg-watchdog не найден"
-    exit 1
-fi
-
-# === 2. conntrack-monitor ===
-echo "→ устанавливаем conntrack-monitor"
-if [ -f /tmp/scripts/conntrack-monitor ]; then
-    cp /tmp/scripts/conntrack-monitor /usr/bin/conntrack-monitor
-    chmod +x /usr/bin/conntrack-monitor
-    echo "  установлен /usr/bin/conntrack-monitor"
-else
-    echo "  ⚠ /tmp/scripts/conntrack-monitor не найден — пропускаю"
-fi
+# === 1. Sanity: awg-watchdog и conntrack-monitor разложены манифестом ===
+[ -x /usr/bin/awg-watchdog ] || { echo "✗ /usr/bin/awg-watchdog отсутствует (манифест?)"; exit 1; }
+[ -x /usr/bin/conntrack-monitor ] || echo "  ⚠ /usr/bin/conntrack-monitor отсутствует — мониторинг conntrack пропущен"
 
 # === 3. Cron ===
 # На свежем роутере crontab пустой → `crontab -l` ничего не печатает.
