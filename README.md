@@ -99,8 +99,10 @@ flowchart LR
 > · **Linux:** Ctrl+Alt+T (на большинстве дистрибутивов).
 
 ```bash
-ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh'
+ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh'
 ```
+
+> 💡 Первая часть `ssh-keygen -R` нужна тем, кто уже ставил наш роутер раньше: после прошивки или factory reset роутер генерирует новый SSH host key, а ваш ноутбук помнит старый и ругается `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!` При первой установке этот префикс просто молча ничего не делает — вреда нет.
 
 После этого открой в браузере **`http://192.168.1.1/cheburnet/`** — там пройдёшь 4 простых экрана: загрузишь `.conf`, придумаешь пароль администратора, придумаешь название Wi-Fi и пароль к нему, нажмёшь «Начать установку». Дальше роутер сделает всё сам — установка идёт ~12 минут, прогресс видно прямо в браузере.
 

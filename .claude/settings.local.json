@@ -14,7 +14,9 @@
       "Bash(command -v sshpass)",
       "Read(//dev/**)",
       "Read(//home/pingvinus/openwrt-vm/**)",
-      "Bash(wget -q --show-progress https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-x86-64-generic-ext4-combined.img.gz)"
+      "Bash(wget -q --show-progress https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-x86-64-generic-ext4-combined.img.gz)",
+      "Bash(make lint *)",
+      "Bash(make test *)"
     ]
   }
 }

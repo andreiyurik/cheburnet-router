@@ -9,7 +9,7 @@
 # Что покрывает (а на mock-уровне T2 — нет):
 #   • Скрипт rpcd-cheburnet парсится busybox-ash, не bash'ем хоста.
 #   • rpcd-acl.json принимается реальным rpcd (а не только python json.tool).
-#   • rpcd регистрирует cheburnet-объект, ubus list показывает 8 методов.
+#   • rpcd регистрирует cheburnet-объект, ubus list показывает 9 методов.
 #   • get_status / install_progress отдают валидный JSON через ubusd.
 #   • json_escape работает на busybox-awk/-sed (а не gawk хоста — это
 #     разные реализации с разной semantic'ой gsub-replacement, мы поймали
@@ -43,14 +43,14 @@ vm_ssh "ubus list cheburnet >/dev/null" || {
     exit 1
 }
 
-echo "→ assert: ubus list cheburnet — все 8 методов"
+echo "→ assert: ubus list cheburnet — все 9 методов"
 # Каждый метод в `ubus -v list` идёт строкой `<TAB>"name":{args}`. Берём имя
 # до первого `"` после имени — иначе текстовый парсер слипает имя метода
 # с именами аргументов.
 methods="$(vm_ssh 'ubus -v list cheburnet' \
     | sed -nE 's/^[[:space:]]+"([^"]+)":.*$/\1/p' \
     | sort | tr '\n' ' ' | sed 's/ $//')"
-expected="factory_reset get_status install_cancel install_progress install_start mode_switch service_restart set_blocklist_tier"
+expected="factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier"
 [ "$methods" = "$expected" ] || {
     echo "  expected: $expected"
     echo "  actual:   $methods"

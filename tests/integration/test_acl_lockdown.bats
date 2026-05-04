@@ -44,7 +44,7 @@ POST_ACL_RUN="$REPO_ROOT/setup/install.sh"
 # в unauth.write до установки. Запрещённые методы перечислены явно — если
 # завтра в unauth.write попадёт mode_switch, тест #4 покраснеет.
 @test "pre-install ACL: НЕТ запрещённых методов в unauth.write" {
-    for forbidden in mode_switch factory_reset set_blocklist_tier service_restart; do
+    for forbidden in mode_switch factory_reset set_blocklist_tier service_restart replace_awg_conf; do
         if acl_has "$PRE_ACL" .unauthenticated.write.ubus.cheburnet "$forbidden"; then
             echo "FAIL: '$forbidden' попал в pre-install unauth.write" >&2
             return 1
@@ -78,7 +78,7 @@ assert write is None or write == {} or write == {"ubus": {}}, \
 @test "post-install ACL: cheburnet-admin.write содержит ВСЕ мутирующие методы" {
     methods="$(extract_acl_heredoc "$POST_ACL_RUN" \
                | acl_methods_in_stdin .cheburnet-admin.write.ubus.cheburnet)"
-    expected="factory_reset install_cancel install_start mode_switch service_restart set_blocklist_tier"
+    expected="factory_reset install_cancel install_start mode_switch replace_awg_conf service_restart set_blocklist_tier"
     [ "$methods" = "$expected" ]
 }
 

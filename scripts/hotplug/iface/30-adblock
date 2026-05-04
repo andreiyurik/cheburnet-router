@@ -1,0 +1,37 @@
+#!/bin/sh
+# 30-adblock — стартует adblock-lean при первом ifup awg0 после boot.
+#
+# Зачем не autostart по boot: на холодном старте VPN handshake занимает
+# 3-5 минут (TLS-handshake + AmneziaWG init + sing-box bring-up). Если
+# adblock стартует по таймеру `boot_start_delay_s`, он гонкается с VPN:
+# podkop уже выставил mark-правила, исходящий трафик роутера идёт в
+# proxy-таблицу, но sing-box ещё не слушает → uclient-fetch получает
+# "Operation not permitted" → "Failed to generate new blocklist" →
+# adblock остаётся stopped. У Сергея Ш. (Cudy WR3000S, 2026-05-03)
+# именно этот сценарий: handshake появился на 5:11, adblock падал на 2:04.
+#
+# Hotplug-вариант ждёт реального события "awg0 поднят" — независимо от
+# того, сколько занял handshake. Boot autostart adblock-lean отключён в
+# 03-adblock.sh (`/etc/init.d/adblock-lean disable`); таймер
+# boot_start_delay_s=300 в config — safety net на случай если событие
+# пропустится (например, awg0 уже был up до момента, когда adblock
+# доустановился; редко, но возможно при апдейтах).
+#
+# Идемпотентность: re-entry-flag в /tmp/adblock-lean-hotplug-started.
+# /tmp очищается при reboot — на следующий boot скрипт сработает снова.
+
+[ "$ACTION" = "ifup" ] || exit 0
+[ "$INTERFACE" = "awg0" ] || exit 0
+
+FLAG=/tmp/adblock-lean-hotplug-started
+[ -f "$FLAG" ] && exit 0
+
+[ -x /etc/init.d/adblock-lean ] || exit 0
+
+# Запускаем в фоне через setsid: hotplug.d не любит долгих обработчиков
+# (блокирует netifd-events). adblock-lean скачивает ~1.5 MB списка и
+# может работать минуту-две.
+( setsid /etc/init.d/adblock-lean start >/dev/null 2>&1 ) &
+
+touch "$FLAG"
+logger -t cheburnet-hotplug "awg0 ifup → starting adblock-lean (deferred)"

@@ -9,6 +9,7 @@
 #   install_cancel     — пометить установку как отменённую (реально не убивает процесс)
 #   mode_switch        — переключить HOME/TRAVEL
 #   service_restart    — перезапустить сервис (vpn | dns | adblock)
+#   replace_awg_conf   — заменить awg0.conf после установки (с auto-rollback при сбое)
 #
 # Протокол rpcd: скрипт вызывается с аргументами `list` или `call <method>`.
 # В режиме `call` аргументы метода читаются из stdin как JSON.
@@ -64,7 +65,8 @@ if [ "$1" = "list" ]; then
     "mode_switch": { "mode": "str" },
     "service_restart": { "service": "str" },
     "set_blocklist_tier": { "tier": "str" },
-    "factory_reset": { "confirm": "str" }
+    "factory_reset": { "confirm": "str" },
+    "replace_awg_conf": { "awg_conf": "str" }
 }
 EOF
     exit 0
@@ -397,6 +399,106 @@ EOF
         # и закрыть сессию. /etc/init.d/done вызывает sysupgrade -r.
         ( sleep 3 && firstboot -y && reboot ) >/dev/null 2>&1 &
         echo '{"status": "factory reset scheduled, router will reboot in ~5 seconds"}'
+        ;;
+
+    # ------------------------------------------------------------------
+    replace_awg_conf)
+        # Замена awg0.conf после установки. UI этим методом обновляет ключи
+        # когда сервер заблокирован/тормозит. Защитный пояс из 4 шагов:
+        #   1) pre-flight: VPN уже установлен (иначе менять нечего);
+        #   2) валидация — та же awg_validate_conf, что в install_start
+        #      (entry-point ловит обрезанный conf ДО ~3 МБ apk-загрузок);
+        #   3) backup .prev + atomic mv нового conf;
+        #   4) фоновый apply через 01-amneziawg.sh; при exit≠0 — auto-rollback
+        #      на .prev и повторный apply, чтобы юзер не остался без VPN.
+        # Прогресс читается через тот же install_progress (state="replacing-awg",
+        # done="ok"|"fail-rolled-back"|"fail").
+
+        if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+            echo '{"error": "operation already running", "pid": '"$(cat "$PID_FILE")"'}'
+            exit 0
+        fi
+
+        # Pre-flight: VPN должен быть уже установлен. До установки awg0.conf
+        # ещё нет, и подkop init не существует — менять нечего. Соответствует
+        # критерию "vpn" в get_status.install_type.
+        if [ ! -f "$ETC_AWG_DIR/awg0.conf" ] || [ ! -x "$ETC_INIT_D/podkop" ]; then
+            echo '{"error": "VPN не установлен — пройдите мастер заново"}'
+            exit 0
+        fi
+
+        AWG_CONF=$(jf '@.awg_conf')
+        [ -z "$AWG_CONF" ] && { echo '{"error": "awg_conf required"}'; exit 0; }
+
+        # Валидация в candidate-файле, как в install_start. Нормализуем CRLF→LF
+        # (юзер мог вставить .conf из Windows Notepad).
+        TMP_AWG="$STATE_DIR/awg0.conf.candidate"
+        printf '%s\n' "$AWG_CONF" | tr -d '\r' > "$TMP_AWG"
+        chmod 600 "$TMP_AWG"
+        if ! AWG_ERR=$(awg_validate_conf "$TMP_AWG"); then
+            rm -f "$TMP_AWG"
+            ESC=$(json_escape "$AWG_ERR")
+            echo "{\"error\": \"awg_conf is missing: $ESC\"}"
+            exit 0
+        fi
+
+        # Backup текущего conf для возможного rollback. .prev живёт до конца
+        # apply-блока: при успехе удаляется (новый conf принят), при сбое —
+        # возвращается на место. Один backup, без истории.
+        BACKUP_FILE="$ETC_AWG_DIR/awg0.conf.prev"
+        cp "$ETC_AWG_DIR/awg0.conf" "$BACKUP_FILE"
+        chmod 600 "$BACKUP_FILE"
+
+        # Atomic swap. mv в пределах одной FS — атомарен; awg-quick читать
+        # промежуточное состояние не успеет.
+        mv "$TMP_AWG" "$ETC_AWG_DIR/awg0.conf"
+        chmod 600 "$ETC_AWG_DIR/awg0.conf"
+
+        # Чистим артефакты предыдущего apply (install/replace), чтобы
+        # install_progress видел СВЕЖИЙ STATE/DONE/LOG.
+        rm -f "$DONE_FILE" "$LOG_FILE"
+        echo "[STEP] replacing-awg" > "$STATE_FILE"
+
+        # Apply-скрипт собираем в STATE_DIR. Heredoc с одинарной кавычкой
+        # (<<'APPLY') — переменные внутри НЕ раскрываются на этапе записи;
+        # пути приходят через env при запуске. Это устраняет shell-quoting-
+        # ад «setsid sh -c '...'$VAR'...'» и делает тестируемым (можно
+        # прочитать сгенерированный скрипт).
+        APPLY_SCRIPT="$STATE_DIR/replace-apply.sh"
+        cat > "$APPLY_SCRIPT" <<'APPLY'
+#!/bin/sh
+# Сгенерирован rpcd-cheburnet (replace_awg_conf). Применяет новый awg0.conf
+# через 01-amneziawg.sh, при сбое возвращает старый и переподнимает.
+set -u
+if sh "$AMNEZIA_SCRIPT" > "$LOG_FILE" 2>&1; then
+    rm -f "$BACKUP_FILE"
+    printf 'ok\n' > "$DONE_FILE"
+else
+    if [ -f "$BACKUP_FILE" ]; then
+        logger -t cheburnet-replace-awg "new awg0.conf failed; rolling back to previous"
+        mv "$BACKUP_FILE" "$AWG_CONF_PATH"
+        chmod 600 "$AWG_CONF_PATH"
+        sh "$AMNEZIA_SCRIPT" >> "$LOG_FILE" 2>&1 || true
+        printf 'fail-rolled-back\n' > "$DONE_FILE"
+    else
+        printf 'fail\n' > "$DONE_FILE"
+    fi
+fi
+APPLY
+        chmod +x "$APPLY_SCRIPT"
+
+        # setsid отвязывает дочерний процесс от controlling terminal rpcd
+        # (чтобы SIGHUP при выходе rpcd-сессии не убил apply-block до того,
+        # как done-маркер запишется). Тот же приём, что в install_start.
+        LOG_FILE="$LOG_FILE" \
+        DONE_FILE="$DONE_FILE" \
+        BACKUP_FILE="$BACKUP_FILE" \
+        AWG_CONF_PATH="$ETC_AWG_DIR/awg0.conf" \
+        AMNEZIA_SCRIPT="$INSTALL_DIR/setup/01-amneziawg.sh" \
+        setsid sh "$APPLY_SCRIPT" < /dev/null >/dev/null 2>&1 &
+        PID=$!
+        echo "$PID" > "$PID_FILE"
+        echo "{\"status\": \"applying\", \"pid\": $PID}"
         ;;
 
     # ------------------------------------------------------------------
