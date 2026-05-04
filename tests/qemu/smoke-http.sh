@@ -125,7 +125,7 @@ vm_ssh 'cat > /usr/share/rpcd/acl.d/cheburnet.json' <<'ACL'
     "cheburnet-admin": {
         "description": "cheburnet admin (login as root required)",
         "read":  { "ubus": { "cheburnet": ["get_status", "install_progress"] } },
-        "write": { "ubus": { "cheburnet": ["install_start", "install_cancel", "mode_switch", "service_restart", "set_blocklist_tier", "factory_reset"] } }
+        "write": { "ubus": { "cheburnet": ["install_start", "install_cancel", "mode_switch", "service_restart", "set_blocklist_tier", "factory_reset", "replace_awg_conf"] } }
     }
 }
 ACL
@@ -193,6 +193,9 @@ assert_ubus "anon service_restart: code=6" 6 "" "$resp"
 resp="$(http_ubus "$ANON_SESSION" cheburnet set_blocklist_tier '{"tier":"pro"}')"
 assert_ubus "anon set_blocklist_tier: code=6" 6 "" "$resp"
 
+resp="$(http_ubus "$ANON_SESSION" cheburnet replace_awg_conf '{"awg_conf":"x"}')"
+assert_ubus "anon replace_awg_conf: code=6 (ACL блокирует ДО handler'а)" 6 "" "$resp"
+
 echo
 echo "── 4. Login через session.login ──"
 login_resp="$(http_ubus "$ANON_SESSION" session login \
@@ -230,6 +233,21 @@ assert_ubus 'authed mode_switch(mode=invalid): handler error в data' 0 \
 resp="$(http_ubus "$SESSION" cheburnet set_blocklist_tier '{"tier":"definitely-not-a-tier"}')"
 assert_ubus 'authed set_blocklist_tier(tier=invalid): handler error' 0 \
     'd.get("error", "").startswith("tier")' \
+    "$resp"
+
+# replace_awg_conf под admin-сессией без VPN-установки. На VM в smoke-http
+# /etc/amnezia/amneziawg/awg0.conf нет (T3b не делает полный install),
+# поэтому handler должен пройти ACL и упереться в pre-flight.
+resp="$(http_ubus "$SESSION" cheburnet replace_awg_conf '{}')"
+assert_ubus 'authed replace_awg_conf без awg_conf или без VPN: handler error' 0 \
+    '"required" in d.get("error", "").lower() or "не установлен" in d.get("error", "")' \
+    "$resp"
+
+# replace_awg_conf с обрезанным conf — в любом случае должна быть handler error
+# (либо pre-flight «VPN не установлен», либо awg_validate_conf «is missing»).
+resp="$(http_ubus "$SESSION" cheburnet replace_awg_conf '{"awg_conf":"[Interface]\nPrivateKey = aaa"}')"
+assert_ubus 'authed replace_awg_conf с обрезанным conf: handler error' 0 \
+    'd.get("error", "") != ""' \
     "$resp"
 
 echo

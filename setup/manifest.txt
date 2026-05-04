@@ -22,6 +22,7 @@ scripts/sqm-tune                       /usr/bin/sqm-tune                       7
 
 # === Hotplug + init.d (kernel-вызовы, не пользовательские) ===
 scripts/hotplug/button/10-vpn-mode     /etc/hotplug.d/button/10-vpn-mode       755
+scripts/hotplug/iface/30-adblock       /etc/hotplug.d/iface/30-adblock         755
 scripts/init.d/vpn-mode                /etc/init.d/vpn-mode                    755
 
 # === Системные конфиги ===

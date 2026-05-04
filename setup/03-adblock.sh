@@ -47,9 +47,34 @@ if ! grep -q 'raw_block_lists="hagezi:pro"' /etc/adblock-lean/config; then
     sed -i 's|^raw_block_lists=.*|raw_block_lists="hagezi:pro"|' /etc/adblock-lean/config
 fi
 
-# === 3. Enable + start ===
-echo "→ enable + start adblock-lean (качает ~1.5 MB список)"
-/etc/init.d/adblock-lean enable
+# === 2.5. addnmount entries для dnsmasq ===
+# Без этих записей dnsmasq не имеет права читать gz-блоклист и /bin/busybox,
+# adblock-lean логирует "Missing addnmount entries" и итоговая компрессия
+# блок-листа отключается (а в худшем случае dnsmasq вообще не подцепляет его).
+# Обычно эту работу делает интерактивная команда `service adblock-lean setup`,
+# но в нашем пайплайне (sh /tmp/abl-install.sh -v release без TTY) DO_DIALOGS=0
+# и setup-функция установщиком не вызывается. Делаем сами через UCI —
+# идемпотентно и без зависимости от интерактивных диалогов.
+if ! uci -q get dhcp.@dnsmasq[0].addnmount 2>/dev/null | grep -q 'abl-blocklist.gz'; then
+    echo "→ добавляю addnmount для adblock-lean в /etc/config/dhcp"
+    uci -q del_list dhcp.@dnsmasq[0].addnmount='/bin/busybox' 2>/dev/null || true
+    uci -q del_list dhcp.@dnsmasq[0].addnmount='/var/run/adblock-lean/abl-blocklist.gz' 2>/dev/null || true
+    uci add_list dhcp.@dnsmasq[0].addnmount='/bin/busybox'
+    uci add_list dhcp.@dnsmasq[0].addnmount='/var/run/adblock-lean/abl-blocklist.gz'
+    uci commit dhcp
+fi
+
+# === 3. Disable boot-autostart, start один раз сейчас ===
+# Boot-autostart отключаем сознательно: на холодном boot adblock-lean
+# гонится с VPN handshake и падает с "Operation not permitted" (sing-box
+# ещё не слушает, а podkop уже заворачивает output трафик в proxy-таблицу).
+# Реальный триггер — /etc/hotplug.d/iface/30-adblock на ifup awg0 после
+# успешного handshake. Здесь во время установки awg0 уже up (шаг 01),
+# поэтому стартуем разово.
+echo "→ disable boot-autostart (триггер — hotplug awg0 ifup)"
+/etc/init.d/adblock-lean disable
+
+echo "→ start adblock-lean (качает ~1.5 MB список)"
 /etc/init.d/adblock-lean start
 sleep 5
 

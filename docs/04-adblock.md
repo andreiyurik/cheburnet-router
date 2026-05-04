@@ -173,10 +173,12 @@ max_blocklist_file_parts=30
 
 ### Как adblock-lean подключается к dnsmasq
 
-Adblock-lean **автоматически** добавляет в `/etc/config/dhcp`:
+Для работы adblock-lean в `/etc/config/dhcp` должны быть `addnmount`-записи, которые дают dnsmasq право читать сжатый блок-лист и `/bin/busybox`:
 ```
 option addnmount '/bin/busybox' '/var/run/adblock-lean/abl-blocklist.gz'
 ```
+
+Эти записи создаёт интерактивная команда `service adblock-lean setup`. В нашем неинтерактивном пайплайне (`sh abl-install.sh -v release` без TTY) `DO_DIALOGS=0` и setup-функция не вызывается — поэтому `setup/03-adblock.sh` создаёт записи сам через UCI. Без них dnsmasq логирует `Missing addnmount entries`, итоговая компрессия отключается, и adblock-lean при следующем старте может вообще не подцепить список.
 
 И кладёт в `/tmp/dnsmasq.cfg01411c.d/abl-conf-script`:
 ```

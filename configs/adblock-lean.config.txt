@@ -88,7 +88,14 @@ final_compression_options="-6"
 unload_blocklist_before_update="auto"
 
 # Start delay in seconds when service is started from system boot
-boot_start_delay_s="120"
+# 300с = 5 минут. На холодном boot AmneziaWG handshake занимает ~3-5 мин
+# (зависит от RTT до сервера и обфускации), а до этого момента podkop
+# уже выставил mark-правила: исходящий трафик роутера идёт в proxy-таблицу,
+# но sing-box ещё не слушает → uclient-fetch получает "Operation not
+# permitted" и adblock-lean падает с "Failed to generate new blocklist".
+# Историческое значение 120с было слишком агрессивным — на реальном железе
+# (Cudy WR3000S, лог Сергея Ш. 2026-05-03) handshake появлялся на ~5:11.
+boot_start_delay_s="300"
 
 # Maximal count of download and processing jobs run in parallel. 'auto' sets this value to the count of CPU cores
 MAX_PARALLEL_JOBS="auto"

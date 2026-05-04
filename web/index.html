@@ -295,6 +295,15 @@
       пароль администратора, который вы задали в шаге 2.
     </div>
 
+    <div class="edu" style="margin-top: 12px;">
+      <strong>⏱ После перезагрузки первый запуск занимает до 5 минут.</strong>
+      VPN-туннель проходит handshake с сервером, потом стартует sing-box,
+      потом блок-лист рекламы. Если на странице управления видите
+      «не работает» сразу после reboot — это нормально, статус обновится
+      автоматически. Если через 5 минут что-то остаётся красным —
+      <a href="https://t.me/industrialprofi" target="_blank" style="color:var(--accent)">@industrialprofi</a> в Telegram.
+    </div>
+
     <div class="row">
       <button onclick="goto('mgmt'); renderMgmt(); startMgmtAutoRefresh();">К управлению →</button>
     </div>
@@ -336,6 +345,23 @@
         <option value="multi.pro">multi.pro — pro для нескольких языков</option>
       </select>
       <button id="btn-tier-apply" class="ghost">Применить</button>
+    </div>
+
+    <h3>Обновить VPN-конфиг</h3>
+    <p class="muted" style="margin-top: 0; margin-bottom: 8px;">
+      Если ваш ключ заблокировали или VPN стал медленным — получите новый
+      <code>.conf</code> в Amnezia (Настройки → Сервер → Поделиться → Экспорт)
+      и загрузите его сюда. Старый конфиг сохранится на случай отката.
+    </p>
+    <input type="file" id="inp-newconf" accept=".conf,text/plain">
+    <textarea id="ta-newconf" rows="4" placeholder="...или вставьте текст конфига"></textarea>
+    <div id="newconf-status" class="muted"></div>
+    <div class="row">
+      <button id="btn-replace-awg" class="ghost" disabled>Применить новый конфиг</button>
+    </div>
+    <div id="newconf-progress" class="hidden" style="margin-top: 12px;">
+      <div class="progress"><div id="newconf-bar" class="bar"></div></div>
+      <div id="newconf-step" class="muted"></div>
     </div>
 
     <h3 style="color: var(--err);">Опасная зона</h3>
@@ -887,6 +913,71 @@ document.getElementById("btn-svc-adblock").onclick = () => mgmtCall("cheburnet",
 document.getElementById("btn-tier-apply").onclick = () => {
     const tier = document.getElementById("inp-tier").value;
     mgmtCall("cheburnet", "set_blocklist_tier", { tier }, `Смена тира на hagezi:${tier}`);
+};
+
+// Замена awg0.conf после установки. Live-валидация через ту же validateConf,
+// что в install screen; backend делает atomic swap и фоновый apply через
+// 01-amneziawg.sh с auto-rollback на .prev при сбое. UI поллит install_progress
+// и различает результат: ok / fail-rolled-back / иное.
+const taNewConf = document.getElementById("ta-newconf");
+const btnReplaceAwg = document.getElementById("btn-replace-awg");
+function refreshNewConfValidation() {
+    const v = validateConf(taNewConf.value.trim());
+    document.getElementById("newconf-status").innerHTML = v.ok
+        ? `<span style="color:var(--ok)">${v.msg}</span>`
+        : `<span style="color:var(--warn)">${v.msg}</span>`;
+    btnReplaceAwg.disabled = !v.ok;
+}
+taNewConf.addEventListener("input", refreshNewConfValidation);
+document.getElementById("inp-newconf").addEventListener("change", e => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { taNewConf.value = ev.target.result; refreshNewConfValidation(); };
+    reader.readAsText(file);
+});
+async function pollReplaceProgress() {
+    try {
+        const p = await rpc("cheburnet", "install_progress");
+        const bar = document.getElementById("newconf-bar");
+        const stepRaw = (p.step || "").replace(/^\[STEP\] |\[|\]/g, "");
+        document.getElementById("newconf-step").textContent =
+            stepRaw === "replacing-awg" ? "применяю новый конфиг…" : `текущий шаг: ${stepRaw}`;
+        if (!p.done) { bar.style.width = "60%"; setTimeout(pollReplaceProgress, 1500); return; }
+        bar.style.width = "100%";
+        if (p.result === "ok") {
+            bar.classList.add("done");
+            setMgmtMsg("ok-msg", "✓ Новый VPN-конфиг применён. Подождите 10-20 секунд и проверьте handshake выше.");
+            setTimeout(() => renderMgmt().catch(() => {}), 1500);
+        } else if (p.result === "fail-rolled-back") {
+            bar.classList.add("err");
+            setMgmtMsg("err-msg", "✗ Новый конфиг не работает — старый восстановлен. VPN снова рабочий. Проверьте .conf и попробуйте ещё раз.");
+        } else {
+            bar.classList.add("err");
+            setMgmtMsg("err-msg", `Замена не удалась: ${escapeHtml(p.result || "unknown")}.`);
+        }
+    } catch (e) {
+        if (!document.getElementById("newconf-progress").classList.contains("hidden")) {
+            setTimeout(pollReplaceProgress, 4000);
+        }
+    }
+}
+btnReplaceAwg.onclick = async () => {
+    const conf = taNewConf.value.trim();
+    if (!validateConf(conf).ok) return;
+    btnReplaceAwg.disabled = true;
+    setMgmtMsg("muted", "Отправляю новый конфиг…");
+    const box = document.getElementById("newconf-progress");
+    const bar = document.getElementById("newconf-bar");
+    bar.className = "bar"; bar.style.width = "10%";
+    box.classList.remove("hidden");
+    try {
+        await rpc("cheburnet", "replace_awg_conf", { awg_conf: conf });
+        pollReplaceProgress();
+    } catch (e) {
+        box.classList.add("hidden");
+        setMgmtMsg("err-msg", `Не удалось запустить замену: ${e.message}`);
+        btnReplaceAwg.disabled = false;
+    }
 };
 
 // Factory reset — двухэтапное подтверждение
