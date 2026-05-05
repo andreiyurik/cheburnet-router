@@ -98,11 +98,21 @@ flowchart LR
 > · **macOS:** Spotlight (⌘+Space) → набери `Terminal`.
 > · **Linux:** Ctrl+Alt+T (на большинстве дистрибутивов).
 
+**Linux / macOS** (Terminal, bash/zsh):
+
 ```bash
 ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh'
 ```
 
-> 💡 Первая часть `ssh-keygen -R` нужна тем, кто уже ставил наш роутер раньше: после прошивки или factory reset роутер генерирует новый SSH host key, а ваш ноутбук помнит старый и ругается `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!` При первой установке этот префикс просто молча ничего не делает — вреда нет.
+**Windows** (PowerShell или Terminal):
+
+```powershell
+ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh'
+```
+
+> 💡 Префикс `ssh-keygen -R` нужен тем, кто уже ставил наш роутер раньше: после прошивки или factory reset роутер генерирует новый SSH host key, а ваш ноутбук помнит старый и ругается `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!` При первой установке этот префикс молча ничего не делает — вреда нет.
+>
+> ⚠ Команда **разная** для Linux/macOS и Windows: в bash `2>/dev/null` выкидывает stderr, в PowerShell тот же синтаксис превращается в попытку записать в файл `C:\dev\null` и команда падает. PowerShell ждёт `2>$null`.
 
 После этого открой в браузере **`http://192.168.1.1/cheburnet/`** — там пройдёшь 4 простых экрана: загрузишь `.conf`, придумаешь пароль администратора, придумаешь название Wi-Fi и пароль к нему, нажмёшь «Начать установку». Дальше роутер сделает всё сам — установка идёт ~12 минут, прогресс видно прямо в браузере.
 
