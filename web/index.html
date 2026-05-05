@@ -318,6 +318,23 @@
     <h3>Статус</h3>
     <dl class="kv" id="mgmt-status"></dl>
 
+    <details class="edu" style="margin-top: 12px;">
+      <summary style="cursor: pointer;">ℹ️ Если открыли страницу <code>luci-app-podkop</code> и видите красные индикаторы — прочитайте это</summary>
+      <p style="margin: 8px 0 4px;">
+        В родном интерфейсе podkop (через меню роутера → Службы → Podkop) могут гореть «жёлтые» или «красные» индикаторы:
+      </p>
+      <ul style="margin: 4px 0 8px 20px;">
+        <li><code>Outbounds checks: exclude_ru Not responding</code></li>
+        <li><code>FakeIP checks: Proxy traffic is not routed via FakeIP</code></li>
+      </ul>
+      <p style="margin: 4px 0;">
+        <strong>Это нормально для нашей сборки.</strong> Мы используем DNS-режим DoH (Quad9), а не FakeIP — для нас «FakeIP not routed» это ожидаемое состояние, а не ошибка. Подробнее — <code>docs/05-dns.md</code>.
+      </p>
+      <p style="margin: 4px 0;">
+        Авторитетный статус ваших сервисов — выше в этом блоке: AmneziaWG, podkop+sing-box, DNS, Adblock-lean. Если они зелёные — всё работает.
+      </p>
+    </details>
+
     <h3 id="mgmt-mode-header" class="hidden">Режим маршрутизации</h3>
     <div id="mgmt-mode" class="row hidden">
       <button id="btn-home" class="ghost">🏠 HOME (.ru напрямую + остальное через VPN)</button>
