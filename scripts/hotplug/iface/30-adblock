@@ -1,5 +1,6 @@
 #!/bin/sh
-# 30-adblock — стартует adblock-lean при первом ifup awg0 после boot.
+# 30-adblock — стартует adblock-lean при первом ifup awg0 после boot,
+# с retry-циклом при провалах (DNS-туннель ещё не готов / GitHub ratelimit).
 #
 # Зачем не autostart по boot: на холодном старте VPN handshake занимает
 # 3-5 минут (TLS-handshake + AmneziaWG init + sing-box bring-up). Если
@@ -10,15 +11,18 @@
 # adblock остаётся stopped. У Сергея Ш. (Cudy WR3000S, 2026-05-03)
 # именно этот сценарий: handshake появился на 5:11, adblock падал на 2:04.
 #
-# Hotplug-вариант ждёт реального события "awg0 поднят" — независимо от
-# того, сколько занял handshake. Boot autostart adblock-lean отключён в
-# 03-adblock.sh (`/etc/init.d/adblock-lean disable`); таймер
-# boot_start_delay_s=300 в config — safety net на случай если событие
-# пропустится (например, awg0 уже был up до момента, когда adblock
-# доустановился; редко, но возможно при апдейтах).
+# Зачем retry: ifup awg0 = handshake прошёл, НО это L3, а sing-box-DNS
+# может быть ещё не готов слушать (race ~5-30с). Один-shot start как был
+# раньше при таком окне падал и оставался stopped навсегда. Retry-цикл с
+# exponential back-off (30→60→120→240с, 4 попытки) даёт DNS-туннелю
+# дозреть. Между попытками делаем DNS-probe — если probe прошёл, сразу
+# пробуем start, не дожидаемся следующего тика.
 #
 # Идемпотентность: re-entry-flag в /tmp/adblock-lean-hotplug-started.
 # /tmp очищается при reboot — на следующий boot скрипт сработает снова.
+# При успехе adblock остаётся active, при полном провале (4 попытки) —
+# stopped, юзер увидит "не работает" в /cheburnet/ и может перезапустить
+# через UI кнопку "Adblock". Лог retry-цикла — в logread tag cheburnet-hotplug.
 
 [ "$ACTION" = "ifup" ] || exit 0
 [ "$INTERFACE" = "awg0" ] || exit 0
@@ -28,10 +32,42 @@ FLAG=/tmp/adblock-lean-hotplug-started
 
 [ -x /etc/init.d/adblock-lean ] || exit 0
 
-# Запускаем в фоне через setsid: hotplug.d не любит долгих обработчиков
-# (блокирует netifd-events). adblock-lean скачивает ~1.5 MB списка и
-# может работать минуту-две.
-( setsid /etc/init.d/adblock-lean start >/dev/null 2>&1 ) &
-
 touch "$FLAG"
-logger -t cheburnet-hotplug "awg0 ifup → starting adblock-lean (deferred)"
+logger -t cheburnet-hotplug "awg0 ifup → запускаю adblock-lean retry-loop в фоне"
+
+# Retry-цикл идёт в фоне через setsid: hotplug.d блокирует netifd на
+# своих обработчиках, держать его 5+ минут нельзя.
+( setsid sh -c '
+    DELAYS="30 60 120 240"
+    ATTEMPT=0
+    for DELAY in $DELAYS; do
+        ATTEMPT=$((ATTEMPT + 1))
+
+        # DNS-probe: ждём пока sing-box-DoH через dnsmasq станет резолвить.
+        # Без работающего DNS adblock сразу упадёт — нет смысла дёргать.
+        # Probe-цикл — до DELAY секунд с шагом 5с; если за это время DNS
+        # ожил раньше — проскочим к start без ожидания всего DELAY.
+        WAITED=0
+        while [ "$WAITED" -lt "$DELAY" ]; do
+            if nslookup raw.githubusercontent.com 127.0.0.1 >/dev/null 2>&1; then
+                break
+            fi
+            sleep 5
+            WAITED=$((WAITED + 5))
+        done
+
+        logger -t cheburnet-hotplug "adblock-lean attempt #$ATTEMPT (waited ${WAITED}s)"
+        /etc/init.d/adblock-lean start >/dev/null 2>&1
+
+        # Через 30с после start проверяем: блок-лист загружен?
+        # adblock-lean пишет /var/run/adblock-lean/abl-blocklist.gz при успехе.
+        sleep 30
+        if [ -s /var/run/adblock-lean/abl-blocklist.gz ]; then
+            logger -t cheburnet-hotplug "adblock-lean SUCCESS на попытке #$ATTEMPT"
+            exit 0
+        fi
+
+        logger -t cheburnet-hotplug "adblock-lean attempt #$ATTEMPT FAILED (no blocklist)"
+    done
+    logger -t cheburnet-hotplug "adblock-lean все 4 попытки провалились — остаюсь stopped"
+' >/dev/null 2>&1 ) &
