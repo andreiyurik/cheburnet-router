@@ -61,10 +61,14 @@ if [ "$AVAIL_KB" -lt 40000 ]; then
 fi
 
 # === 3. Интернет ===
-# uclient-fetch надёжнее wget --spider: wget на BusyBox может вернуть ошибку
-# на 301-редирект с корневого URL, даже когда интернет работает.
+# wget (BusyBox) — тот же инструмент, которым bootstrap.sh был скачан.
+# uclient-fetch здесь не используем: на свежем OpenWrt без ca-bundle он
+# падает на SSL-валидации даже при рабочем интернете, тогда как wget
+# BusyBox по умолчанию SSL не проверяет и проходит.
+# URL указываем конкретный файл (не корень) — корень даёт 301-редирект,
+# который некоторые сборки BusyBox wget расценивают как ошибку.
 echo "→ Проверяю интернет"
-if ! uclient-fetch -q --timeout=10 -O /dev/null \
+if ! wget -qO /dev/null --timeout=10 \
     "https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh" \
     2>/dev/null; then
     echo "✗ Нет доступа к GitHub. Диагностика:"
@@ -93,13 +97,13 @@ if ! uclient-fetch -q --timeout=10 -O /dev/null \
     echo
     if [ "$PING_OK" = "1" ] && [ "$DNS_OK" = "1" ]; then
         echo "  ⚠ Интернет работает, но GitHub недоступен."
-        echo "    Скорее всего ваш провайдер блокирует raw.githubusercontent.com."
+        echo "    Провайдер блокирует HTTPS-соединения с raw.githubusercontent.com."
+        echo "    (Это частая практика в России — именно поэтому нужен этот роутер.)"
         echo
         echo "  Решение: подключите роутер к мобильному интернету на время установки."
         echo "    1. На телефоне включите «Режим модема» / «Точка доступа»"
-        echo "    2. WAN-порт роутера подключите к телефону (USB или отдельный Wi-Fi)"
-        echo "    3. Запустите установку снова"
-        echo "    После установки VPN GitHub разблокируется автоматически."
+        echo "    2. Подключите WAN-порт роутера к телефону (USB или Wi-Fi)"
+        echo "    3. Запустите установку снова — после этого VPN снимет все блокировки"
     fi
     exit 1
 fi
