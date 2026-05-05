@@ -61,13 +61,20 @@ if [ "$AVAIL_KB" -lt 40000 ]; then
 fi
 
 # === 3. Интернет ===
+# uclient-fetch надёжнее wget --spider: wget на BusyBox может вернуть ошибку
+# на 301-редирект с корневого URL, даже когда интернет работает.
 echo "→ Проверяю интернет"
-if ! wget -q --spider --timeout=10 https://raw.githubusercontent.com 2>/dev/null; then
+if ! uclient-fetch -q --timeout=10 -O /dev/null \
+    "https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh" \
+    2>/dev/null; then
     echo "✗ Нет доступа к GitHub. Диагностика:"
     echo
+    PING_OK=0
+    DNS_OK=0
     echo "  [1/2] ping 8.8.8.8 (IP-связность без DNS):"
     if ping -c 3 -W 2 8.8.8.8 >/dev/null 2>&1; then
-        echo "    ✓ ping прошёл — IP-связность есть, проблема в DNS или блокировке"
+        echo "    ✓ ping прошёл"
+        PING_OK=1
     else
         echo "    ✗ ping не прошёл — WAN не подключён"
         echo "    → Проверьте кабель провайдера в WAN-порту роутера."
@@ -77,12 +84,23 @@ if ! wget -q --spider --timeout=10 https://raw.githubusercontent.com 2>/dev/null
     echo
     echo "  [2/2] nslookup github.com (DNS):"
     if nslookup github.com >/dev/null 2>&1; then
-        echo "    ✓ DNS работает — возможно, GitHub временно недоступен, попробуйте снова"
+        echo "    ✓ DNS работает"
+        DNS_OK=1
     else
         echo "    ✗ DNS не отвечает — роутер не резолвит имена"
         echo "    → Запустите из SSH на роутере: nslookup github.com 8.8.8.8"
     fi
     echo
+    if [ "$PING_OK" = "1" ] && [ "$DNS_OK" = "1" ]; then
+        echo "  ⚠ Интернет работает, но GitHub недоступен."
+        echo "    Скорее всего ваш провайдер блокирует raw.githubusercontent.com."
+        echo
+        echo "  Решение: подключите роутер к мобильному интернету на время установки."
+        echo "    1. На телефоне включите «Режим модема» / «Точка доступа»"
+        echo "    2. WAN-порт роутера подключите к телефону (USB или отдельный Wi-Fi)"
+        echo "    3. Запустите установку снова"
+        echo "    После установки VPN GitHub разблокируется автоматически."
+    fi
     exit 1
 fi
 echo "✓ интернет есть"
