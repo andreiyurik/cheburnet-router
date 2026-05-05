@@ -63,8 +63,26 @@ fi
 # === 3. Интернет ===
 echo "→ Проверяю интернет"
 if ! wget -q --spider --timeout=10 https://raw.githubusercontent.com 2>/dev/null; then
-    echo "✗ Нет доступа к GitHub. Проверьте WAN и DNS на роутере."
-    echo "  Проверка: ping 8.8.8.8  и  nslookup github.com"
+    echo "✗ Нет доступа к GitHub. Диагностика:"
+    echo
+    echo "  [1/2] ping 8.8.8.8 (IP-связность без DNS):"
+    if ping -c 3 -W 2 8.8.8.8 >/dev/null 2>&1; then
+        echo "    ✓ ping прошёл — IP-связность есть, проблема в DNS или блокировке"
+    else
+        echo "    ✗ ping не прошёл — WAN не подключён"
+        echo "    → Проверьте кабель провайдера в WAN-порту роутера."
+        echo "      Если провайдер требует PPPoE/VLAN — настройте WAN вручную:"
+        echo "      http://192.168.1.1 → Network → Interfaces → WAN"
+    fi
+    echo
+    echo "  [2/2] nslookup github.com (DNS):"
+    if nslookup github.com >/dev/null 2>&1; then
+        echo "    ✓ DNS работает — возможно, GitHub временно недоступен, попробуйте снова"
+    else
+        echo "    ✗ DNS не отвечает — роутер не резолвит имена"
+        echo "    → Запустите из SSH на роутере: nslookup github.com 8.8.8.8"
+    fi
+    echo
     exit 1
 fi
 echo "✓ интернет есть"
