@@ -63,11 +63,39 @@ else
     echo "  arch=${ARCH}, awg-openwrt=v${AWG_VER}"
 
     BASE="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${AWG_VER}"
+
+    # После перезагрузки роутера WAN-DHCP приходит через 15–30 сек, только тогда
+    # dnsmasq получает серверы. Если браузерный мастер стартует раньше — wget
+    # не может разрезолвить github.com и падает с "download failed".
+    # Ждём до 60 сек: nameserver в resolv.conf + ping до 8.8.8.8.
+    echo "→ ожидаем готовности сети перед скачиванием..."
+    _net_ready=0
+    for _w in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        if grep -q '^nameserver' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null \
+           && ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
+            _net_ready=1
+            break
+        fi
+        echo "  ожидание сети... (${_w}/12, по 5 сек)"
+        sleep 5
+    done
+    if [ "$_net_ready" = "0" ]; then
+        echo "✗ Нет доступа к интернету через 60 сек." >&2
+        echo "  Возможные причины:" >&2
+        echo "  • WAN-кабель не подключён или провайдер не даёт DHCP" >&2
+        echo "  • IPv6-only WAN без IPv4 (проверьте настройки провайдера)" >&2
+        echo "  Диагностика:" >&2
+        ip route 2>&1 >&2 || true
+        cat /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null >&2 || echo "  (resolv.conf пустой)" >&2
+        exit 1
+    fi
+    echo "  ✓ сеть готова"
+
     mkdir -p /etc/amnezia/amneziawg
     cd /tmp
     for PKG in "kmod-amneziawg_v${AWG_VER}" "amneziawg-tools_v${AWG_VER}" "luci-proto-amneziawg_v${AWG_VER}"; do
         FILE="${PKG}_${ARCH}.apk"
-        wget -q -O "$FILE" "$BASE/$FILE" || { echo "download failed: $FILE"; exit 1; }
+        wget -q -T 30 -O "$FILE" "$BASE/$FILE" || { echo "download failed: $FILE"; exit 1; }
     done
     APK_ERR=$(apk add --allow-untrusted \
                   "./kmod-amneziawg_v${AWG_VER}_${ARCH}.apk" \
