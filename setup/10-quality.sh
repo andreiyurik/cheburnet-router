@@ -5,12 +5,13 @@ set -e
 echo "== 10. System settings =="
 
 # === 1. Timezone ===
-echo "→ timezone → Europe/Moscow (MSK, UTC+3)"
-uci set system.@system[0].timezone='MSK-3'
-uci set system.@system[0].zonename='Europe/Moscow'
+echo "→ timezone → UTC (универсальное время, не зависит от страны пользователя)"
+echo "  Чтобы перевести в своё время: откройте LuCI → System → System → Timezone."
+uci set system.@system[0].timezone='UTC0'
+uci set system.@system[0].zonename='UTC'
 uci commit system
 /etc/init.d/system reload
-echo "  date: $(date)"
+echo "  date (UTC): $(date)"
 
 # === 2. /etc/sysupgrade.conf — protect-list разложен манифестом ===
 if [ -f /etc/sysupgrade.conf ]; then
