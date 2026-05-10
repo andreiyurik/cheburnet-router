@@ -5,9 +5,17 @@ set -e
 
 echo "== 00. Prerequisites =="
 
-# Обновляем списки пакетов
+# Обновляем списки пакетов.
+# apk update изредка падает с "Operation not permitted" / "unexpected end
+# of file" из-за временной недоступности одного из зеркал OpenWrt — даже
+# когда стейл всего один индекс из 8, apk возвращает ошибку. Один повтор
+# закрывает большинство таких транзиентных сбоев без вмешательства
+# пользователя.
 echo "→ apk update"
-apk update
+if ! apk update; then
+    echo "  apk update упал на одном из зеркал, повторяю..."
+    apk update
+fi
 
 # Базовые инструменты, нужные дальше
 # - jq для разбора JSON (sing-box config, clash-api)

@@ -143,6 +143,32 @@ sleep 5
 nslookup google.com 192.168.1.1
 ```
 
+### «После ребута 30–60 сек VPN не работает, в логах sing-box FATAL»
+
+Симптом — сразу после `reboot` в `logread` видно нечто такое:
+
+```
+sing-box FATAL: ... initial rule-set: ... russia_outside.srs:
+  lookup github.com: ... no route to internet
+sing-box ERROR: ... rule-set: ... unexpected EOF
+netifd: wan6: Failed to send RS (Address not available)
+```
+
+Через 30–90 сек всё восстанавливается само, VPN дальше работает нормально.
+
+**Это ожидаемое поведение, починки не требует.** Что происходит:
+
+1. procd стартует сервисы почти одновременно: WAN-DHCP, awg0, sing-box.
+2. Sing-box (через подkop) на старте идёт на `github.com/itdoginfo/allow-domains/...russia_outside.srs` — это community-лист для HOME-режима.
+3. В этот момент WAN-DHCP ещё может не приехать, либо awg0 ещё не отхэндшейкался → fetch падает.
+4. procd видит fatal-exit, рестартует sing-box. Через минуту сеть готова — fetch проходит, дальше всё стабильно.
+
+**Шум в логах ≠ сломанный сервис.** Если через минуту после reboot `vpn-mode status` зелёный и сайты открываются — у вас всё в порядке.
+
+`wan6: Failed to send RS` — отдельный шум на IPv4-only провайдерах, к sing-box отношения не имеет, игнорируйте.
+
+**Когда это реальная проблема:** если sing-box в фатальном цикле дольше 2–3 минут (`logread | grep sing-box | tail` всё ещё показывает FATAL), значит WAN сам не поднялся — проверьте кабель, провайдера, `ifstatus wan`.
+
 ### «IP-адрес показывается российский, хотя я в HOME режиме»
 
 С LAN-клиента:

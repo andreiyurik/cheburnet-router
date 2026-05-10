@@ -32,6 +32,24 @@ else
     # подкоповского установщика (раньше было `printf 'n\nn\nn\n'` — хрупко,
     # ломалось бы если itdoginfo добавил четвёртый вопрос).
     yes n | sh /tmp/podkop-install.sh 2>&1 | tail -20
+
+    # Установщик подкопа сам внутри делает apk update + apk add. Изредка
+    # падает на транзиентных проблемах с зеркалами OpenWrt
+    # (wget "Operation not permitted", "unexpected end of file", битый
+    # индекс). Один повтор после apk update закрывает 90% таких случаев
+    # без вмешательства пользователя. Дальше идти бессмысленно — UCI-конфиг
+    # подкопа применять некуда.
+    if [ ! -x /etc/init.d/podkop ]; then
+        echo "  установщик подкопа не оставил /etc/init.d/podkop, обновляю индексы и повторяю..."
+        apk update >/dev/null 2>&1 || true
+        yes n | sh /tmp/podkop-install.sh 2>&1 | tail -20
+    fi
+    if [ ! -x /etc/init.d/podkop ]; then
+        echo "✗ Установщик podkop отработал дважды, но /etc/init.d/podkop не появился." >&2
+        echo "  Скорее всего временный сбой зеркал OpenWrt/wget — подождите 1-2 минуты" >&2
+        echo "  и повторите setup.sh." >&2
+        exit 1
+    fi
 fi
 
 # === 2. UCI-конфигурация ===
