@@ -111,23 +111,54 @@ awg_validate_conf() {
 # ─────────────────────────────────────────────────────────────────────────────
 
 # awg_pick_version PREFERRED ARCH
-# Пытается найти подходящий релиз awg-openwrt: сначала PREFERRED ($DISTRIB_RELEASE),
-# затем fallback "25.12.2". Печатает выбранную версию в stdout, return 0.
-# Если ничего не нашлось — return 1, ничего не печатает.
-# wget-вызов мокается в тестах через PATH-shim.
+# Подбирает релиз awg-openwrt в порядке убывания надёжности:
+#   1) v$PREFERRED ($DISTRIB_RELEASE) — kmod гарантированно собран под то же
+#      ядро, что у юзера. Это ровно то совпадение, которое мы хотим.
+#   2) latest-релиз awg-openwrt из GitHub API — если апстрим ушёл вперёд
+#      раньше нас (новый OpenWrt вышел, у юзера именно он), latest всё равно
+#      ближе по ядру, чем любая «зашитая на момент написания» константа.
+# Печатает выбранную версию в stdout, return 0. Если ни один из путей не
+# подошёл — return 1, ничего не печатает (вызывающий покажет понятную ошибку).
+#
+# Жёсткого хардкод-fallback'а нет сознательно: он быстро устаревает, а на
+# свежем ядре всё равно не работает (modprobe отлогирует kernel-mismatch).
+# Лучше честно отказать с указанием ссылки, чем пытаться поставить заведомо
+# несовместимое.
+#
+# Парсинг tag_name из API — на grep+sed (не jsonfilter), чтобы функция
+# работала и до шага 00 (на голом busybox), и в bats-тестах без extra-mock'ов.
+# Поле "tag_name" в ответе GitHub releases уникально на верхнем уровне.
+# wget-вызовы мокаются в тестах через PATH-shim.
 awg_pick_version() {
     _preferred="$1"
     _arch="$2"
-    for _try in "$_preferred" "25.12.2"; do
-        [ -z "$_try" ] && continue
-        _url="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${_try}/kmod-amneziawg_v${_try}_${_arch}.apk"
+
+    if [ -n "$_preferred" ]; then
+        _url="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${_preferred}/kmod-amneziawg_v${_preferred}_${_arch}.apk"
         if wget -q --spider --timeout=15 "$_url" 2>/dev/null; then
-            printf '%s\n' "$_try"
-            unset _preferred _arch _try _url
+            printf '%s\n' "$_preferred"
+            unset _preferred _arch _url
             return 0
         fi
-    done
-    unset _preferred _arch _try _url
+    fi
+
+    _api='https://api.github.com/repos/Slava-Shchipunov/awg-openwrt/releases/latest'
+    _latest=$(wget -q -O - --timeout=15 "$_api" 2>/dev/null \
+        | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"v[^"]*"' \
+        | head -1 \
+        | sed 's|.*"v\([^"]*\)"|\1|')
+
+    # latest = preferred → уже пробовали выше, второй раз не дёргаем сеть.
+    if [ -n "$_latest" ] && [ "$_latest" != "$_preferred" ]; then
+        _url="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${_latest}/kmod-amneziawg_v${_latest}_${_arch}.apk"
+        if wget -q --spider --timeout=15 "$_url" 2>/dev/null; then
+            printf '%s\n' "$_latest"
+            unset _preferred _arch _url _api _latest
+            return 0
+        fi
+    fi
+
+    unset _preferred _arch _url _api _latest
     return 1
 }
 
