@@ -14,6 +14,9 @@
 #   • json_escape работает на busybox-awk/-sed (а не gawk хоста — это
 #     разные реализации с разной semantic'ой gsub-replacement, мы поймали
 #     именно этот gap).
+#   • lib/family-filter.sh — on/off/status/idempotency на РЕАЛЬНОМ
+#     busybox-uci (add_list/del_list/commit) и busybox-awk (rewrite
+#     raw_block_lists). Mock в T2 не покрывает busybox-специфики.
 #
 # Что НЕ покрывает (для уровня T3b — smoke-http.sh):
 #   • HTTP-слой (uhttpd-mod-ubus + /ubus endpoint).
@@ -43,14 +46,14 @@ vm_ssh "ubus list cheburnet >/dev/null" || {
     exit 1
 }
 
-echo "→ assert: ubus list cheburnet — все 9 методов"
+echo "→ assert: ubus list cheburnet — все 10 методов"
 # Каждый метод в `ubus -v list` идёт строкой `<TAB>"name":{args}`. Берём имя
 # до первого `"` после имени — иначе текстовый парсер слипает имя метода
 # с именами аргументов.
 methods="$(vm_ssh 'ubus -v list cheburnet' \
     | sed -nE 's/^[[:space:]]+"([^"]+)":.*$/\1/p' \
     | sort | tr '\n' ' ' | sed 's/ $//')"
-expected="factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier"
+expected="factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter"
 [ "$methods" = "$expected" ] || {
     echo "  expected: $expected"
     echo "  actual:   $methods"
@@ -81,6 +84,66 @@ actual="$(vm_ssh ". /opt/cheburnet/lib/cheburnet-utils.sh && json_escape '$input
     echo "  actual:   $actual"
     exit 1
 }
+
+# ─── family-filter end-to-end: реальный busybox-uci + busybox-awk ────────────
+#
+# Главные риски, которые mock-уровень T2 НЕ ловит и которые ловит этот блок:
+#   • busybox-uci семантика add_list/del_list/commit (точное совпадение
+#     значений — чужие cname не трогаем);
+#   • busybox-awk на _family_filter_rewrite (та же история, что мы один раз
+#     уже ловили на json_escape — gawk-vs-busybox semantic gap);
+#   • idempotency on/on не дублирует ни NSFW URL в raw_block_lists, ни
+#     cname'ы в dhcp.@dnsmasq[0];
+#   • family_filter_status суммирует обе подсистемы (true ⟺ обе включены).
+#
+# adblock-lean сам не нужен: мокаем /etc/adblock-lean/config одной строкой
+# raw_block_lists=, чего достаточно, чтобы _family_filter_rewrite (awk +
+# mktemp + mv) имела над чем работать. uci, однако, настоящий — busybox.
+
+# Считаем ВХОЖДЕНИЯ подстроки, не строки: busybox-uci печатает list-элементы
+# всеми в одной строке через пробел, и в /etc/adblock-lean/config raw_block_lists
+# тоже хранится в одной строке. grep -c посчитал бы 1 даже если бы URL/cname
+# продублировался — ассерт оказался бы фальшиво-зелёным. grep -o ... | wc -l
+# считает каждое вхождение отдельно.
+
+echo "→ assert: family-filter — on, NSFW URL и cname'ы добавлены"
+vm_ssh 'mkdir -p /etc/adblock-lean && printf '\''raw_block_lists="hagezi:pro"\n'\'' > /etc/adblock-lean/config'
+vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_on' \
+    || { echo "  FAIL: family_filter_on exit-code != 0"; exit 1; }
+nsfw_n="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l')"
+[ "$nsfw_n" = "1" ] \
+    || { echo "  FAIL: ожидал 1 NSFW URL в raw_block_lists, нашёл $nsfw_n"; vm_ssh 'cat /etc/adblock-lean/config'; exit 1; }
+# Sentinel: forcesafesearch.google.com встречается ровно 2 раза (google.com + www.google.com).
+ss_n="$(vm_ssh 'uci show dhcp.@dnsmasq[0] | grep -o forcesafesearch.google.com | wc -l')"
+[ "$ss_n" = "2" ] \
+    || { echo "  FAIL: ожидал 2 forcesafesearch-cname, нашёл $ss_n"; vm_ssh 'uci show dhcp.@dnsmasq[0]'; exit 1; }
+
+echo "→ assert: family-filter — status=true когда обе подсистемы включены"
+st="$(vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_status')"
+[ "$st" = "true" ] \
+    || { echo "  FAIL: family_filter_status='$st' (ожидал true)"; exit 1; }
+
+echo "→ assert: family-filter — повторный on idempotent (не дублирует)"
+vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_on'
+nsfw_n2="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l')"
+[ "$nsfw_n2" = "1" ] \
+    || { echo "  FAIL: NSFW URL продублировался после второго on (count=$nsfw_n2, ожидал 1)"; vm_ssh 'cat /etc/adblock-lean/config'; exit 1; }
+ss_n2="$(vm_ssh 'uci show dhcp.@dnsmasq[0] | grep -o forcesafesearch.google.com | wc -l')"
+[ "$ss_n2" = "2" ] \
+    || { echo "  FAIL: cname-список продублировался — count=$ss_n2, ожидал 2"; vm_ssh 'uci show dhcp.@dnsmasq[0]'; exit 1; }
+
+echo "→ assert: family-filter — off вычищает обе подсистемы"
+vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_off' \
+    || { echo "  FAIL: family_filter_off exit-code != 0"; exit 1; }
+nsfw_n_off="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l')"
+[ "$nsfw_n_off" = "0" ] \
+    || { echo "  FAIL: после off остались NSFW URL (count=$nsfw_n_off)"; vm_ssh 'cat /etc/adblock-lean/config'; exit 1; }
+ss_n_off="$(vm_ssh 'uci show dhcp.@dnsmasq[0] | grep -o forcesafesearch.google.com | wc -l')"
+[ "$ss_n_off" = "0" ] \
+    || { echo "  FAIL: после off остались forcesafesearch-cname (count=$ss_n_off)"; vm_ssh 'uci show dhcp.@dnsmasq[0]'; exit 1; }
+st_off="$(vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_status')"
+[ "$st_off" = "false" ] \
+    || { echo "  FAIL: family_filter_status='$st_off' после off (ожидал false)"; exit 1; }
 
 echo
 echo "✓ T3a smoke pass — bringup + rpcd-cheburnet работают на реальном OpenWrt snapshot."

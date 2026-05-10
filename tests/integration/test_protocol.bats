@@ -23,13 +23,13 @@ teardown() {
     printf '%s' "$output" | python3 -m json.tool >/dev/null
 }
 
-@test "list: содержит все 9 методов" {
+@test "list: содержит все 10 методов" {
     out="$(run_rpcd_list)"
     methods="$(printf '%s' "$out" | python3 -c '
 import json, sys
 print(" ".join(sorted(json.load(sys.stdin).keys())))
 ')"
-    expected="factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier"
+    expected="factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter"
     [ "$methods" = "$expected" ]
 }
 

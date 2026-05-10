@@ -71,6 +71,7 @@ sandbox_init() {
     cp "$REPO_ROOT/lib/cheburnet-utils.sh" "$INSTALL_DIR/lib/"
     cp "$REPO_ROOT/lib/net-detect.sh"      "$INSTALL_DIR/lib/"
     cp "$REPO_ROOT/lib/podkop-config.sh"   "$INSTALL_DIR/lib/"
+    cp "$REPO_ROOT/lib/family-filter.sh"   "$INSTALL_DIR/lib/"
 
     # Моки в начале PATH
     MOCKDIR="$SANDBOX/mockdir"

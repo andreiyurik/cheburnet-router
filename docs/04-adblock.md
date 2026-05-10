@@ -246,6 +246,53 @@ raw_block_lists="hagezi:pro oisd:big"     # Pro + OISD big list
 - **StevenBlack's hosts** — агрегация множества списков
 - **1Hosts** — умеренный баланс
 
+## 🧒 Семейный фильтр
+
+Опциональный родительский контроль на уровне роутера. Один тумблер в веб-панели `/cheburnet/` (или CLI) включает **две независимые подсистемы одновременно**: NSFW-блок и принудительный SafeSearch. Архитектурно — DNS-only, без MITM, без блок-страницы, без отдельных демонов.
+
+### Что включается
+
+**1. NSFW DNS-блок (~95 600 доменов).**
+Hagezi NSFW-лист добавляется отдельным URL'ом к `raw_block_lists` в `/etc/adblock-lean/config`. В стандартные тиры Hagezi (`pro`, `ultimate`, ...) NSFW не входит, поэтому это именно add-on, а не shortcut. Сборка списка идёт через тот же pipeline adblock-lean → gzip → `conf-script` для dnsmasq → `local=/domain/` правила → NXDOMAIN на запросы. У клиента это выглядит как обычная ошибка «сайт недоступен» (`DNS_PROBE_FINISHED_NXDOMAIN`), без блок-страницы — это сознательное решение, см. ниже.
+
+**2. Force SafeSearch через CNAME.**
+CNAME-перенаправления добавляются в `dhcp.@dnsmasq[0].cname` (UCI list cname). Когда клиент запрашивает `www.google.com`, dnsmasq возвращает CNAME на `forcesafesearch.google.com` — и Google сам отдаёт отфильтрованную выдачу. То же для других поисковиков и YouTube:
+
+| Сервис | Запрашивается | Перенаправляется на |
+|---|---|---|
+| Google (поиск, картинки) | `www.google.com`, `google.com` | `forcesafesearch.google.com` |
+| YouTube (web + mobile + API) | `www.youtube.com`, `m.youtube.com`, `youtubei.googleapis.com`, `youtube.googleapis.com` | `restrict.youtube.com` (Strict-режим) |
+| Bing | `www.bing.com`, `bing.com` | `strict.bing.com` |
+| DuckDuckGo | `duckduckgo.com`, `www.duckduckgo.com` | `safe.duckduckgo.com` |
+| Yandex | `yandex.ru`, `www.yandex.ru`, `yandex.com` | `familysearch.yandex.ru` |
+
+Это закрывает основной канал, через который дети находят NSFW-контент в обход блок-листа: поиск по картинкам и YouTube-рекомендации. Использовать `restrictmoderate.youtube.com` вместо `restrict.youtube.com` (мягче) можно правкой `SAFESEARCH_CNAMES` в `lib/family-filter.sh`.
+
+### Управление
+
+```bash
+# веб: /cheburnet/ → тумблер «🧒 Семейный фильтр»
+
+# CLI:
+. /opt/cheburnet/lib/family-filter.sh && family_filter_status   # true | false (true ⟺ обе подсистемы включены)
+. /opt/cheburnet/lib/family-filter.sh && family_filter_on
+. /opt/cheburnet/lib/family-filter.sh && family_filter_off
+
+# по отдельности — если зачем-то нужно (диагностика, recovery после рассинхрона):
+. /opt/cheburnet/lib/family-filter.sh
+_family_filter_blocklist_status   # NSFW-блок только
+family_safesearch_status          # SafeSearch только
+```
+
+Все функции idempotent: повторный `on` / `off` — no-op. Правка adblock-конфига атомарная (`mktemp` + `mv`). UCI cname добавляется/удаляется по точному значению через `add_list` / `del_list` — чужие cname (если кто-то добавил вручную или другой подсистемой) не трогаются. После переключения `rpcd-cheburnet` в фоне делает `adblock-lean start` (для пересборки блок-листа) и `dnsmasq restart` (для подхвата изменений UCI), как с обычной сменой тира.
+
+### Ограничения
+
+- **DNS-only.** Уже открытые HTTPS-сессии внутри TikTok / Instagram-feed / Telegram-чата фильтру не видны — там контент идёт по HTTPS внутри одного домена, без отдельных DNS-запросов на NSFW-поддомены.
+- **Своя DNS-подсистема на устройстве обходит фильтр.** VPN-приложение, DoH в браузере (Chrome/Firefox с Cloudflare 1.1.1.1, NextDNS и т.п.), или просто прописанный 8.8.8.8 в настройках сети — всё это идёт мимо роутерного dnsmasq.
+- **Нет блок-страницы.** При попадании на NSFW-домен пользователь видит штатную ошибку браузера (`DNS_PROBE_FINISHED_NXDOMAIN` / «сайт недоступен») — никакого «контент заблокирован роутером». Сделать блок-страницу = поднимать отдельный демон с веб-сервером и DNS-rewrite на его IP, либо ставить AdGuard Home (+50 MB RAM, +20 MB flash, второй веб-UI). Не стоит того ради косметики.
+- **Покрытие неполное.** Hagezi NSFW — большие домены и их зеркала; нишевые сайты могут не попадать. Список обновляется автоматически вместе с adblock-листом (раз в сутки).
+
 ## Почему так, а не иначе
 
 ### Почему не в браузере (uBlock Origin)?

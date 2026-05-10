@@ -78,7 +78,7 @@ assert write is None or write == {} or write == {"ubus": {}}, \
 @test "post-install ACL: cheburnet-admin.write содержит ВСЕ мутирующие методы" {
     methods="$(extract_acl_heredoc "$POST_ACL_RUN" \
                | acl_methods_in_stdin .cheburnet-admin.write.ubus.cheburnet)"
-    expected="factory_reset install_cancel install_start mode_switch replace_awg_conf service_restart set_blocklist_tier"
+    expected="factory_reset install_cancel install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter"
     [ "$methods" = "$expected" ]
 }
 

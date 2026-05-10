@@ -177,7 +177,7 @@ cat > /usr/share/rpcd/acl.d/cheburnet.json <<'ACL'
     "cheburnet-admin": {
         "description": "cheburnet admin (login as root required)",
         "read":  { "ubus": { "cheburnet": ["get_status", "install_progress"] } },
-        "write": { "ubus": { "cheburnet": ["install_start", "install_cancel", "mode_switch", "service_restart", "set_blocklist_tier", "factory_reset", "replace_awg_conf"] } }
+        "write": { "ubus": { "cheburnet": ["install_start", "install_cancel", "mode_switch", "service_restart", "set_blocklist_tier", "set_family_filter", "factory_reset", "replace_awg_conf"] } }
     }
 }
 ACL
