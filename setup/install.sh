@@ -25,7 +25,7 @@ mkdir -p "$STATE_DIR"
 echo "[STEP] starting" > "$STATE"
 
 # === Подключаем диагностические хелперы ===
-# Источник: на роутере /opt/cheburnet/lib (туда копирует bootstrap.sh).
+# Источник: на роутере /opt/cheburnet/lib (туда копирует install.sh).
 # shellcheck source=../lib/cheburnet-diag.sh disable=SC1090,SC1091
 [ -f "$INSTALL_DIR/lib/cheburnet-diag.sh" ] && . "$INSTALL_DIR/lib/cheburnet-diag.sh"
 

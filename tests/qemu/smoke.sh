@@ -3,7 +3,7 @@
 #
 # Проверяет, что наш rpcd-cheburnet поднимается на реальном OpenWrt snapshot
 # (busybox-ash + busybox-awk + busybox-sed + настоящий ubusd/rpcd) и отвечает
-# валидным JSON через ubus. НЕ ходит в интернет: bootstrap.sh (apk update,
+# валидным JSON через ubus. НЕ ходит в интернет: install.sh (apk update,
 # wget с github) не запускается, файлы кладутся напрямую через ssh+cat.
 #
 # Что покрывает (а на mock-уровне T2 — нет):

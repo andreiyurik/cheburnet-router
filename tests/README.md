@@ -51,7 +51,7 @@ make lint
 | 2 | `shellcheck --shell=bash --severity=warning` на `setup.sh` | Хост-тулинг, использует bash-фичи |
 | 3 | `sh -n` / `bash -n` на всех скриптах | Safety net поверх shellcheck |
 | 4 | `python3 -m json.tool` на `web/rpcd-acl.json` + embedded-ACL heredoc'е в `setup/install.sh` | Кривая ACL-JSON ломает rpcd → веб-мастер мёртв |
-| 5 | `sha256(bootstrap.sh)` совпадает с хэшем в `README.md` | Если рассинхронить — пользователь делает bootstrap, проверка подписи проваливается, установка не идёт |
+| 5 | `sha256(install.sh)` совпадает с хэшем в `README.md` | Если рассинхронить — пользователь запускает установку, проверка подписи проваливается, установка не идёт |
 
 CI: `.github/workflows/lint.yml` (push/PR → ubuntu-latest, `apt-get install shellcheck`, `make lint`).
 
@@ -136,7 +136,7 @@ QEMU, никакого реального ubus.
 - Реальный ACL-enforcement (это делает rpcd-демон по `acl.d/*.json`, не сам
   скрипт). Здесь проверяется только структура файлов; реальный enforce —
   ручной чек в `docs/RELEASE-CHECKLIST.md`.
-- Полный путь bootstrap → install → ACL-lock через сеть (uhttpd, реальный
+- Полный путь install.sh → setup/install.sh → ACL-lock через сеть (uhttpd, реальный
   ubus). Это T3b (QEMU-стенд, не реализован — нужен либо self-hosted runner с
   KVM, либо `libguestfs-tools`. См. `AGENTS.md`).
 - Поведение setup-скриптов на роутере (apk add, modprobe, uci commit network).

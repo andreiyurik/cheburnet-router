@@ -21,7 +21,7 @@ cd "$REPO" || exit 1
 # === Списки файлов ===
 # POSIX sh — всё что идёт на роутер (busybox-ash) или на хост, но без bash-фич.
 POSIX_FILES=(
-    bootstrap.sh
+    install.sh
     lib/cheburnet-utils.sh
     lib/net-detect.sh
     lib/podkop-config.sh

@@ -2,7 +2,7 @@
   "permissions": {
     "allow": [
       "Bash(bash -n /home/pingvinus/cheburnet-router/setup.sh)",
-      "Bash(sh -n /home/pingvinus/cheburnet-router/bootstrap.sh)",
+      "Bash(sh -n /home/pingvinus/cheburnet-router/install.sh)",
       "Bash(sh -n /home/pingvinus/cheburnet-router/web/run-install.sh)",
       "Bash(sh -n /home/pingvinus/cheburnet-router/web/rpcd-cheburnet)",
       "Bash(sh -n /home/pingvinus/cheburnet-router/setup/full-deploy.sh)",
@@ -23,7 +23,13 @@
       "Bash(make qemu *)",
       "Bash(tests/lint.sh)",
       "Bash(echo \"=== exit: $? ===\")",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(command -v gh)",
+      "Bash(gh auth *)",
+      "Bash(gh pr *)",
+      "Bash(gh api *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

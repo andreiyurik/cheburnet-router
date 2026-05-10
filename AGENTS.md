@@ -36,7 +36,7 @@ DNS-режим — **DoH, не FakeIP**. Если в диагностике ви
 
 Два пути установки сходятся в одной точке — `setup/install.sh` на роутере:
 
-- **Веб-мастер (для пользователя):** `bootstrap.sh` (на роутере) → ставит `web/rpcd-cheburnet` + ACL + UI + install-токен → пользователь открывает URL → RPC `install_start` → `setup/install.sh`.
+- **Веб-мастер (для пользователя):** `install.sh` (на роутере) → ставит `web/rpcd-cheburnet` + ACL + UI + install-токен → пользователь открывает URL → RPC `install_start` → `setup/install.sh`.
 - **CLI (для разработчиков):** `setup.sh` (на ноутбуке) → диалог → rsync репо в `/opt/cheburnet/` + scp `.conf` → ssh-вызов `setup/install.sh`.
 
 `setup/install.sh` сам: применяет `setup/manifest.txt` (single source of truth для копирования файлов на роутер), затем запускает 11 пронумерованных шагов `setup/0X-*.sh`. Прогресс — в `/tmp/cheburnet/{state,done,install.log}`.
@@ -92,7 +92,7 @@ DNS-режим — **DoH, не FakeIP**. Если в диагностике ви
 
 **Правила прогона:**
 - Каждое сохранение → T1 + T2.
-- Правка `lib/` / `web/` / `setup/` / `bootstrap.sh` → дополнительно T3a.
+- Правка `lib/` / `web/` / `setup/` / `install.sh` → дополнительно T3a.
 - Правка handler'а / ACL / UI → T3b.
 - **Правка `setup/install.sh`, `setup/manifest.txt`, `setup/0X-*.sh`** → обязательно T3c. Mock-тесты этого не покрывают (на хосте есть `install -m`, на роутере нет).
 - Перед релизом — manual smoke на реальном Cudy/Beryl AX (T3c проходит до 01-amneziawg и падает там — на x86-snapshot нет `kmod-amneziawg`).
