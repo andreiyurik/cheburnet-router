@@ -25,7 +25,24 @@ else
         exit 1
     fi
 
-    sh /tmp/abl-install.sh -v release
+    # abl-install внутри ходит на api.github.com за тегом последнего релиза.
+    # Этот fetch регулярно падает с "Operation not permitted" (netfilter EPERM
+    # сразу после firewall reload в шагах 01/02) или транзиентным wget-сбоем —
+    # установщик возвращает ненулевой код, наш set -e убивает шаг.
+    # Один повтор после apk update закрывает класс таких сбоев. По образцу
+    # 02-podkop.sh: критерий «успешно» — появился /etc/init.d/adblock-lean.
+    sh /tmp/abl-install.sh -v release || true
+    if [ ! -x /etc/init.d/adblock-lean ]; then
+        echo "  установщик adblock-lean не оставил /etc/init.d/adblock-lean, повторяю..."
+        apk update >/dev/null 2>&1 || true
+        sh /tmp/abl-install.sh -v release || true
+    fi
+    if [ ! -x /etc/init.d/adblock-lean ]; then
+        echo "✗ Установщик adblock-lean отработал дважды, но /etc/init.d/adblock-lean не появился." >&2
+        echo "  Скорее всего временный сбой api.github.com или сети — подождите 1-2 минуты" >&2
+        echo "  и повторите setup.sh." >&2
+        exit 1
+    fi
 fi
 
 # === 2. Конфиг ===

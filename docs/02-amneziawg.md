@@ -39,17 +39,25 @@ AmneziaWG — форк WireGuard, где сохранена криптограф
 
 ### 1. Пакеты (делается через скрипт `setup/01-amneziawg.sh`)
 
-```bash
-# Репозиторий Slava-Shchipunov/awg-openwrt собирает kmod под каждую версию OpenWrt
-BASE=https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v25.12.2
-ARCH=aarch64_cortex-a53_mediatek_filogic   # для Beryl AX; проверить свой
+Скрипт сам подбирает версию пакетов awg-openwrt: сначала пробует ровный матч с вашим `DISTRIB_RELEASE`, при отсутствии — берёт latest-релиз из GitHub API. Версию руками подставлять **не нужно** — это и есть смысл выноса в скрипт.
 
+Если очень хочется поставить руками (восстановление, отладка):
+
+```bash
+# Узнать СВОЮ версию OpenWrt и target-arch:
+. /etc/openwrt_release
+ARCH="${DISTRIB_ARCH}_$(echo "$DISTRIB_TARGET" | tr '/' '_')"
+VER="$DISTRIB_RELEASE"
+
+BASE="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${VER}"
 cd /tmp
-for PKG in kmod-amneziawg_v25.12.2 amneziawg-tools_v25.12.2 luci-proto-amneziawg_v25.12.2; do
-    wget -O "${PKG}_${ARCH}.apk" "$BASE/${PKG}_${ARCH}.apk"
+for PKG in kmod-amneziawg amneziawg-tools luci-proto-amneziawg; do
+    wget -O "${PKG}_v${VER}_${ARCH}.apk" "$BASE/${PKG}_v${VER}_${ARCH}.apk"
 done
 apk add --allow-untrusted *amneziawg*.apk
 ```
+
+Если для `v$VER` пакетов нет (апстрим ещё не собрал под свежий релиз) — посмотрите [список доступных тегов](https://github.com/Slava-Shchipunov/awg-openwrt/releases) и подставьте подходящий, **но помните**: kmod, собранный под другое ядро, не загрузится. Лучше дождаться апстрим-сборки.
 
 После установки `modprobe amneziawg` загружает модуль, `awg --version` показывает версию userspace-тулзы.
 
