@@ -19,6 +19,7 @@
 - [ ] **Podkop split-routing** работает: `curl https://yandex.ru/ip` показывает RU-IP, `curl https://api.ipify.org` через VPN — IP сервера.
 - [ ] **Hagezi-блок-лист** грузится (`/etc/init.d/adblock-lean status` → running, размер `/tmp/dnsmasq.d/.adb-list` > 1 MB).
 - [ ] **DNS-DoH** работает: `nslookup cloudflare.com 192.168.1.1` отвечает; в `tcpdump -i wan port 53` (с подключенного клиента) — пусто (всё через DoH порт 853).
+- [ ] **Семейный режим end-to-end** (после `set_family_filter {enabled:true}` через web): (1) `nslookup www.google.com 192.168.1.1` показывает CNAME на `forcesafesearch.google.com`; (2) поисковая выдача `images.google.com` без ключевого слова — отфильтрованная (нет NSFW); (3) `nslookup pornhub.com 192.168.1.1` — пусто (NXDOMAIN от блок-листа).
 
 ## Wi-Fi (WPA3-mixed)
 

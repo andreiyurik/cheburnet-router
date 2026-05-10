@@ -16,7 +16,7 @@
 
 # ─── конфиг по умолчанию (можно переопределить ДО vm_lib_init) ───────────────
 : "${IMG_URL:=https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-x86-64-generic-ext4-combined.img.gz}"
-: "${IMG_SHA256:=a18d770aecb871ad0a2e88fc2d7e06915b8b012915688bd7698f34bcca70767d}"
+: "${IMG_SHA256:=dfe13a87bf1c1ddd85808c642eed9e66e7d0a6b480cb4087d9f174e73d3bbe12}"
 : "${SSH_PORT:=2222}"
 : "${HTTP_PORT:=8080}"      # для smoke-http (port-forward 8080→80)
 : "${VM_RAM_MB:=512}"
@@ -241,6 +241,7 @@ vm_deploy_handler() {
     # и smoke-test диагностирует это как «handler не зарегистрирован».
     vm_scp "$REPO_ROOT/lib/cheburnet-utils.sh" "/opt/cheburnet/lib/cheburnet-utils.sh"
     vm_scp "$REPO_ROOT/lib/net-detect.sh"      "/opt/cheburnet/lib/net-detect.sh"
+    vm_scp "$REPO_ROOT/lib/family-filter.sh"   "/opt/cheburnet/lib/family-filter.sh"
     vm_ssh "chmod +x /usr/libexec/rpcd/cheburnet"
     vm_ssh "/etc/init.d/rpcd restart"
     sleep 2

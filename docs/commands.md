@@ -150,6 +150,11 @@ nslookup doubleclick.net 192.168.1.1   # пустой ответ = BLOCKED
 vim /etc/adblock-lean/allowlist        # разблокировать
 vim /etc/adblock-lean/blocklist        # заблокировать дополнительно
 /etc/init.d/adblock-lean start         # применить
+
+# Семейный фильтр (Hagezi NSFW, ~95 600 доменов взрослого контента)
+. /opt/cheburnet/lib/family-filter.sh && family_filter_status   # true | false
+. /opt/cheburnet/lib/family-filter.sh && family_filter_on       # включить
+. /opt/cheburnet/lib/family-filter.sh && family_filter_off      # выключить
 ```
 
 ---

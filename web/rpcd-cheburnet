@@ -47,6 +47,12 @@ NET_LIB="${CHEBURNET_NET_LIB:-$INSTALL_DIR/lib/net-detect.sh}"
 # shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
 . "$NET_LIB"
 
+# family-filter: on/off/status управление Hagezi NSFW в raw_block_lists
+FAMILY_LIB="${CHEBURNET_FAMILY_LIB:-$INSTALL_DIR/lib/family-filter.sh}"
+[ -f "$FAMILY_LIB" ] || FAMILY_LIB="$(dirname "$0")/../../../opt/cheburnet/lib/family-filter.sh"
+# shellcheck source=../lib/family-filter.sh disable=SC1090,SC1091
+. "$FAMILY_LIB"
+
 # === list: описание доступных методов ===
 if [ "$1" = "list" ]; then
     cat <<'EOF'
@@ -65,6 +71,7 @@ if [ "$1" = "list" ]; then
     "mode_switch": { "mode": "str" },
     "service_restart": { "service": "str" },
     "set_blocklist_tier": { "tier": "str" },
+    "set_family_filter": { "enabled": "bool" },
     "factory_reset": { "confirm": "str" },
     "replace_awg_conf": { "awg_conf": "str" }
 }
@@ -143,10 +150,20 @@ case "$METHOD" in
         SSID=$(json_escape "$SSID_RAW")
         MODE_ESC=$(json_escape "$MODE")
 
-        # Текущий тир Hagezi из adblock-lean config
-        TIER_RAW=$(grep -E '^raw_block_lists=' "$ETC_ADBLOCK_CFG" 2>/dev/null \
-            | sed -e 's/^raw_block_lists="\?//' -e 's/"\?$//' -e 's/hagezi://' | head -1)
+        # Текущий тир Hagezi из adblock-lean config.
+        # head -1 на raw_block_lists, потом срезаем NSFW-URL семейного фильтра
+        # (если он там есть) — иначе он попадает в строку «Тир блок-листа» в UI.
+        # Сам тир это первый whitespace-токен, не содержащий '/' (URL'ы содержат).
+        TIER_LINE=$(grep -E '^raw_block_lists=' "$ETC_ADBLOCK_CFG" 2>/dev/null \
+            | head -1 \
+            | sed -e 's/^raw_block_lists="\?//' -e 's/"\?$//')
+        TIER_RAW=$(printf '%s\n' "$TIER_LINE" | awk '{
+            for (i = 1; i <= NF; i++) if (index($i, "/") == 0) { sub("^hagezi:", "", $i); print $i; exit }
+        }')
         TIER=$(json_escape "${TIER_RAW:-pro}")
+
+        # Семейный фильтр: family_filter_status печатает true / false.
+        FAMILY_FILTER_ENABLED=$(family_filter_status)
 
         # Признак pre-install режима: токен на месте — значит ждём install_start
         TOKEN_PRESENT="false"
@@ -164,7 +181,8 @@ case "$METHOD" in
     "podkop_up": $PODKOP_UP,
     "dns_up": $DNS_UP,
     "awg_handshake_age": $AWG_HS_AGE,
-    "blocklist_tier": "$TIER"
+    "blocklist_tier": "$TIER",
+    "family_filter_enabled": $FAMILY_FILTER_ENABLED
 }
 EOF
         ;;
@@ -385,6 +403,31 @@ EOF
 
         TIER_ESC=$(json_escape "$TIER")
         echo "{\"status\": \"tier set\", \"tier\": \"$TIER_ESC\"}"
+        ;;
+
+    # ------------------------------------------------------------------
+    set_family_filter)
+        ENABLED=$(jf '@.enabled')
+        case "$ENABLED" in
+            true|false) ;;
+            *) echo '{"error": "enabled must be true or false"}'; exit 0 ;;
+        esac
+
+        if [ ! -f "$ETC_ADBLOCK_CFG" ]; then
+            echo '{"error": "adblock-lean config not found — установка не завершена"}'; exit 0
+        fi
+
+        if [ "$ENABLED" = "true" ]; then
+            family_filter_on || { echo '{"error": "не удалось обновить /etc/adblock-lean/config"}'; exit 0; }
+        else
+            family_filter_off || { echo '{"error": "не удалось обновить /etc/adblock-lean/config"}'; exit 0; }
+        fi
+
+        # Перегенерируем блок-лист в фоне — то же самое, что set_blocklist_tier.
+        ( "$ETC_INIT_D/adblock-lean" start >/dev/null 2>&1
+          "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1 ) &
+
+        echo "{\"status\": \"family_filter set\", \"enabled\": $ENABLED}"
         ;;
 
     # ------------------------------------------------------------------

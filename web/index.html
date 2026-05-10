@@ -97,7 +97,26 @@
   .support-cta svg { flex: 0 0 auto; }
   .support-card__handle { display: block; margin-top: 10px; font-size: 12px; color: var(--muted); }
   .support-card__handle code { font-size: 12px; }
+  .donate-footer { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+  .donate-footer summary { cursor: pointer; list-style: none; user-select: none; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  .donate-footer summary::-webkit-details-marker { display: none; }
+  .donate-footer summary:hover { color: var(--text); }
+  .donate-footer .donate-body { margin-top: 10px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; line-height: 1.6; }
+  .donate-footer .donate-body p { margin: 0 0 8px 0; color: var(--muted); }
+  .donate-footer .donate-body dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; align-items: center; }
+  .donate-footer .donate-body dt { color: var(--text); font-weight: 500; white-space: nowrap; }
+  .donate-footer .donate-body dd { margin: 0; }
+  .donate-footer .donate-body code { font-size: 11px; word-break: break-all; }
+  .donate-footer .donate-body a { color: var(--accent); text-decoration: none; }
+  .donate-footer .donate-body a:hover { text-decoration: underline; }
   .ok-msg  { color: var(--ok);  background: rgba(59, 194, 114, 0.08); border: 1px solid rgba(59, 194, 114, 0.3);  padding: 10px 14px; border-radius: 8px; margin: 8px 0; font-size: 14px; }
+  .toggle { position: relative; display: inline-block; width: 48px; height: 26px; flex: 0 0 auto; }
+  .toggle input { opacity: 0; width: 0; height: 0; margin: 0; }
+  .toggle .slider { position: absolute; inset: 0; cursor: pointer; background: var(--panel-2); border: 1px solid var(--border); border-radius: 26px; transition: background 0.15s, border-color 0.15s; }
+  .toggle .slider::before { content: ""; position: absolute; left: 2px; top: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted); transition: transform 0.15s, background 0.15s; }
+  .toggle input:checked + .slider { background: rgba(59, 194, 114, 0.18); border-color: var(--ok); }
+  .toggle input:checked + .slider::before { transform: translateX(22px); background: var(--ok); }
+  .toggle input:disabled + .slider { opacity: 0.5; cursor: progress; }
   .hidden { display: none !important; }
   .flex-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
   code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; background: var(--panel-2); padding: 2px 6px; border-radius: 4px; }
@@ -307,6 +326,18 @@
     <div class="row">
       <button onclick="goto('mgmt'); renderMgmt(); startMgmtAutoRefresh();">К управлению →</button>
     </div>
+
+    <details class="donate-footer">
+      <summary>❤ Поддержать проект</summary>
+      <div class="donate-body">
+        <p>Я веду проект сам. Если cheburnet-router сэкономил вам время — донат поможет проекту жить дальше.</p>
+        <dl>
+          <dt>💳 Карта / СБП</dt><dd><a href="https://pay.cloudtips.ru/p/61fe8ef3" target="_blank" rel="noopener">pay.cloudtips.ru/p/61fe8ef3</a></dd>
+          <dt>💎 TON</dt><dd><code>UQC2KsPX-Ad9P8x_VbN3GHbpacOMvYPIbZvLppb-sxJ88KfV</code></dd>
+          <dt>₿ Bitcoin</dt><dd><code>bc1qen3tutepyqjtsn7meggcertp6x4m0492vkg4m2</code></dd>
+        </dl>
+      </div>
+    </details>
   </div>
 
   <!-- ============================================================ -->
@@ -364,6 +395,26 @@
       <button id="btn-tier-apply" class="ghost">Применить</button>
     </div>
 
+    <h3>🧒 Семейный фильтр</h3>
+    <p class="muted" style="margin-top: 0; margin-bottom: 8px;">
+      Один тумблер делает две вещи для всех устройств в этом Wi-Fi:
+    </p>
+    <ul class="muted" style="margin: 0 0 8px 0; padding-left: 20px; font-size: 13px; line-height: 1.6;">
+      <li>блокирует <strong>~95 000 сайтов взрослого контента</strong> на уровне DNS;</li>
+      <li>принудительно включает <strong>SafeSearch</strong> в Google, Bing, DuckDuckGo, Yandex и YouTube (Strict) — даже если в самом сервисе он выключен.</li>
+    </ul>
+    <div class="row" style="gap: 12px; align-items: center; margin-top: 8px;">
+      <label class="toggle" title="Включить / выключить семейный фильтр">
+        <input type="checkbox" id="inp-family-filter" disabled>
+        <span class="slider"></span>
+      </label>
+      <span id="family-filter-state" class="muted">загружаю…</span>
+    </div>
+    <p class="muted" style="margin-top: 8px; font-size: 12px;">
+      Не блокирует: контент внутри YouTube / TikTok / соцсетей (HTTPS),
+      устройства со своим VPN-приложением или своим DoH в браузере.
+    </p>
+
     <h3>Обновить VPN-конфиг</h3>
     <p class="muted" style="margin-top: 0; margin-bottom: 8px;">
       Если ваш ключ заблокировали или VPN стал медленным — получите новый
@@ -395,6 +446,18 @@
     <p class="muted" style="margin-top: 24px;">
       Статус обновляется каждые 15 секунд. Полные логи через SSH: <code>ssh root@<span class="js-router-host">192.168.1.1</span> logread</code>
     </p>
+
+    <details class="donate-footer">
+      <summary>❤ Поддержать проект</summary>
+      <div class="donate-body">
+        <p>Я веду проект сам. Если cheburnet-router сэкономил вам время — донат поможет проекту жить дальше.</p>
+        <dl>
+          <dt>💳 Карта / СБП</dt><dd><a href="https://pay.cloudtips.ru/p/61fe8ef3" target="_blank" rel="noopener">pay.cloudtips.ru/p/61fe8ef3</a></dd>
+          <dt>💎 TON</dt><dd><code>UQC2KsPX-Ad9P8x_VbN3GHbpacOMvYPIbZvLppb-sxJ88KfV</code></dd>
+          <dt>₿ Bitcoin</dt><dd><code>bc1qen3tutepyqjtsn7meggcertp6x4m0492vkg4m2</code></dd>
+        </dl>
+      </div>
+    </details>
   </div>
 
 </div>
@@ -827,6 +890,7 @@ async function pollProgress() {
 // =====================================================================
 let mgmtRefreshTimer = null;
 let mgmtTierInitialized = false;
+let mgmtFamilyInitialized = false;
 
 // Человекочитаемый возраст handshake: секунды → "12с", "5м 03с", "2ч 14м".
 // AmneziaWG может молчать минутами (handshake обновляется по rekey-таймеру),
@@ -875,6 +939,23 @@ async function renderMgmt(st) {
             tierSel.value = st.blocklist_tier;
         }
         mgmtTierInitialized = true;
+    }
+
+    // Тумблер семейного фильтра — синхронизируется с серверным состоянием
+    // при каждом рендере. Лейбл рядом с тумблером показывает реальный статус
+    // из конфига adblock-lean. Если юзер сейчас ждёт ответа на set_family_filter
+    // (тумблер уже инициализирован И disabled) — не трогаем: change-handler
+    // сам выставит финальное состояние.
+    if (typeof st.family_filter_enabled === "boolean") {
+        const ff = document.getElementById("inp-family-filter");
+        const ffLabel = document.getElementById("family-filter-state");
+        const isInitialLoad = !mgmtFamilyInitialized;
+        if (isInitialLoad || !ff.disabled) {
+            ff.checked = st.family_filter_enabled;
+            ffLabel.textContent = st.family_filter_enabled ? "включён" : "выключен";
+            ff.disabled = false;
+        }
+        mgmtFamilyInitialized = true;
     }
 
     const showMode = st.install_type === "vpn";
@@ -931,6 +1012,37 @@ document.getElementById("btn-tier-apply").onclick = () => {
     const tier = document.getElementById("inp-tier").value;
     mgmtCall("cheburnet", "set_blocklist_tier", { tier }, `Смена тира на hagezi:${tier}`);
 };
+
+// Семейный фильтр — тумблер. Применяется сразу по change, без отдельной кнопки.
+// На время операции — disabled, чтобы юзер не успел повторно щёлкнуть и не получил
+// два параллельных RPC к одному конфигу. При ошибке состояние тумблера откатывается
+// (он снова отражает реальный stat в конфиге, который не поменялся).
+document.getElementById("inp-family-filter").addEventListener("change", async (e) => {
+    const tog = e.target;
+    const enabled = tog.checked;
+    const stateLabel = document.getElementById("family-filter-state");
+    tog.disabled = true;
+    stateLabel.textContent = "применяю…";
+    setMgmtMsg("muted", `${enabled ? "Включаю" : "Выключаю"} семейный фильтр…`);
+    try {
+        await rpc("cheburnet", "set_family_filter", { enabled });
+        setMgmtMsg("ok-msg", enabled ? "✓ Семейный фильтр включён" : "✓ Семейный фильтр выключен");
+        stateLabel.textContent = enabled ? "включён" : "выключен";
+        // renderMgmt подтянет «правду» из get_status: family_filter_enabled
+        // отражает фактическое содержимое конфига adblock-lean.
+        setTimeout(() => renderMgmt().catch(() => {}), 1500);
+    } catch (err) {
+        // Откатываем тумблер — фактическое состояние не изменилось.
+        tog.checked = !enabled;
+        stateLabel.textContent = !enabled ? "включён" : "выключен";
+        const msg = /config not found/.test(err.message)
+            ? "Adblock-lean не запущен. Перезапустите сервис в разделе «Перезапустить сервис» выше."
+            : `${enabled ? "Включение" : "Выключение"} семейного фильтра — ошибка: ${err.message}`;
+        setMgmtMsg("err-msg", msg);
+    } finally {
+        tog.disabled = false;
+    }
+});
 
 // Замена awg0.conf после установки. Live-валидация через ту же validateConf,
 // что в install screen; backend делает atomic swap и фоновый apply через
