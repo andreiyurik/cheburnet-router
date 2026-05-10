@@ -52,21 +52,12 @@ else
     fi
     ARCH="${DISTRIB_ARCH}_$(echo "$DISTRIB_TARGET" | tr '/' '_')"
 
-    # Версия пакетов awg-openwrt: пробуем v$DISTRIB_RELEASE, fallback v25.12.2
-    AWG_VER="$(awg_pick_version "$DISTRIB_RELEASE" "$ARCH")" || AWG_VER=""
-    if [ -z "$AWG_VER" ]; then
-        echo "✗ Нет совместимого релиза awg-openwrt для OpenWrt ${DISTRIB_RELEASE} / ${ARCH}." >&2
-        echo "  Доступные релизы: https://github.com/Slava-Shchipunov/awg-openwrt/releases" >&2
-        echo "  Если вашей архитектуры нет — соберите пакет вручную по инструкции из репозитория." >&2
-        exit 1
-    fi
-    echo "  arch=${ARCH}, awg-openwrt=v${AWG_VER}"
-
-    BASE="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${AWG_VER}"
-
-    # После перезагрузки роутера WAN-DHCP приходит через 15–30 сек, только тогда
-    # dnsmasq получает серверы. Если браузерный мастер стартует раньше — wget
-    # не может разрезолвить github.com и падает с "download failed".
+    # Сначала ждём готовности сети — awg_pick_version ниже идёт на github
+    # (HEAD-запрос на .apk + GitHub API за latest-тегом). Если WAN ещё не
+    # приехал (после reboot DHCP занимает 15-30 сек), wget не разрезолвит
+    # хост, функция вернёт пусто, и юзер увидит ложное «нет совместимого
+    # релиза» вместо честного «сеть не готова». Раньше эта проверка была
+    # ПОСЛЕ awg_pick_version и каскадно отказывалась объяснять реальную причину.
     # Ждём до 60 сек: nameserver в resolv.conf + ping до 8.8.8.8.
     echo "→ ожидаем готовности сети перед скачиванием..."
     _net_ready=0
@@ -90,6 +81,17 @@ else
         exit 1
     fi
     echo "  ✓ сеть готова"
+
+    AWG_VER="$(awg_pick_version "$DISTRIB_RELEASE" "$ARCH")" || AWG_VER=""
+    if [ -z "$AWG_VER" ]; then
+        echo "✗ Нет совместимого релиза awg-openwrt для OpenWrt ${DISTRIB_RELEASE} / ${ARCH}." >&2
+        echo "  Доступные релизы: https://github.com/Slava-Shchipunov/awg-openwrt/releases" >&2
+        echo "  Если вашей архитектуры нет — соберите пакет вручную по инструкции из репозитория." >&2
+        exit 1
+    fi
+    echo "  arch=${ARCH}, awg-openwrt=v${AWG_VER}"
+
+    BASE="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${AWG_VER}"
 
     mkdir -p /etc/amnezia/amneziawg
     cd /tmp
