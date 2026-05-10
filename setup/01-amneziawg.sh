@@ -97,17 +97,26 @@ else
         FILE="${PKG}_${ARCH}.apk"
         wget -q -T 30 -O "$FILE" "$BASE/$FILE" || { echo "download failed: $FILE"; exit 1; }
     done
-    APK_ERR=$(apk add --allow-untrusted \
-                  "./kmod-amneziawg_v${AWG_VER}_${ARCH}.apk" \
-                  "./amneziawg-tools_v${AWG_VER}_${ARCH}.apk" \
-                  "./luci-proto-amneziawg_v${AWG_VER}_${ARCH}.apk" 2>&1) || {
-        echo "✗ apk add не удался. Вероятная причина: kmod-amneziawg v${AWG_VER} собран" >&2
-        echo "  для другого ядра, чем запущено на роутере ($(uname -r))." >&2
-        echo "  Попробуйте обновить прошивку до OpenWrt 25.12.x через LuCI и запустить установку заново." >&2
-        echo "  Детали ошибки apk:" >&2
-        printf '%s\n' "$APK_ERR" | grep -v '^$' >&2
-        exit 1
+    # apk изредка падает с "ADB integrity error" / "download failed"
+    # из-за рассинхрона индекса или оборванной закачки с зеркала. Один
+    # повтор после apk update закрывает такие транзиентные сбои без
+    # ручного вмешательства. Реальный kernel-mismatch ловится ниже через
+    # modprobe — гадать о причине по тексту apk не нужно.
+    awg_apk_add() {
+        apk add --allow-untrusted \
+            "./kmod-amneziawg_v${AWG_VER}_${ARCH}.apk" \
+            "./amneziawg-tools_v${AWG_VER}_${ARCH}.apk" \
+            "./luci-proto-amneziawg_v${AWG_VER}_${ARCH}.apk" 2>&1
     }
+    if ! APK_ERR=$(awg_apk_add); then
+        echo "  apk add упал, обновляю индексы и повторяю..."
+        apk update >/dev/null 2>&1 || true
+        if ! APK_ERR=$(awg_apk_add); then
+            echo "✗ apk add не удался после повтора. Вывод apk:" >&2
+            printf '%s\n' "$APK_ERR" | grep -v '^$' >&2
+            exit 1
+        fi
+    fi
     if ! modprobe amneziawg; then
         echo "✗ modprobe amneziawg завершился с ошибкой." >&2
         echo "  kmod-amneziawg v${AWG_VER} установлен, но не совместим с текущим ядром ($(uname -r))." >&2
