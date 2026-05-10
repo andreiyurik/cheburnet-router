@@ -56,8 +56,8 @@ fi
 echo "→ настраиваем podkop UCI"
 
 # Подключаем общие хелперы. На роутере lib живёт в /opt/cheburnet/lib/
-# (туда копирует bootstrap.sh / setup.sh). Fallback на относительный путь
-# нужен для запуска шага напрямую из репо-чекаута без bootstrap'а.
+# (туда копирует install.sh / setup.sh). Fallback на относительный путь
+# нужен для запуска шага напрямую из репо-чекаута без install.sh.
 LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
 [ -f "$LIB_DIR/net-detect.sh" ] || LIB_DIR="$(dirname "$0")/../lib"
 # shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091

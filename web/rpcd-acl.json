@@ -1,6 +1,6 @@
 {
     "unauthenticated": {
-        "description": "cheburnet-router web wizard — первичная установка (LAN-only). Мутации защищены install-токеном, выданным bootstrap.sh.",
+        "description": "cheburnet-router web wizard — первичная установка (LAN-only). Мутации защищены install-токеном, выданным install.sh.",
         "read": {
             "ubus": {
                 "cheburnet": ["get_status", "install_progress"]

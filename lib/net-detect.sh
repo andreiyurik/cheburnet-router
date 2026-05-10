@@ -8,7 +8,7 @@
 #
 # Зачем: один и тот же помеченный TODO-костыль `LAN_IP=${LAN_IP%%/*}`
 # и каскад «netifd → uci → ipcalc.sh» был размазан по 02-podkop.sh,
-# 04-dns.sh, 07-killswitch.sh, install.sh, rpcd-cheburnet, bootstrap.sh.
+# 04-dns.sh, 07-killswitch.sh, setup/install.sh, rpcd-cheburnet, install.sh.
 # Если завтра OpenWrt поменяет формат network.lan.ipaddr — править нужно
 # было бы в шести местах. Теперь — в одном.
 

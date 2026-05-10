@@ -1,7 +1,7 @@
 #!/bin/bash
 # tests/qemu/install.sh — T3c полный прогон setup/install.sh на VM.
 #
-# Цель: имитация того, что делает у пользователя bootstrap.sh + веб-мастер,
+# Цель: имитация того, что делает у пользователя install.sh + веб-мастер,
 # но локально на qemu-OpenWrt-snapshot. Это РЕАЛЬНЫЙ install: apk update,
 # скачивание podkop/adblock-lean инсталлеров с github, настройка UCI.
 # Пакеты amneziawg-tools / kmod-amneziawg на x86 snapshot могут отсутствовать —
@@ -47,8 +47,8 @@ else
     echo "⚠ HTTP-spider не прошёл, но продолжаем — apk update сам диагностирует"
 fi
 
-# === Раскладываем репо в /opt/cheburnet (как это делает bootstrap.sh) ===
-echo "→ Заливаю репо в /opt/cheburnet (имитация bootstrap.sh)"
+# === Раскладываем репо в /opt/cheburnet (как это делает корневой install.sh) ===
+echo "→ Заливаю репо в /opt/cheburnet (имитация install.sh)"
 vm_ssh "mkdir -p /opt/cheburnet /tmp/cheburnet /etc/cheburnet /etc/amnezia/amneziawg"
 
 # Tar+ssh — быстрее scp по одному файлу. Исключаем .git/, tests/ (нам незачем
@@ -59,7 +59,7 @@ tar -C "$REPO_ROOT" -czf - \
     setup scripts configs lib web vendor 2>/dev/null \
     | vm_ssh "tar -C /opt/cheburnet -xzf -"
 
-# bootstrap.sh ставит rpcd-handler — сейчас не нужен (мы тестируем install,
+# install.sh ставит rpcd-handler — сейчас не нужен (мы тестируем setup/install.sh,
 # а не веб-мастер). Достаточно файлов в /opt/cheburnet.
 
 # === Минимальный «awg0.conf» — синтаксически валидный фейк ===

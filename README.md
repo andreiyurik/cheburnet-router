@@ -110,18 +110,18 @@ flowchart LR
 **Linux / macOS** (Terminal, bash/zsh):
 
 ```bash
-ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh'
+ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
 ```
 
 **Windows** (PowerShell или Terminal):
 
 ```powershell
-ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh"
+ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
 ```
 
 > 💡 Префикс `ssh-keygen -R` нужен тем, кто уже ставил наш роутер раньше: после прошивки или factory reset роутер генерирует новый SSH host key, а ваш ноутбук помнит старый и ругается `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!` При первой установке этот префикс молча ничего не делает — вреда нет.
 >
-> ⚠ Команда **разная** для Linux/macOS и Windows по двум причинам: (1) `2>/dev/null` в PowerShell пишет в файл `C:\dev\null` — нужно `2>$null`; (2) одинарные кавычки `'...'` PowerShell передаёт в ssh иначе, чем bash, из-за чего `| sh` может перехватиться как оператор пайпа и bootstrap.sh не запустится — используем двойные кавычки `"..."`.
+> ⚠ Команда **разная** для Linux/macOS и Windows по двум причинам: (1) `2>/dev/null` в PowerShell пишет в файл `C:\dev\null` — нужно `2>$null`; (2) одинарные кавычки `'...'` PowerShell передаёт в ssh иначе, чем bash, из-за чего `| sh` может перехватиться как оператор пайпа и install.sh не запустится — используем двойные кавычки `"..."`.
 >
 > ❗ **Не работает?** Убедись, что запущен **PowerShell**, а не cmd. В заголовке окна должно быть «Windows PowerShell» или «PowerShell» — иначе закрой и открой нужный через правый клик по «Пуск». Если `ssh` не найден — обнови Windows до версии 1809+.
 

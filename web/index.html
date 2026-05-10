@@ -149,11 +149,11 @@
     <h2>Шаг 1 из 4 · Файл AmneziaWG-конфига</h2>
 
     <div id="token-block" class="hidden">
-      <label>Install-токен (из вывода <code>bootstrap.sh</code>):</label>
+      <label>Install-токен (из вывода <code>install.sh</code>):</label>
       <input type="text" id="inp-token" placeholder="32 hex-символа из SSH-консоли">
       <p class="muted" style="margin-top: 4px;">
-        Если перешёл по ссылке вида <code>?token=...</code> из вывода <code>bootstrap.sh</code> — поле уже заполнено.
-        Иначе скопируй токен из терминала, где запускал bootstrap.
+        Если перешёл по ссылке вида <code>?token=...</code> из вывода <code>install.sh</code> — поле уже заполнено.
+        Иначе скопируй токен из терминала, где запускал install.sh.
       </p>
     </div>
 
@@ -435,7 +435,7 @@
     <h3 style="color: var(--err);">Опасная зона</h3>
     <p class="muted" style="margin-top: 0; margin-bottom: 8px;">
       Factory reset стирает все настройки — включая сам веб-мастер <code>/cheburnet/</code>.
-      После сброса нужно будет заново выполнить SSH-команду <code>bootstrap.sh</code> из README.
+      После сброса нужно будет заново выполнить SSH-команду <code>install.sh</code> из README.
     </p>
     <div class="row">
       <button id="btn-factory-reset" class="ghost" style="border-color: var(--err); color: var(--err);">⚠ Сбросить до заводских</button>
@@ -610,7 +610,7 @@ const state = {
     token: ""
 };
 
-// Подхватить токен из URL ?token=... (выдаётся bootstrap.sh)
+// Подхватить токен из URL ?token=... (выдаётся install.sh)
 (function readTokenFromUrl() {
     try {
         const m = window.location.search.match(/[?&]token=([0-9a-fA-F]+)/);
@@ -647,9 +647,9 @@ async function init() {
              <ul class="muted">
                <li>ubus не запущен или не поднят RPC-модуль</li>
                <li>uhttpd-mod-ubus не установлен</li>
-               <li>bootstrap.sh не завершился успешно</li>
+               <li>install.sh не завершился успешно</li>
              </ul>
-             <p>Запустите в SSH на роутере: <code>ubus list cheburnet</code>. Если ничего не возвращает — повторите bootstrap.sh.</p>`;
+             <p>Запустите в SSH на роутере: <code>ubus list cheburnet</code>. Если ничего не возвращает — повторите install.sh.</p>`;
     }
 }
 
@@ -1127,7 +1127,7 @@ document.getElementById("btn-factory-reset").onclick = async () => {
         setMgmtMsg("ok-msg", null,
             "Сброс запланирован. Роутер перезагрузится через несколько секунд.<br>" +
             "После перезагрузки веб-мастер <code>/cheburnet/</code> исчезнет — потребуется заново выполнить " +
-            "SSH-команду <code>bootstrap.sh</code> из README, и только тогда откроется " +
+            "SSH-команду <code>install.sh</code> из README, и только тогда откроется " +
             `<code>http://${host}/cheburnet/</code>.`);
         stopMgmtAutoRefresh();
     } catch (e) {

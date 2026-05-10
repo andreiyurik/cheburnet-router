@@ -2,7 +2,7 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
   # Ручной запуск из вкладки Actions — для отладки QEMU-job'ов и release-gates.
   workflow_dispatch:
@@ -21,7 +21,7 @@ jobs:
         run: make test
 
   # ── T3a + T3b: QEMU smoke (rpcd + HTTP/UI) ──────────────────────────────────
-  # ~3-5 минут с KVM. Запускаем только на push в main и по ручному запросу,
+  # ~3-5 минут с KVM. Запускаем только на push в master и по ручному запросу,
   # чтобы не задерживать каждый PR на старте VM.
   qemu-smoke:
     if: github.event_name != 'pull_request'
@@ -67,7 +67,7 @@ jobs:
 
   # ── T3c: полный прогон setup/install.sh на VM ───────────────────────────────
   # Самый медленный тест (~5-10 мин с KVM, до 20+ без). Запускается только
-  # на push в main и по ручному запросу — это release-gate, не PR-gate.
+  # на push в master и по ручному запросу — это release-gate, не PR-gate.
   # Поймал реальные регрессии (busybox-несовместимость `install -m`,
   # отсутствующие зависимости manifest) — не убирать без замены.
   qemu-install:

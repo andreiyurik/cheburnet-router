@@ -1,13 +1,13 @@
 #!/bin/sh
-# bootstrap.sh — развернуть веб-мастер cheburnet-router на свежем OpenWrt.
+# install.sh — развернуть веб-мастер cheburnet-router на свежем OpenWrt.
 #
 # ЗАПУСКАЕТСЯ НА САМОМ РОУТЕРЕ, не с ноутбука.
 #
 # Разовая команда для установки (из терминала ноутбука):
-#   ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh'
+#   ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
 #
 # Или вручную на роутере:
-#   wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh | sh
+#   wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh
 #
 # После выполнения откройте в браузере:
 #   http://<IP_роутера>/cheburnet/
@@ -21,7 +21,7 @@ set -e
 
 main() {
 
-REPO_TAR="https://codeload.github.com/yurik2718/cheburnet-router/tar.gz/refs/heads/main"
+REPO_TAR="https://codeload.github.com/yurik2718/cheburnet-router/tar.gz/refs/heads/master"
 INSTALL_DIR="/opt/cheburnet"
 WEB_DIR="/www/cheburnet"
 RPCD_BIN="/usr/libexec/rpcd/cheburnet"
@@ -36,7 +36,7 @@ echo
 
 # === 1. Sanity checks ===
 if [ ! -f /etc/openwrt_release ]; then
-    echo "✗ Это не OpenWrt. Bootstrap запускается только на OpenWrt 25.12+."
+    echo "✗ Это не OpenWrt. install.sh запускается только на OpenWrt 25.12+."
     exit 1
 fi
 
@@ -61,7 +61,7 @@ if [ "$AVAIL_KB" -lt 40000 ]; then
 fi
 
 # === 3. Интернет ===
-# wget (BusyBox) — тот же инструмент, которым bootstrap.sh был скачан.
+# wget (BusyBox) — тот же инструмент, которым install.sh был скачан.
 # uclient-fetch здесь не используем: на свежем OpenWrt без ca-bundle он
 # падает на SSL-валидации даже при рабочем интернете, тогда как wget
 # BusyBox по умолчанию SSL не проверяет и проходит.
@@ -69,7 +69,7 @@ fi
 # который некоторые сборки BusyBox wget расценивают как ошибку.
 echo "→ Проверяю интернет"
 if ! wget -qO /dev/null --timeout=10 \
-    "https://raw.githubusercontent.com/yurik2718/cheburnet-router/main/bootstrap.sh" \
+    "https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh" \
     2>/dev/null; then
     echo "✗ Нет доступа к GitHub. Диагностика:"
     echo
@@ -235,7 +235,7 @@ ROUTER_IP=$(net_lan_ip 192.168.1.1)
 
 echo
 echo "╔══════════════════════════════════════════════════════╗"
-echo "║   ✓ Bootstrap завершён                               ║"
+echo "║   ✓ Установка завершена                              ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo
 echo "  Откройте в браузере (токен подставится сам):"
