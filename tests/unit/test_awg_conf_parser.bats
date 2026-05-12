@@ -73,6 +73,43 @@ load '../helpers/setup'
     assert_output ''
 }
 
+@test "awg_get_iface: AWG 2.0 I1 — комбинация тегов '<r N><b 0x...>' с пробелом" {
+    # Реальный формат от Amnezia 2.x: I1 — это concat двух тегов через пробел,
+    # пробел ВНУТРИ значения должен сохраниться. Это поле и валит netifd
+    # на свежих сборках luci-proto-amneziawg — поэтому парсер обязан его
+    # извлекать целиком, а не обрезать по пробелу.
+    run awg_get_iface I1 "$FIXTURES/awg-v2.0-cps-combined.conf"
+    assert_success
+    assert_output '<r 2><b 0x8580000100010000000000669636c6f756403636f6d00000100010c000010010000105a00444d583737>'
+}
+
+@test "awg_get_iface: AWG 2.0 H1-H4 — диапазоны через дефис сохраняются" {
+    # У серверов AWG 2.0 H1..H4 не одиночные числа, а range через '-'.
+    # Парсер должен брать значение целиком (важно: разделитель полей и
+    # разделитель range в значении — оба символа '-' и '=', не путать).
+    run awg_get_iface H1 "$FIXTURES/awg-v2.0-cps-combined.conf"
+    assert_output '1549251754-1566598344'
+    run awg_get_iface H4 "$FIXTURES/awg-v2.0-cps-combined.conf"
+    assert_output '2076762013-2125117854'
+}
+
+@test "awg_get_iface: AWG 2.0 S3/S4 присутствуют и парсятся" {
+    run awg_get_iface S3 "$FIXTURES/awg-v2.0-cps-combined.conf"
+    assert_output '54'
+    run awg_get_iface S4 "$FIXTURES/awg-v2.0-cps-combined.conf"
+    assert_output '12'
+}
+
+@test "awg_get_iface: AWG 2.0 I2-I5 отсутствуют (только I1 задан) → пусто" {
+    # Распространённый реальный кейс: Amnezia-клиент пишет только I1,
+    # остальные I2-I5 не задаёт. Скрипт должен видеть пустоту и не
+    # пытаться записать в UCI пустые значения.
+    run awg_get_iface I2 "$FIXTURES/awg-v2.0-cps-combined.conf"
+    assert_output ''
+    run awg_get_iface I5 "$FIXTURES/awg-v2.0-cps-combined.conf"
+    assert_output ''
+}
+
 # ─── awg_get_peer — поля после [Peer] маркера ──────────────────────────────
 
 @test "awg_get_peer: PublicKey сохраняет base64 padding" {
@@ -180,6 +217,15 @@ load '../helpers/setup'
 
 @test "awg_validate_conf: полный v1.5 конфиг → success" {
     run awg_validate_conf "$FIXTURES/awg-v1.5-full.conf"
+    assert_success
+    assert_output ''
+}
+
+@test "awg_validate_conf: AWG 2.0 конфиг с combined-tag I1 → success" {
+    # Регрессия-страховка: пробел внутри значения I1 не должен сбивать
+    # entry-point валидацию. Если парсер где-то разрежет по пробелу —
+    # awg_validate_conf может ложно поругаться на отсутствие нужного поля.
+    run awg_validate_conf "$FIXTURES/awg-v2.0-cps-combined.conf"
     assert_success
     assert_output ''
 }

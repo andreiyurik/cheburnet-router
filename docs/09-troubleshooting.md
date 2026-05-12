@@ -34,6 +34,54 @@ curl -s https://ifconfig.co/json | jq '.ip, .country'
 
 ## Симптомы и решения
 
+### «AmneziaWG: установка падает / handshake не идёт»
+
+Этот раздел — про установку с нуля и про то, когда `awg show awg0 | grep handshake` пуст или показывает старый handshake. Скрипт `setup/01-amneziawg.sh` сам пытается два fallback'а (см. ниже), но иногда автоматики недостаточно — здесь разбор по симптомам.
+
+**Шаг 1. Что говорит сам туннель:**
+```bash
+ip -4 addr show awg0           # есть ли inet?
+awg show awg0                  # все ли поля видны ядром, есть ли handshake/transfer
+logread -l 200 | grep -iE 'amnezia|netifd.*awg' | tail -20
+```
+
+**Шаг 2. Сопоставить симптом с причиной:**
+
+| Что видно | Что это значит | Что делать |
+|---|---|---|
+| `ip addr` показывает `DOWN`, в логе зацикленный `netifd: awg0 ... Unable to modify interface: Invalid argument`, **но** `awg show` корректно выводит все поля | Баг proto-handler в свежей сборке `luci-proto-amneziawg`: kmod значения принял, а netifd не довёл интерфейс до UP. Виновник почти всегда — поле `I1` с нестандартным синтаксисом `<r N><b 0x...>` | Снять `I1`: `uci -q delete network.awg0.awg_i1 && uci commit network && ifdown awg0 && ifup awg0`. Скрипт `setup/01-amneziawg.sh` делает это автоматически при сбое первой попытки |
+| `ip addr` показывает `inet`, `awg show` — handshake **пуст** или старше 3 минут, `transfer: 0 B received` | Туннель собран, но сервер не отвечает на наши пакеты. Чаще всего — расхождение версий AmneziaWG между клиентом и сервером (актуально для self-hosted VPS) | См. шаг 3 ниже |
+| `ip addr` UP, handshake свежий, `transfer received > 0` | Туннель здоров. Проблема не в AWG — копать дальше (sing-box / podkop / DNS) | См. остальные разделы этого документа |
+
+**Шаг 3. Self-hosted VPS: проверить версию серверного AmneziaWG.**
+
+Если AWG-сервер у вас на собственном VPS (не Amnezia Premium), частая причина «handshake не идёт» — версия `amneziawg-go` (или kernel-модуля) на сервере **старше**, чем поля в клиентском `.conf`. AmneziaWG развивался слоями: v1.0 (Jc/S1/S2/H1-H4) → v1.5 (добавлены S3/S4) → v2.0 (добавлены I1-I5, CPS-decoy). Если на сервере древний `amneziawg-go` без S3/S4, а клиент шлёт пакет с этими полями — сервер видит handshake неверной длины и молча отбрасывает.
+
+На VPS:
+```bash
+amneziawg-go --version 2>&1 || modinfo amneziawg | grep version
+# и какие поля сервер сам у себя сконфигурировал:
+grep -iE '^(Jc|Jmin|Jmax|S[1-4]|H[1-4]|I[1-5])' /etc/amnezia/amneziawg/awg0.conf
+```
+
+Дальше два пути, в порядке предпочтительности:
+
+1. **Обновить серверный `amneziawg-go`** — правильный путь. Поднимет сервер до AWG 2.0, после чего клиентский `.conf` со всеми S3/S4/I1 заработает сразу, обфускация будет максимальной. Источник: [github.com/amnezia-vpn/amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go).
+
+2. **Снять на клиенте поля, которых сервер не знает** — временное решение, если апгрейд VPS откладывается. Скрипт делает это автоматически на втором fallback'е (без `I1+S3+S4`), вам делать ничего не нужно. Если хочется руками:
+   ```bash
+   uci -q delete network.awg0.awg_i1
+   uci -q delete network.awg0.awg_s3
+   uci -q delete network.awg0.awg_s4
+   uci commit network
+   ifdown awg0 && sleep 2 && ifup awg0
+   ```
+   Минус — туннель деградирует до AWG 1.0, обфускация против DPI слабее. Туннель сам по себе работает.
+
+**Шаг 4. Если ничего не помогает.**
+
+Сверить буквально каждое число `Jc/Jmin/Jmax/S1/S2/H1-H4` между клиентским и серверным `awg0.conf` — даже одна неправильная цифра ломает handshake (это **обязательные** поля, в отличие от S3/S4/I1). Проверить UDP-проходимость до endpoint'а: `nc -u -v <server-ip> <port>`. Проверить, что у `Slava-Shchipunov/awg-openwrt` есть релиз ровно под вашу версию OpenWrt — kmod от другого ядра не загрузится, см. `setup/01-amneziawg.sh:43` про автодетект.
+
 ### «VPN скорость упала в 10–100 раз, перезагрузка помогает»
 
 Классический симптом переполнения таблицы conntrack. VPN работает, handshake свежий, но скорость
