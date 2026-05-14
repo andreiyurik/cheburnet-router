@@ -3,6 +3,14 @@
 # «всё через VPN кроме RU-сервисов» (HOME по умолчанию).
 set -e
 
+# cheburnet-utils.sh — для cheburnet_apk_fail_advice (диагностика причины
+# фейла apk-загрузки: DPI на имя пакета / общая проблема зеркала / временный
+# сбой), используется в failure-сообщениях ниже.
+LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
+[ -f "$LIB_DIR/cheburnet-utils.sh" ] || LIB_DIR="$(dirname "$0")/../lib"
+# shellcheck source=../lib/cheburnet-utils.sh disable=SC1090,SC1091
+. "$LIB_DIR/cheburnet-utils.sh"
+
 echo "== 02. Podkop + sing-box =="
 
 # === 1. Установка через официальный скрипт ===
@@ -31,7 +39,26 @@ else
     # `yes n` шлёт бесконечный поток "n" — устойчиво к любому числу y/n-вопросов
     # подкоповского установщика (раньше было `printf 'n\nn\nn\n'` — хрупко,
     # ломалось бы если itdoginfo добавил четвёртый вопрос).
-    yes n | sh /tmp/podkop-install.sh 2>&1 | tail -20
+    # Вывод сохраняем — нужен для детекции «Insufficient space in flash»
+    # и других permanent-ошибок, по которым повторять бессмысленно.
+    INSTALLER_LOG=/tmp/podkop-installer.log
+    yes n | sh /tmp/podkop-install.sh >"$INSTALLER_LOG" 2>&1
+    tail -20 "$INSTALLER_LOG"
+
+    # Permanent-фейл: апстрим-установщик сам проверяет flash и пишет
+    # «Insufficient space in flash, Required: 15MB, Available: 5MB».
+    # Повтор не поможет — это аппаратное ограничение. Раньше скрипт
+    # пытался дважды и финальное сообщение врало юзеру про «временный
+    # сбой зеркал». Жёсткий preflight в setup/install.sh обычно ловит
+    # это раньше, но оставляем defense-in-depth (юзер мог запустить
+    # 02-podkop.sh напрямую, или порог preflight'а отличается).
+    if grep -q 'Insufficient space in flash' "$INSTALLER_LOG"; then
+        echo "" >&2
+        echo "✗ Подкоп не помещается в flash-память роутера." >&2
+        echo "  Это аппаратное ограничение — программно не обойти." >&2
+        echo "  Нужен роутер с ≥64 МБ flash (см. README, проверенные модели)." >&2
+        exit 1
+    fi
 
     # Установщик подкопа сам внутри делает apk update + apk add. Изредка
     # падает на транзиентных проблемах с зеркалами OpenWrt
@@ -42,12 +69,39 @@ else
     if [ ! -x /etc/init.d/podkop ]; then
         echo "  установщик подкопа не оставил /etc/init.d/podkop, обновляю индексы и повторяю..."
         apk update >/dev/null 2>&1 || true
-        yes n | sh /tmp/podkop-install.sh 2>&1 | tail -20
+        yes n | sh /tmp/podkop-install.sh >"$INSTALLER_LOG" 2>&1
+        tail -20 "$INSTALLER_LOG"
+        if grep -q 'Insufficient space in flash' "$INSTALLER_LOG"; then
+            echo "" >&2
+            echo "✗ Подкоп не помещается в flash-память роутера." >&2
+            echo "  Нужен роутер с ≥64 МБ flash (см. README)." >&2
+            exit 1
+        fi
     fi
     if [ ! -x /etc/init.d/podkop ]; then
         echo "✗ Установщик podkop отработал дважды, но /etc/init.d/podkop не появился." >&2
-        echo "  Скорее всего временный сбой зеркал OpenWrt/wget — подождите 1-2 минуты" >&2
-        echo "  и повторите setup.sh." >&2
+        # Диагностика — выяснит, что блокируется: зеркало, IPv6 или имя пакета.
+        command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
+            && cheburnet_apk_fail_advice podkop
+        exit 1
+    fi
+
+    # КРИТИЧНО: sing-box — обязательная зависимость подкопа. Если её
+    # установка свалилась на сети («wget: Operation not permitted»,
+    # «unexpected end of file»), /etc/init.d/podkop появляется, а
+    # /etc/init.d/sing-box — нет. Без sing-box подкоп не маршрутизирует
+    # ничего, и установка должна остановиться, а не идти дальше с тихим ⚠.
+    # Раньше эта проверка была warning'ом на шаге 4 и шаг печатал «✓ podkop OK»,
+    # хотя по факту юзер получал нерабочий VPN.
+    if [ ! -x /etc/init.d/sing-box ]; then
+        echo "" >&2
+        echo "✗ sing-box не установлен после установщика подкопа." >&2
+        echo "  Это критично — без sing-box подкоп не маршрутизирует ничего." >&2
+        # Диагностика — sing-box известный таргет DPI у части провайдеров.
+        # Лог юзера 1 показал ровно это: sing-box падает, остальные пакеты
+        # из той же транзакции — нет. Диагностика подтвердит/опровергнет.
+        command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
+            && cheburnet_apk_fail_advice sing-box
         exit 1
     fi
 fi
@@ -55,11 +109,7 @@ fi
 # === 2. UCI-конфигурация ===
 echo "→ настраиваем podkop UCI"
 
-# Подключаем общие хелперы. На роутере lib живёт в /opt/cheburnet/lib/
-# (туда копирует install.sh / setup.sh). Fallback на относительный путь
-# нужен для запуска шага напрямую из репо-чекаута без install.sh.
-LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
-[ -f "$LIB_DIR/net-detect.sh" ] || LIB_DIR="$(dirname "$0")/../lib"
+# Подключаем оставшиеся хелперы. cheburnet-utils.sh уже подключён в шапке.
 # shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
 . "$LIB_DIR/net-detect.sh"
 # shellcheck source=../lib/podkop-config.sh disable=SC1090,SC1091

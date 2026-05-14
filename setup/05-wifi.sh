@@ -32,11 +32,56 @@ if [ ! -f /etc/config/wireless ] || ! uci -q show wireless 2>/dev/null | grep -q
 fi
 
 # === 1. Заменить wpad-basic-mbedtls на wpad-mbedtls (для SAE) ===
-if apk list --installed 2>/dev/null | grep -q wpad-basic-mbedtls; then
-    echo "→ заменяем wpad-basic-mbedtls на wpad-mbedtls (для WPA3)"
-    apk del wpad-basic-mbedtls
-    apk add wpad-mbedtls
+# Раньше шли двумя командами: `apk del wpad-basic-mbedtls && apk add wpad-mbedtls`.
+# При сбое скачивания между ними (wget «Operation not permitted», flaky IPv6)
+# роутер оставался ВООБЩЕ без wpad-демона — Wi-Fi-аутентификация невозможна.
+# Теперь: пытаемся атомарно через одну apk-команду; если apk не справился —
+# проверяем что хоть какой-то wpad остался, и если нет — экстренно ставим basic.
+# Параметр encryption ниже выбирается по фактически установленному wpad:
+# wpad-mbedtls → 'sae-mixed' (WPA2/WPA3), basic → 'psk2+ccmp' (WPA2).
+WPAD_FLAVOR=""
+if apk list --installed 2>/dev/null | grep -q '^wpad-mbedtls-'; then
+    WPAD_FLAVOR="mbedtls"
+elif apk list --installed 2>/dev/null | grep -q '^wpad-basic-mbedtls-'; then
+    echo "→ пробую заменить wpad-basic-mbedtls на wpad-mbedtls (для WPA3 SAE)"
+    if apk add wpad-mbedtls 2>&1; then
+        WPAD_FLAVOR="mbedtls"
+    else
+        # apk add упал — это не критично, оставляем basic-mbedtls, Wi-Fi
+        # просто будет работать в WPA2-режиме без SAE. Hard-fail здесь
+        # испортил бы юзеру установку из-за непринципиальной деградации.
+        echo "  ⚠ apk add wpad-mbedtls не удался — остаюсь на wpad-basic-mbedtls (WPA2)"
+        echo "    обновить позже вручную: apk update && apk add wpad-mbedtls"
+        WPAD_FLAVOR="basic"
+    fi
+    # Защита-в-глубину: после неудачной apk-транзакции теоретически возможно
+    # состояние, где ни basic, ни mbedtls не установлен. Восстанавливаем basic
+    # — без wpad Wi-Fi-аутентификация не работает совсем.
+    if ! apk list --installed 2>/dev/null | grep -qE '^wpad(-basic)?-mbedtls-'; then
+        echo "  ⚠⚠ ни один wpad-пакет не установлен — экстренно ставлю basic"
+        apk add wpad-basic-mbedtls 2>&1 || true
+        WPAD_FLAVOR="basic"
+    fi
+else
+    echo "⚠ wpad-демон не обнаружен — ставлю wpad-basic-mbedtls"
+    if apk add wpad-mbedtls 2>&1; then
+        WPAD_FLAVOR="mbedtls"
+    elif apk add wpad-basic-mbedtls 2>&1; then
+        WPAD_FLAVOR="basic"
+    else
+        echo "✗ wpad не удалось установить — Wi-Fi работать не сможет." >&2
+        exit 1
+    fi
 fi
+
+# Выбор шифрования: sae-mixed требует полный wpad-mbedtls.
+# На basic-mbedtls hostapd с sae-mixed просто не запустится — откатываемся на WPA2.
+case "$WPAD_FLAVOR" in
+    mbedtls) ENCRYPTION="sae-mixed"; PMF="1" ;;
+    basic)   ENCRYPTION="psk2+ccmp"; PMF="" ;;
+    *)       ENCRYPTION="psk2+ccmp"; PMF="" ;;
+esac
+echo "→ wpad=${WPAD_FLAVOR}, encryption=${ENCRYPTION}"
 
 # === 2. Настройка радио ===
 # Имена radio/iface-секций нестандартны на разных board.json — итерируем
@@ -55,9 +100,15 @@ if [ -z "$IFACES" ]; then
 fi
 for IFACE in $IFACES; do
     uci set wireless."$IFACE".ssid="$SSID"
-    uci set wireless."$IFACE".encryption='sae-mixed'
+    uci set wireless."$IFACE".encryption="$ENCRYPTION"
     uci set wireless."$IFACE".key="$KEY"
-    uci set wireless."$IFACE".ieee80211w='1'
+    if [ -n "$PMF" ]; then
+        uci set wireless."$IFACE".ieee80211w="$PMF"
+    else
+        # PMF имеет смысл только при SAE; на чистом WPA2 он скорее ломает
+        # совместимость со старыми клиентами (телефонами/IoT), чем помогает.
+        uci -q delete wireless."$IFACE".ieee80211w
+    fi
     uci set wireless."$IFACE".disabled='0'
 done
 

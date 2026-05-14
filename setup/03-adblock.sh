@@ -2,6 +2,13 @@
 # 03-adblock.sh — поставить adblock-lean с Hagezi Pro списком.
 set -e
 
+# cheburnet-utils.sh — для cheburnet_apk_fail_advice (диагностика причины
+# фейла, используется в failure-сообщении ниже).
+LIB="${CHEBURNET_LIB:-/opt/cheburnet/lib/cheburnet-utils.sh}"
+[ -f "$LIB" ] || LIB="$(dirname "$0")/../lib/cheburnet-utils.sh"
+# shellcheck source=../lib/cheburnet-utils.sh disable=SC1090,SC1091
+. "$LIB"
+
 echo "== 03. adblock-lean =="
 
 # === 1. Установка ===
@@ -39,8 +46,10 @@ else
     fi
     if [ ! -x /etc/init.d/adblock-lean ]; then
         echo "✗ Установщик adblock-lean отработал дважды, но /etc/init.d/adblock-lean не появился." >&2
-        echo "  Скорее всего временный сбой api.github.com или сети — подождите 1-2 минуты" >&2
-        echo "  и повторите setup.sh." >&2
+        # Диагностика — adblock-lean ходит на api.github.com за тегом релиза,
+        # это редко блокируется, но проверить стоит.
+        command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
+            && cheburnet_apk_fail_advice adblock-lean
         exit 1
     fi
 fi

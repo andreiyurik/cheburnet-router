@@ -170,9 +170,14 @@ echo
 if [ "$INSTALL_RC" -eq 0 ] && [ "$done_state" = "ok" ]; then
     echo "✓ T3c install pass — полная установка прошла успешно."
     exit 0
-elif echo "$done_state" | grep -qE "^fail-(01-amneziawg|05-wifi)"; then
-    # Это ожидаемо: на x86 snapshot нет AWG-kmod и Wi-Fi-чипа.
-    # Если упали ИМЕННО эти шаги — значит остальные прошли.
+elif echo "$done_state" | grep -qE "^fail-(preflight-arch|01-amneziawg|05-wifi)"; then
+    # Это ожидаемо на x86-snapshot:
+    #   • preflight-arch — kmod-amneziawg не собран под x86_64 snapshot-ядро
+    #     (6.18 на x86, а awg-openwrt релизы под 25.12.x → 6.12.x). Preflight
+    #     ловит это раньше шага 01 — корректное поведение.
+    #   • 01-amneziawg — если preflight_arch почему-то прошёл (нашёл какой-то
+    #     релиз), modprobe всё равно упадёт на kernel-mismatch.
+    #   • 05-wifi — нет Wi-Fi-чипа в VM (но обычно скрипт это сам пропускает).
     echo "⚠ T3c partial pass — упал на $done_state (ожидаемо для x86-VM без AWG/Wi-Fi)."
     echo "  Не-сетевые шаги установки работают. Реальные Cudy/Beryl AX тестируются вручную."
     exit 0
