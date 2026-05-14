@@ -62,8 +62,13 @@ else
     echo "→ ожидаем готовности сети перед скачиванием..."
     _net_ready=0
     for _w in 1 2 3 4 5 6 7 8 9 10 11 12; do
+        # ping ИЛИ wget-spider: ICMP режется в части сетей (корпоративные wifi,
+        # некоторые мобильные APN, qemu user-mode netdev), но HTTP к OpenWrt-
+        # зеркалам в них всё равно работает — это ровно тот канал, по которому
+        # пойдёт apk add ниже. Та же логика — в lib/cheburnet-preflight.sh.
         if grep -q '^nameserver' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null \
-           && ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
+           && { ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 \
+                || wget -q --spider --timeout=5 http://downloads.openwrt.org/ 2>/dev/null; }; then
             _net_ready=1
             break
         fi
@@ -116,6 +121,11 @@ else
         if ! APK_ERR=$(awg_apk_add); then
             echo "✗ apk add не удался после повтора. Вывод apk:" >&2
             printf '%s\n' "$APK_ERR" | grep -v '^$' >&2
+            # Диагностика причины — DPI на «amneziawg» сейчас редко (это не
+            # известный VPN-инструмент в DPI-сигнатурах), но всё же стоит
+            # проверить и направить юзера в правильное место.
+            command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
+                && cheburnet_apk_fail_advice amneziawg
             exit 1
         fi
     fi

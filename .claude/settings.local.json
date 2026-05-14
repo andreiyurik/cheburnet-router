@@ -29,7 +29,10 @@
       "Bash(gh pr *)",
       "Bash(gh api *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(tests/vendor/bats-core/bin/bats tests/unit tests/integration)",
+      "Bash(make qemu-install *)",
+      "Bash(chmod +x /home/pingvinus/cheburnet-router/scripts/install-via-tether.sh)"
     ]
   }
 }

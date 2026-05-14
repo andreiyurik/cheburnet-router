@@ -811,7 +811,7 @@ async function startInstall() {
 // пакеты из сети (большие), а быстрые шаги (07/09 после nft-редизайна,
 // root-password, lock-acl) занимают по 1-4%.
 const STEP_PCT = {
-    "starting": 5, "00-prerequisites": 8,
+    "starting": 5, "preflight": 6, "00-prerequisites": 8,
     "01-amneziawg": 22, "02-podkop": 40, "03-adblock": 55,
     "04-dns": 65, "05-wifi": 75,
     "06-vpn-mode": 82, "07-killswitch": 87, "08-watchdog": 91,
@@ -827,6 +827,7 @@ const STEP_PCT = {
 // может загуглить термин). Если шаг неизвестен — блок просто пустой.
 const STEP_LABELS = {
     "starting":         "Подготовка установки",
+    "preflight":        "Проверка совместимости роутера",
     "00-prerequisites": "Проверка системы и пакетов",
     "01-amneziawg":     "Настройка VPN-туннеля (AmneziaWG)",
     "02-podkop":        "Маршрутизация по странам (podkop)",

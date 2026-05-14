@@ -28,6 +28,10 @@ echo "[STEP] starting" > "$STATE"
 # Источник: на роутере /opt/cheburnet/lib (туда копирует install.sh).
 # shellcheck source=../lib/cheburnet-diag.sh disable=SC1090,SC1091
 [ -f "$INSTALL_DIR/lib/cheburnet-diag.sh" ] && . "$INSTALL_DIR/lib/cheburnet-diag.sh"
+# shellcheck source=../lib/cheburnet-utils.sh disable=SC1090,SC1091
+[ -f "$INSTALL_DIR/lib/cheburnet-utils.sh" ] && . "$INSTALL_DIR/lib/cheburnet-utils.sh"
+# shellcheck source=../lib/cheburnet-preflight.sh disable=SC1090,SC1091
+[ -f "$INSTALL_DIR/lib/cheburnet-preflight.sh" ] && . "$INSTALL_DIR/lib/cheburnet-preflight.sh"
 
 # === Системный паспорт — печатается один раз в самом начале ===
 # Без него нельзя интерпретировать ни одну ошибку: «у юзера 64 МБ overlay —
@@ -36,6 +40,42 @@ echo "[STEP] starting" > "$STATE"
 if command -v cheburnet_diag_system >/dev/null 2>&1; then
     cheburnet_diag_system
 fi
+
+# === Preflight: жёсткие проверки совместимости железа и среды ===
+# Бежим ДО манифеста и любых apk-команд: на провале ничего не изменено в системе,
+# юзер видит большой баннер «РОУТЕР НЕ ПОДХОДИТ» и понимает причину сразу,
+# а не на 30-й секунде после половины установки.
+#
+# Каждая проверка — отдельная функция в lib/cheburnet-preflight.sh, при сбое
+# печатает баннер и возвращает 1. Мы записываем структурированную причину
+# в $DONE (fail-preflight-flash / -ram / -internet / -arch), фронт показывает
+# это в шапке ошибки, юзер пересылает скрин — нам сразу понятна категория.
+# Жёсткий гард: если preflight-функций нет в окружении — значит lib не
+# подсорсился (потерян/повреждён). Раньше эта ветка была if-проверкой и
+# тихо пропускалась — а это ровно тот случай, когда preflight критичен:
+# юзер на 16 МБ-роутере молча проходил мимо ловушки и упирался дальше в
+# половину установки. Лучше упасть здесь с понятным сообщением.
+if ! command -v cheburnet_preflight_flash >/dev/null 2>&1; then
+    echo "✗ Preflight-библиотека не загружена ($INSTALL_DIR/lib/cheburnet-preflight.sh)." >&2
+    echo "  Установка прервана — это означает повреждённый или неполный репо." >&2
+    echo "  Перезалейте репо bootstrap'ом из README:" >&2
+    echo "    wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh" >&2
+    echo "fail-preflight-missing-lib" > "$DONE"
+    exit 1
+fi
+
+echo "[STEP] preflight" > "$STATE"
+echo "[preflight] проверяю железо и сеть"
+_preflight_fail=""
+cheburnet_preflight_flash    || _preflight_fail="flash"
+[ -z "$_preflight_fail" ] && { cheburnet_preflight_ram      || _preflight_fail="ram"; }
+[ -z "$_preflight_fail" ] && { cheburnet_preflight_internet || _preflight_fail="internet"; }
+[ -z "$_preflight_fail" ] && { cheburnet_preflight_arch     || _preflight_fail="arch"; }
+if [ -n "$_preflight_fail" ]; then
+    echo "fail-preflight-${_preflight_fail}" > "$DONE"
+    exit 1
+fi
+echo "  ✓ preflight OK"
 
 # === Применяем манифест ===
 # Раньше тут было два слоя копирования: сначала /opt/cheburnet/scripts/* →
