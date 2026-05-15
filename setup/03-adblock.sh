@@ -55,18 +55,10 @@ else
 fi
 
 # === 2. Конфиг ===
-# Раньше тут вызывался `adblock-lean gen_config`, но он на свежей установке
-# регулярно рожал неполный конфиг (essential vars unset → adblock-lean
-# падал в `get_def_preset` и сервис вставал в stopped). Готовый референс
-# из repo раскладывается манифестом в /etc/adblock-lean/config — он
-# содержит все нужные пресет-переменные (DNSMASQ_INDEXES, MAX_PARALLEL_JOBS,
-# boot_start_delay_s и т.д.).
-if [ ! -f /etc/adblock-lean/config ]; then
-    echo "⚠ /etc/adblock-lean/config не найден (манифест?), fallback на gen_config"
-    mkdir -p /etc/adblock-lean
-    /etc/init.d/adblock-lean gen_config
-fi
-
+# /etc/adblock-lean/config раскладывается манифестом (setup/manifest.txt).
+# Manifest sanity в setup/install.sh:93-115 валит установку до этого шага,
+# если файл отсутствует — fallback на `adblock-lean gen_config` тут больше
+# не нужен (он же исторически рожал неполный конфиг и был источником багов).
 # Убедимся что блок-лист — Hagezi Pro (на случай если конфиг подменили вручную)
 if ! grep -q 'raw_block_lists="hagezi:pro"' /etc/adblock-lean/config; then
     echo "→ ставим hagezi:pro"

@@ -50,7 +50,9 @@ echo "  записано в /etc/sysctl.conf"
 } > /tmp/cron.tmp
 crontab /tmp/cron.tmp
 rm /tmp/cron.tmp
-/etc/init.d/cron restart >/dev/null
+# busybox crond перечитывает /etc/crontabs/root по уведомлению от `crontab`
+# — отдельный `service cron restart` тут лишний (08-watchdog уже включил
+# и запустил cron перед этим шагом).
 echo "  cron @reboot OK"
 
 echo
