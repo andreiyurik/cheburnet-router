@@ -127,6 +127,20 @@ cheburnet_diag_system() {
 #
 # Аргументы: нет.
 # Вывод: stderr (только на ветке фейла).
+# Печатает «релевантный» хвост вывода из команды $1 (dmesg / logread):
+# сначала пытается grep'нуть error|warn|fail|oom|killed (последние 5), если
+# пусто — даёт последние 5 строк как fallback (хоть какой контекст).
+_cheburnet_diag_tail() {
+    command -v "$1" >/dev/null 2>&1 || return 0
+    _diag_lines=$("$1" 2>/dev/null | grep -iE 'error|warn|fail|oom|killed' | tail -5)
+    [ -z "$_diag_lines" ] && _diag_lines=$("$1" 2>/dev/null | tail -5)
+    if [ -n "$_diag_lines" ]; then
+        echo "  --- $1 (релевантное / последнее) ---"
+        printf '%s\n' "$_diag_lines" | sed 's/^/    /'
+    fi
+    unset _diag_lines
+}
+
 cheburnet_diag_runtime() {
     {
         echo ""
@@ -136,27 +150,8 @@ cheburnet_diag_runtime() {
             awk '/^MemAvailable/ {printf "  %s %s %s\n", $1, $2, $3}' /proc/meminfo
         fi
 
-        # dmesg/logread с фильтром: error|warn|fail|oom|kernel|killed.
-        # Если ничего не нашлось — печатаем последние 5 строк (хоть какой контекст).
-        if command -v dmesg >/dev/null 2>&1; then
-            _diag_lines=$(dmesg 2>/dev/null | grep -iE 'error|warn|fail|oom|killed' | tail -5)
-            [ -z "$_diag_lines" ] && _diag_lines=$(dmesg 2>/dev/null | tail -5)
-            if [ -n "$_diag_lines" ]; then
-                echo "  --- dmesg (релевантное / последнее) ---"
-                printf '%s\n' "$_diag_lines" | sed 's/^/    /'
-            fi
-            unset _diag_lines
-        fi
-
-        if command -v logread >/dev/null 2>&1; then
-            _diag_lines=$(logread 2>/dev/null | grep -iE 'error|warn|fail|oom|killed' | tail -5)
-            [ -z "$_diag_lines" ] && _diag_lines=$(logread 2>/dev/null | tail -5)
-            if [ -n "$_diag_lines" ]; then
-                echo "  --- logread (релевантное / последнее) ---"
-                printf '%s\n' "$_diag_lines" | sed 's/^/    /'
-            fi
-            unset _diag_lines
-        fi
+        _cheburnet_diag_tail dmesg
+        _cheburnet_diag_tail logread
 
         echo "----- /снимок -----"
         echo ""
