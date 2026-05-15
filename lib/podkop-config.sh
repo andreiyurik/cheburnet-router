@@ -78,3 +78,19 @@ podkop_apply_travel() {
     uci -q delete podkop.exclude_ru.user_domain_list_type 2>/dev/null || true
     uci commit podkop
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# podkop_current_mode
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Печатает текущий режим: "home" если в exclude_ru задан community_lists,
+# иначе "travel". Source of truth — UCI подkop'а (persistent через sysupgrade,
+# восстанавливается podkop'ом при старте). Используется vpn-mode CLI И
+# web/rpcd-cheburnet, чтобы оба слоя смотрели в одно место.
+podkop_current_mode() {
+    if [ -n "$(uci -q get podkop.exclude_ru.community_lists)" ]; then
+        echo home
+    else
+        echo travel
+    fi
+}
