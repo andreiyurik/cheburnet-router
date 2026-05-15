@@ -8,7 +8,7 @@ echo "== 08. AWG Watchdog =="
 [ -x /usr/bin/awg-watchdog ] || { echo "✗ /usr/bin/awg-watchdog отсутствует (манифест?)"; exit 1; }
 [ -x /usr/bin/conntrack-monitor ] || echo "  ⚠ /usr/bin/conntrack-monitor отсутствует — мониторинг conntrack пропущен"
 
-# === 3. Cron ===
+# === 2. Cron ===
 # На свежем роутере crontab пустой → `crontab -l` ничего не печатает.
 # `grep -v PATTERN` на пустом вводе возвращает exit 1 (нечего выводить),
 # и под `set -e` весь шаг падает молча после строки "настраиваем cron".
@@ -43,7 +43,7 @@ mkdir -p /etc/crontabs
 crontab /tmp/cron.tmp
 rm /tmp/cron.tmp
 
-# === 4. Тише, crond ===
+# === 3. Тише, crond ===
 # По умолчанию OpenWrt запускает busybox crond с loglevel=5 (NOTICE) — это
 # пишет в logd КАЖДЫЙ запуск задачи: при `* * * * * awg-watchdog` это
 # 1440 строк в день при нулевой полезной нагрузке. Сами скрипты логируют

@@ -7,8 +7,6 @@
 #
 # А ЭТО уже preserve'ится (благодаря нашему /etc/sysupgrade.conf):
 #   - /usr/bin/vpn-* dns-* awg-watchdog log-snapshot sqm-tune
-#   - /etc/hotplug.d/button/10-vpn-mode
-#   - /etc/init.d/vpn-mode
 #   - /etc/amnezia/amneziawg/awg0.conf (критично, содержит ключи)
 #   - /etc/config/* (все UCI: podkop, wireless, firewall, sqm...)
 #   - /etc/crontabs/root (все наши cron-записи)
@@ -106,10 +104,7 @@ fi
 # === 6. sqm-scripts ===
 apk add --no-interactive sqm-scripts 2>&1 | tail -2 || true
 
-# === 7. Enable нашего init.d сервиса ===
-/etc/init.d/vpn-mode enable 2>/dev/null || true
-
-# === 8. Перезапуск сервисов (берут сохранённые конфиги) ===
+# === 7. Перезапуск сервисов (берут сохранённые конфиги) ===
 echo "→ перезапуск сервисов"
 /etc/init.d/network reload
 /etc/init.d/firewall reload >/dev/null 2>&1
@@ -119,7 +114,7 @@ sleep 5
 /etc/init.d/adblock-lean start >/dev/null 2>&1
 wifi reload
 
-# === 9. Финальная проверка ===
+# === 8. Финальная проверка ===
 echo
 echo "=== СТАТУС ==="
 echo "AWG: $(awg show awg0 2>/dev/null | awk '/latest handshake/{print; exit}' || echo 'interface not up — check logread')"

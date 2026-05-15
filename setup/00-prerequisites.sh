@@ -36,8 +36,6 @@ fi
 echo "→ install base tools"
 apk add --no-interactive jq ca-bundle coreutils-sort 2>&1 | tail -3 || true
 
-# Убедимся что есть ubi-утилиты и т.п. стандартные вещи (обычно уже есть)
-
 # Disable unused services (уменьшаем attack surface)
 if [ -f /etc/init.d/radius ]; then
     /etc/init.d/radius disable 2>/dev/null || true
