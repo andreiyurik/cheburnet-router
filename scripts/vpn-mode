@@ -21,27 +21,19 @@ LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
 # shellcheck source=../lib/podkop-config.sh disable=SC1090,SC1091
 . "$LIB_DIR/podkop-config.sh"
 
-current_mode() {
-    if [ -n "$(uci -q get podkop.exclude_ru.community_lists)" ]; then
-        echo home
-    else
-        echo travel
-    fi
-}
-
 case "$1" in
     home)
-        [ "$(current_mode)" = home ] && exit 0
+        [ "$(podkop_current_mode)" = home ] && exit 0
         podkop_apply_home
         log "mode=HOME applied (VPN for all except RU)"
         reload_podkop ;;
     travel)
-        [ "$(current_mode)" = travel ] && exit 0
+        [ "$(podkop_current_mode)" = travel ] && exit 0
         podkop_apply_travel
         log "mode=TRAVEL applied (full tunnel)"
         reload_podkop ;;
     status)
-        echo "Режим:   $(current_mode)"
+        echo "Режим:   $(podkop_current_mode)"
         echo "Домены:  $(uci -q get podkop.exclude_ru.community_lists || echo '(пусто)')"
         echo "Домены+: $(uci -q get podkop.exclude_ru.user_domains || echo '(пусто)')" ;;
     *)

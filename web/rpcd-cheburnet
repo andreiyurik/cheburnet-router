@@ -28,7 +28,6 @@ ETC_CHEBURNET="${ETC_CHEBURNET:-/etc/cheburnet}"
 ETC_AWG_DIR="${ETC_AWG_DIR:-/etc/amnezia/amneziawg}"
 ETC_ADBLOCK_CFG="${ETC_ADBLOCK_CFG:-/etc/adblock-lean/config}"
 ETC_INIT_D="${ETC_INIT_D:-/etc/init.d}"
-ETC_VPN_MODE_STATE="${ETC_VPN_MODE_STATE:-/etc/vpn-mode.state}"
 USR_BIN_VPN_MODE="${USR_BIN_VPN_MODE:-/usr/bin/vpn-mode}"
 
 mkdir -p "$STATE_DIR"
@@ -52,6 +51,20 @@ FAMILY_LIB="${CHEBURNET_FAMILY_LIB:-$INSTALL_DIR/lib/family-filter.sh}"
 [ -f "$FAMILY_LIB" ] || FAMILY_LIB="$(dirname "$0")/../../../opt/cheburnet/lib/family-filter.sh"
 # shellcheck source=../lib/family-filter.sh disable=SC1090,SC1091
 . "$FAMILY_LIB"
+
+# podkop-config: podkop_current_mode читает HOME/TRAVEL из UCI подkop'а.
+PODKOP_LIB="${CHEBURNET_PODKOP_LIB:-$INSTALL_DIR/lib/podkop-config.sh}"
+[ -f "$PODKOP_LIB" ] || PODKOP_LIB="$(dirname "$0")/../../../opt/cheburnet/lib/podkop-config.sh"
+# shellcheck source=../lib/podkop-config.sh disable=SC1090,SC1091
+. "$PODKOP_LIB"
+
+# Перезагрузка adblock-lean blocklist'а через restart dnsmasq.
+# Используется set_blocklist_tier и set_family_filter — оба меняют
+# /etc/adblock-lean/config и должны триггерить пересчёт.
+_reload_blocklist() {
+    "$ETC_INIT_D/adblock-lean" start >/dev/null 2>&1
+    "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1
+}
 
 # === list: описание доступных методов ===
 if [ "$1" = "list" ]; then
@@ -97,7 +110,7 @@ case "$METHOD" in
 
     # ------------------------------------------------------------------
     get_status)
-        MODE=$(cat "$ETC_VPN_MODE_STATE" 2>/dev/null || echo "unknown")
+        MODE=$(podkop_current_mode)
 
         # Определяем тип установки
         INSTALL_TYPE="none"
@@ -397,9 +410,7 @@ EOF
         # Заменяем строку raw_block_lists=... в конфиге
         sed -i "s|^raw_block_lists=.*|raw_block_lists=\"hagezi:${TIER}\"|" "$ETC_ADBLOCK_CFG"
 
-        # Перегенерируем блок-лист (запускается в фоне — не блокирует RPC-ответ)
-        ( "$ETC_INIT_D/adblock-lean" start >/dev/null 2>&1
-          "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1 ) &
+        _reload_blocklist &
 
         TIER_ESC=$(json_escape "$TIER")
         echo "{\"status\": \"tier set\", \"tier\": \"$TIER_ESC\"}"
@@ -423,9 +434,7 @@ EOF
             family_filter_off || { echo '{"error": "не удалось обновить /etc/adblock-lean/config"}'; exit 0; }
         fi
 
-        # Перегенерируем блок-лист в фоне — то же самое, что set_blocklist_tier.
-        ( "$ETC_INIT_D/adblock-lean" start >/dev/null 2>&1
-          "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1 ) &
+        _reload_blocklist &
 
         echo "{\"status\": \"family_filter set\", \"enabled\": $ENABLED}"
         ;;

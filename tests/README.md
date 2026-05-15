@@ -145,8 +145,8 @@ QEMU, никакого реального ubus.
 ### Refactor в `web/rpcd-cheburnet` для тестируемости
 
 В рамках T3a добавлены env-overrides системных путей (`ETC_CHEBURNET`,
-`ETC_AWG_DIR`, `ETC_ADBLOCK_CFG`, `ETC_INIT_D`, `ETC_VPN_MODE_STATE`,
-`USR_BIN_VPN_MODE`). Значения по умолчанию = жёсткие `/etc/cheburnet`,
+`ETC_AWG_DIR`, `ETC_ADBLOCK_CFG`, `ETC_INIT_D`, `USR_BIN_VPN_MODE`).
+Значения по умолчанию = жёсткие `/etc/cheburnet`,
 `/etc/init.d` и т.п. — поведение в проде идентично. Тесты переопределяют их
 через export.
 

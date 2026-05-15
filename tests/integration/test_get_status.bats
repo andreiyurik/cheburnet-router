@@ -65,6 +65,25 @@ EOF
     assert_json_field "$output" .dns_up "false"
 }
 
+@test "get_status: mode=travel когда podkop.exclude_ru.community_lists пуст (TRAVEL/чистый install)" {
+    sandbox_set_token >/dev/null
+    # UCI mock без записи community_lists → -q get вернёт пусто → travel
+    run run_rpcd get_status
+    assert_success
+    assert_json_field "$output" .mode "travel"
+}
+
+@test "get_status: mode=home когда podkop.exclude_ru.community_lists задан" {
+    sandbox_set_token >/dev/null
+    # Регрессия: до фикса get_status читал /etc/vpn-mode.state, который удалён
+    # вместе со slider/init.d. Теперь читает напрямую из UCI подkop'а через
+    # lib/podkop-config.sh::podkop_current_mode.
+    uci set podkop.exclude_ru.community_lists=russia_outside
+    run run_rpcd get_status
+    assert_success
+    assert_json_field "$output" .mode "home"
+}
+
 @test "get_status: возвращает валидный JSON" {
     sandbox_set_token >/dev/null
     run run_rpcd get_status

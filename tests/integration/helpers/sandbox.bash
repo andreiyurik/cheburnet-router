@@ -61,7 +61,6 @@ sandbox_init() {
     export ETC_AWG_DIR="$FAKE_ROOT/etc/amnezia/amneziawg"
     export ETC_ADBLOCK_CFG="$FAKE_ROOT/etc/adblock-lean/config"
     export ETC_INIT_D="$FAKE_ROOT/etc/init.d"
-    export ETC_VPN_MODE_STATE="$FAKE_ROOT/etc/vpn-mode.state"
     export USR_BIN_VPN_MODE="$FAKE_ROOT/usr/bin/vpn-mode"
 
     # lib подкладываем — rpcd-cheburnet source'ит cheburnet-utils.sh и
