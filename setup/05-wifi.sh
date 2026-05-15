@@ -32,46 +32,31 @@ if [ ! -f /etc/config/wireless ] || ! uci -q show wireless 2>/dev/null | grep -q
 fi
 
 # === 1. Заменить wpad-basic-mbedtls на wpad-mbedtls (для SAE) ===
-# Раньше шли двумя командами: `apk del wpad-basic-mbedtls && apk add wpad-mbedtls`.
-# При сбое скачивания между ними (wget «Operation not permitted», flaky IPv6)
-# роутер оставался ВООБЩЕ без wpad-демона — Wi-Fi-аутентификация невозможна.
-# Теперь: пытаемся атомарно через одну apk-команду; если apk не справился —
-# проверяем что хоть какой-то wpad остался, и если нет — экстренно ставим basic.
-# Параметр encryption ниже выбирается по фактически установленному wpad:
-# wpad-mbedtls → 'sae-mixed' (WPA2/WPA3), basic → 'psk2+ccmp' (WPA2).
+# OpenWrt 25.12 поставляет wpad-basic-mbedtls по умолчанию (WPA2 only).
+# WPA3 SAE требует полный wpad-mbedtls. На 25.12+ apk видит их как
+# взаимоисключающие — `apk add wpad-mbedtls` при установленном basic
+# падает с conflict-сообщением, ничего не удаляет, basic остаётся жив.
+#
+# Идём по убыванию предпочтительности; первый успех — берём:
+#   1) mbedtls уже стоит
+#   2) можем поставить mbedtls (на свежем без wpad-basic)
+#   3) basic уже стоит (apk отказал mbedtls из-за conflict — fine, WPA2 OK)
+#   4) можем поставить basic (на каком-то экзотичном железе совсем без wpad)
+#   5) ничего не получилось — Wi-Fi не работает, hard-fail
 WPAD_FLAVOR=""
-if apk list --installed 2>/dev/null | grep -q '^wpad-mbedtls-'; then
-    WPAD_FLAVOR="mbedtls"
-elif apk list --installed 2>/dev/null | grep -q '^wpad-basic-mbedtls-'; then
-    echo "→ пробую заменить wpad-basic-mbedtls на wpad-mbedtls (для WPA3 SAE)"
-    if apk add wpad-mbedtls 2>&1; then
-        WPAD_FLAVOR="mbedtls"
-    else
-        # apk add упал — это не критично, оставляем basic-mbedtls, Wi-Fi
-        # просто будет работать в WPA2-режиме без SAE. Hard-fail здесь
-        # испортил бы юзеру установку из-за непринципиальной деградации.
-        echo "  ⚠ apk add wpad-mbedtls не удался — остаюсь на wpad-basic-mbedtls (WPA2)"
-        echo "    обновить позже вручную: apk update && apk add wpad-mbedtls"
-        WPAD_FLAVOR="basic"
-    fi
-    # Защита-в-глубину: после неудачной apk-транзакции теоретически возможно
-    # состояние, где ни basic, ни mbedtls не установлен. Восстанавливаем basic
-    # — без wpad Wi-Fi-аутентификация не работает совсем.
-    if ! apk list --installed 2>/dev/null | grep -qE '^wpad(-basic)?-mbedtls-'; then
-        echo "  ⚠⚠ ни один wpad-пакет не установлен — экстренно ставлю basic"
-        apk add wpad-basic-mbedtls 2>&1 || true
-        WPAD_FLAVOR="basic"
-    fi
+INSTALLED=$(apk list --installed 2>/dev/null)
+if printf '%s' "$INSTALLED" | grep -q '^wpad-mbedtls-'; then
+    WPAD_FLAVOR=mbedtls
+elif apk add wpad-mbedtls 2>&1; then
+    WPAD_FLAVOR=mbedtls
+elif printf '%s' "$INSTALLED" | grep -q '^wpad-basic-mbedtls-'; then
+    echo "  ⚠ wpad-mbedtls install отказан (обычно conflict с basic) — остаюсь на wpad-basic-mbedtls (WPA2)"
+    WPAD_FLAVOR=basic
+elif apk add wpad-basic-mbedtls 2>&1; then
+    WPAD_FLAVOR=basic
 else
-    echo "⚠ wpad-демон не обнаружен — ставлю wpad-basic-mbedtls"
-    if apk add wpad-mbedtls 2>&1; then
-        WPAD_FLAVOR="mbedtls"
-    elif apk add wpad-basic-mbedtls 2>&1; then
-        WPAD_FLAVOR="basic"
-    else
-        echo "✗ wpad не удалось установить — Wi-Fi работать не сможет." >&2
-        exit 1
-    fi
+    echo "✗ wpad не удалось установить — Wi-Fi работать не сможет." >&2
+    exit 1
 fi
 
 # Выбор шифрования: sae-mixed требует полный wpad-mbedtls.
