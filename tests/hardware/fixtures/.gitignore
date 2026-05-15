@@ -1,0 +1,3 @@
+# Real working AmneziaWG config — drop yours here, do not commit secrets.
+# Used by phase 1 (happy-path install). bad-awg.conf IS committed (test data).
+awg.conf

@@ -11,7 +11,7 @@
 #                     Release-gate. Поймал uci/busybox-несовместимости,
 #                     которые mock-тесты T2 пропускают.
 
-.PHONY: lint test test-unit test-integration qemu qemu-http qemu-install
+.PHONY: lint test test-unit test-integration qemu qemu-http qemu-install hardware
 
 BATS := tests/vendor/bats-core/bin/bats
 
@@ -61,3 +61,13 @@ qemu-http:
 # тестируется на Cudy/Beryl AX вручную.
 qemu-install:
 	@./tests/qemu/install.sh
+
+# T4 — hardware tests. Полный прогон на реальном Beryl AX (или совместимом):
+# bootstrap, install через RPC, проверка всех сервисов и DNS, тест RPC-кнопок,
+# CLI-тулинг, reboot+steady-state, фейл-инжекшен. ~25-35 мин.
+# Не входит в CI — требует физический роутер и SSH-доступ. См.
+# tests/hardware/README.md. ROUTER=root@<ip> — целевой роутер.
+ROUTER ?= root@192.168.1.1
+BRANCH ?= master
+hardware:
+	@./tests/hardware/run-all.sh $(ROUTER) $(BRANCH)

@@ -103,5 +103,5 @@ CI: `.github/workflows/`. PR — только T1+T2 (~30с). Push в main — п
 
 ## Контакты / источники
 
-- Реф-ссылка проекта (Amnezia Premium): https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG — единственное место с реф-кодом. При смене менять также в `README.md`, `web/index.html`, `setup.sh`.
+- Реф-ссылка проекта (Amnezia Premium со скидкой 15%, промокод CHEBURNET15): https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15 — при смене менять также в `README.md`, `web/index.html`, `setup.sh`, `setup/install.sh` (success-screen).
 - Upstream: [podkop](https://github.com/itdoginfo/podkop), [adblock-lean](https://github.com/lynxthecat/adblock-lean), [OpenWrt](https://openwrt.org/).

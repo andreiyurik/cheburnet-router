@@ -94,7 +94,11 @@ assert write is None or write == {} or write == {"ubus": {}}, \
     grep -q "rm -f /etc/cheburnet/install-token" "$POST_ACL_RUN"
 }
 
-@test "bootstrap.sh создаёт install-токен (32 hex символа, chmod 600)" {
-    grep -q "head -c 16 /dev/urandom" "$REPO_ROOT/bootstrap.sh"
-    grep -q 'chmod 600 /etc/cheburnet/install-token' "$REPO_ROOT/bootstrap.sh"
+@test "install.sh создаёт install-токен (32 hex символа, chmod 600)" {
+    # Корневой install.sh (web-bootstrap, не setup/install.sh) — генерит
+    # одноразовый install-токен на /etc/cheburnet/install-token перед запуском
+    # веб-мастера. Раньше этот файл назывался bootstrap.sh — тест отстал
+    # от ренейма, теперь поправлен.
+    grep -q "head -c 16 /dev/urandom" "$REPO_ROOT/install.sh"
+    grep -q 'chmod 600 /etc/cheburnet/install-token' "$REPO_ROOT/install.sh"
 }
