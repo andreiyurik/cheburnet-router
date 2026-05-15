@@ -72,7 +72,7 @@ while IFS= read -r f; do
         '#!/usr/bin/env bash'|'#!/bin/bash'|'#!/usr/bin/bash')
             BASH_FILES+=("$f") ;;
     esac
-done < <(find tests/helpers tests/integration -type f,l \
+done < <(find tests/helpers tests/integration tests/hardware -type f,l \
             \( -name '*.bash' -o -name '*' \) 2>/dev/null \
             | sort -u)
 

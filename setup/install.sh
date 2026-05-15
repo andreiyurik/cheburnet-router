@@ -288,6 +288,10 @@ cat <<EOF
   такой роутер, его находят. Для open-source это самая ценная
   и при этом бесплатная поддержка.
 
+  💰 Нужен VPN-сервер? Amnezia Premium со скидкой 15% (промокод CHEBURNET15):
+     https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15
+     Поддерживает развитие проекта.
+
 ЕСЛИ НУЖНА ПОМОЩЬ ИЛИ ЧТО-ТО НЕ РАБОТАЕТ:
   Напишите в Telegram: @industrialprofi
   Лучше всего — приложите скриншот этого окна целиком (в нём виден

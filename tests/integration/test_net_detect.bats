@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # Контракт lib/net-detect.sh — определение LAN-параметров с правильными
-# fallback'ами. Используется в шести местах (02-podkop, 04-dns, 07-killswitch,
-# install.sh, rpcd-cheburnet, bootstrap.sh) — если поведение разойдётся,
+# fallback'ами. Используется в пяти местах (02-podkop, 04-dns, 07-killswitch,
+# setup/install.sh, rpcd-cheburnet) — если поведение разойдётся,
 # kill-switch может оказаться тихо-дырявым (не сматчит правильную подсеть).
 #
 # Ключевые инварианты:

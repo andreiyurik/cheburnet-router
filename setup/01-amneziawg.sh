@@ -332,6 +332,35 @@ if [ "$AWG_OK" = "0" ] && { [ -n "$S3" ] || [ -n "$S4" ]; }; then
     fi
 fi
 
+# Fallback 3 — нормализация H-диапазонов (AWG 2.0 → single values).
+# Свежие self-hosted Amnezia-серверы (с ~2025 года) генерят .conf с
+# диапазонами в H1-H4 (формат "NUM-NUM"). Это AWG 2.0-фича для рандомизации
+# header-байтов в каждом пакете. Если на клиенте (amneziawg-tools/proto-
+# handler/kmod в openwrt) поддержка диапазонов ещё не доехала или
+# рассинхронизирована — handshake не сходится при том что awg0 UP.
+# Берём первое значение из каждого диапазона: single value входит в
+# «диапазон допустимых» на сервере, handshake идёт. Минусы: рандомизации
+# header-байтов больше нет, обфускация ослабевает на эту фичу.
+# Случай реальный: юзер с self-hosted Amnezia на VPS, серверный conf
+# содержал H1=213093219-313093218 (и далее), tunnel UP но трафик не шёл.
+if [ "$AWG_OK" = "0" ]; then
+    case "${H1}${H2}${H3}${H4}" in
+        *-*)
+            echo "⚠ всё ещё не готов — нормализую H-диапазоны до single values (AWG 2.0 → 1.0)..."
+            [ -n "$H1" ] && uci set network.awg0.awg_h1="${H1%%-*}"
+            [ -n "$H2" ] && uci set network.awg0.awg_h2="${H2%%-*}"
+            [ -n "$H3" ] && uci set network.awg0.awg_h3="${H3%%-*}"
+            [ -n "$H4" ] && uci set network.awg0.awg_h4="${H4%%-*}"
+            uci commit network
+            ifdown awg0 2>/dev/null; sleep 2; ifup awg0
+            if awg_wait_ready 30; then
+                AWG_OK=1
+                DROPPED="${DROPPED:+${DROPPED}+}H-ranges→singles"
+            fi
+            ;;
+    esac
+fi
+
 if [ "$AWG_OK" = "1" ]; then
     addr=$(ip -4 addr show awg0 | awk '/inet/{print $2}')
     hs=$(awg show awg0 | awk -F': ' '/latest handshake/{print $2; exit}')
@@ -350,17 +379,26 @@ fi
 
 echo "⚠ awg0 не готов даже после fallback'ов."
 # Восстанавливаем исходный UCI: fallback'и не помогли, значит проблема не в
-# I1/S3/S4. Не оставляем пользователя с куцым профилем — если он потом
-# починит сервер/сеть и сделает `ifup awg0`, поднимется полный набор.
-# Опираемся на переменные $I1/$S3/$S4 из парсинга .conf выше — это и есть
-# «исходное» значение, которое мы клали в UCI до fallback'ов.
-if [ -n "$I1" ] || [ -n "$S3" ] || [ -n "$S4" ]; then
-    echo "→ восстанавливаю UCI awg0 (I1/S3/S4) до исходных значений из .conf..."
+# I1/S3/S4/H-ranges. Не оставляем пользователя с куцым профилем — если он
+# потом починит сервер/сеть и сделает `ifup awg0`, поднимется полный набор.
+# Опираемся на переменные $I1/$S3/$S4/$H1-$H4 из парсинга .conf выше —
+# это и есть «исходное» значение, которое мы клали в UCI до fallback'ов.
+_h_has_ranges=0
+case "${H1}${H2}${H3}${H4}" in *-*) _h_has_ranges=1 ;; esac
+if [ -n "$I1" ] || [ -n "$S3" ] || [ -n "$S4" ] || [ "$_h_has_ranges" = "1" ]; then
+    echo "→ восстанавливаю UCI awg0 (I1/S3/S4/H-ranges) до исходных значений из .conf..."
     [ -n "$I1" ] && uci set network.awg0.awg_i1="$I1"
     [ -n "$S3" ] && uci set network.awg0.awg_s3="$S3"
     [ -n "$S4" ] && uci set network.awg0.awg_s4="$S4"
+    if [ "$_h_has_ranges" = "1" ]; then
+        [ -n "$H1" ] && uci set network.awg0.awg_h1="$H1"
+        [ -n "$H2" ] && uci set network.awg0.awg_h2="$H2"
+        [ -n "$H3" ] && uci set network.awg0.awg_h3="$H3"
+        [ -n "$H4" ] && uci set network.awg0.awg_h4="$H4"
+    fi
     uci commit network
 fi
+unset _h_has_ranges
 echo "Диагностика:"
 echo "--- ip addr show awg0 ---"
 ip addr show awg0 2>&1 || true

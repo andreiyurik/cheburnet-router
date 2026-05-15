@@ -152,11 +152,9 @@ ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new root@
 
 <div align="center">
 
-### 👉 [Купить Amnezia Premium →](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG)
+### 👉 [Купить Amnezia Premium со скидкой 15% →](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15)
 
-*5 минут до готового `.conf` · работает с нашим роутером из коробки · поддерживает проект*
-
-<sub>Это <b>реферальная ссылка</b> — переход помогает мне развивать проект, цена для тебя не меняется. Если не хочешь использовать реф — <a href="https://amnezia.org">amnezia.org</a> напрямую.</sub>
+*Промокод `CHEBURNET15` — скидка 15%, поддерживает развитие проекта.*
 
 </div>
 
@@ -283,9 +281,9 @@ ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new root@
 
 [![GitHub stars](https://img.shields.io/github/stars/yurik2718/cheburnet-router?style=social)](https://github.com/yurik2718/cheburnet-router/stargazers)
 
-### 🔗 2. Купи Amnezia Premium [по реф-ссылке](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG) — цена для тебя не меняется
+### 🔗 2. Купи Amnezia Premium со скидкой 15% — [промокод CHEBURNET15](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15)
 
-Если ты всё равно собираешься брать VPN-подписку для работы с этим роутером — переход по реф-ссылке даёт мне небольшой процент, **тебе ничего лишнего платить не нужно**. Это самый честный способ поддержки: ты получаешь то, что и так нужно, я получаю компенсацию за время.
+Промокод уже встроен в ссылку. Тебе −15% к цене, проекту — поддержка.
 
 ### 💳 3. Донат — от 100 ₽
 
