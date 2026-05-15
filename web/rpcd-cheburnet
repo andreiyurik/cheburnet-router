@@ -59,11 +59,32 @@ PODKOP_LIB="${CHEBURNET_PODKOP_LIB:-$INSTALL_DIR/lib/podkop-config.sh}"
 . "$PODKOP_LIB"
 
 # Перезагрузка adblock-lean blocklist'а через restart dnsmasq.
-# Используется set_blocklist_tier и set_family_filter — оба меняют
-# /etc/adblock-lean/config и должны триггерить пересчёт.
+# Используется set_blocklist_tier, set_family_filter, service_restart adblock —
+# все три меняют состояние и должны триггерить пересчёт.
 _reload_blocklist() {
     "$ETC_INIT_D/adblock-lean" start >/dev/null 2>&1
     "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1
+}
+
+# Принимает .conf через stdin, нормализует CRLF→LF (юзер мог вставить из
+# Windows Notepad — висячий \r ломает awg-quick), кладёт в $1 с mode 600,
+# валидирует через awg_validate_conf. На успех return 0; на failure
+# печатает JSON-ошибку в stdout, удаляет $1, return 1 — caller exit'ит.
+# Общий контракт для install_start и replace_awg_conf — оба entry-point'а
+# проверяют тот же набор полей до ~3 МБ apk-загрузок.
+_prepare_awg_candidate() {
+    _tgt="$1"
+    tr -d '\r' > "$_tgt"
+    chmod 600 "$_tgt"
+    if ! _err=$(awg_validate_conf "$_tgt"); then
+        rm -f "$_tgt"
+        _esc=$(json_escape "$_err")
+        echo "{\"error\": \"awg_conf is missing: $_esc\"}"
+        unset _tgt _err _esc
+        return 1
+    fi
+    unset _tgt _err _esc
+    return 0
 }
 
 # === list: описание доступных методов ===
@@ -241,23 +262,8 @@ EOF
 
         [ -z "$AWG_CONF" ] && { echo '{"error": "awg_conf required"}'; exit 0; }
 
-        # Сохраняем .conf во временный файл для валидации, потом — в финальное
-        # место. Нормализуем CRLF → LF (юзер мог вставить .conf из Windows
-        # Notepad) — висячий \r ломает не только наш парсер, но и сам awg-quick,
-        # который читает этот файл напрямую при `awg-quick up awg0`.
         TMP_AWG="$STATE_DIR/awg0.conf.candidate"
-        printf '%s\n' "$AWG_CONF" | tr -d '\r' > "$TMP_AWG"
-        chmod 600 "$TMP_AWG"
-        # Полная валидация: [Interface]/PrivateKey/[Peer]/PublicKey/Endpoint.
-        # Без проверки PublicKey/Endpoint в обоих entry-point'ах обрезанный
-        # конфиг проходил сюда, потом 01-amneziawg.sh скачивал ~3 МБ kmod-
-        # пакетов и падал через 30 сек с непонятным "ERROR: .conf parse failed".
-        if ! AWG_ERR=$(awg_validate_conf "$TMP_AWG"); then
-            rm -f "$TMP_AWG"
-            ESC=$(json_escape "$AWG_ERR")
-            echo "{\"error\": \"awg_conf is missing: $ESC\"}"
-            exit 0
-        fi
+        printf '%s\n' "$AWG_CONF" | _prepare_awg_candidate "$TMP_AWG" || exit 0
         mkdir -p "$ETC_AWG_DIR"
         mv "$TMP_AWG" "$ETC_AWG_DIR/awg0.conf"
         chmod 600 "$ETC_AWG_DIR/awg0.conf"
@@ -386,8 +392,7 @@ EOF
                 echo '{"status": "dns restarted"}'
                 ;;
             adblock)
-                "$ETC_INIT_D/adblock-lean" start >/dev/null 2>&1
-                "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1
+                _reload_blocklist
                 echo '{"status": "adblock reloaded"}'
                 ;;
             *)
@@ -482,17 +487,8 @@ EOF
         AWG_CONF=$(jf '@.awg_conf')
         [ -z "$AWG_CONF" ] && { echo '{"error": "awg_conf required"}'; exit 0; }
 
-        # Валидация в candidate-файле, как в install_start. Нормализуем CRLF→LF
-        # (юзер мог вставить .conf из Windows Notepad).
         TMP_AWG="$STATE_DIR/awg0.conf.candidate"
-        printf '%s\n' "$AWG_CONF" | tr -d '\r' > "$TMP_AWG"
-        chmod 600 "$TMP_AWG"
-        if ! AWG_ERR=$(awg_validate_conf "$TMP_AWG"); then
-            rm -f "$TMP_AWG"
-            ESC=$(json_escape "$AWG_ERR")
-            echo "{\"error\": \"awg_conf is missing: $ESC\"}"
-            exit 0
-        fi
+        printf '%s\n' "$AWG_CONF" | _prepare_awg_candidate "$TMP_AWG" || exit 0
 
         # Backup текущего conf для возможного rollback. .prev живёт до конца
         # apply-блока: при успехе удаляется (новый conf принят), при сбое —
