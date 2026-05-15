@@ -62,11 +62,9 @@ check_firewall_running
 check_firewall_zone_vpn
 check_nft_podkop_table
 check_doh_running
-check_adblock_blocklist_loaded
 
-# ── DNS routing (catches user-4 silent-broken bug) ───────────────────────────
-check_dns_yandex_real_ip
-check_dns_google_fakeip
+# ── DNS ──────────────────────────────────────────────────────────────────────
+check_dns_resolves
 check_dns_adblock
 
 # ── Manifest / token / ACL ───────────────────────────────────────────────────
@@ -82,7 +80,7 @@ check_cron_running
 
 # ── Priority regressions (must FAIL loudly if a refactor breaks them) ────────
 report_info regressions "running priority regression suite"
-check_sing_box_config_has_ru_exclusion          # user-4: silent-broken FakeIP for yandex.ru
+check_podkop_ruleset_contains_ru                # user-4: rule_set with .ru missing / list_update never ran
 check_sing_box_installed                        # user-1: apk add sing-box silently EPERM
 check_wpad_installed                            # user-1: wpad-basic→mbedtls replacement
 check_podkop_user_domain_list_type_dynamic     # AGENTS.md invariant: HOME-mode would silently no-op

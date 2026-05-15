@@ -11,12 +11,6 @@ hw_init "${1:-}" "${2:-}"
 
 report_init "Phase 6 — reboot + steady state"
 
-# Ensure we exit phase 5/6/whatever-just-ran in HOME mode. If phase 2 or 3
-# died mid-switch and left us in TRAVEL, check_dns_yandex_real_ip would falsely
-# report "user-4 regression" after reboot — actually FakeIP is correct in
-# TRAVEL. Force HOME so the DNS asserts mean what they claim.
-ssh_router 'vpn-mode home' >/dev/null 2>&1 || true
-
 reboot_only
 
 # Wait for podkop's nft table — that's the only reliable "podkop is fully
@@ -53,10 +47,14 @@ check_dnsmasq_running
 check_firewall_running
 check_nft_podkop_table
 check_doh_running
+check_dns_resolves
 
-# DNS routing should still be correct after a cold boot.
-check_dns_yandex_real_ip
-check_dns_google_fakeip
+# Force HOME — Phase 2/3 могли оставить нас в TRAVEL, а в TRAVEL exclude_ru
+# (по дизайну) пустой → exclude_ru rule_set не генерится. Контракт ниже
+# проверяет HOME-mode инвариант, поэтому форсим HOME явно.
+ssh_router 'vpn-mode home' >/dev/null 2>&1 || true
+sleep 5
+check_podkop_ruleset_contains_ru
 
 # Cron must have come back up — watchdog only fires through it.
 check_cron_running

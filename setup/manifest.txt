@@ -20,10 +20,8 @@ scripts/log-snapshot                   /usr/bin/log-snapshot                   7
 scripts/net-benchmark                  /usr/bin/net-benchmark                  755
 scripts/sqm-tune                       /usr/bin/sqm-tune                       755
 
-# === Hotplug + init.d (kernel-вызовы, не пользовательские) ===
-scripts/hotplug/button/10-vpn-mode     /etc/hotplug.d/button/10-vpn-mode       755
+# === Hotplug (kernel-вызовы, не пользовательские) ===
 scripts/hotplug/iface/30-adblock       /etc/hotplug.d/iface/30-adblock         755
-scripts/init.d/vpn-mode                /etc/init.d/vpn-mode                    755
 
 # === Системные конфиги ===
 configs/sysupgrade.conf                /etc/sysupgrade.conf                    644

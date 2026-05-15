@@ -47,10 +47,8 @@ OpenWrt **ничего не обновляет автоматически** — 
 /usr/bin/log-snapshot
 /usr/bin/sqm-tune
 
-# Хендлеры и сервисы
-/etc/hotplug.d/button/10-vpn-mode
-/etc/init.d/vpn-mode
-/etc/vpn-mode.state
+# Adblock hotplug-хендлер
+/etc/hotplug.d/iface/30-adblock
 
 # AWG-конфиг (КРИТИЧНО — содержит приватный ключ!)
 /etc/amnezia/

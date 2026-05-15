@@ -48,8 +48,6 @@ POSIX_FILES=(
     scripts/net-benchmark
     scripts/sqm-tune
     scripts/vpn-mode
-    scripts/hotplug/button/10-vpn-mode
-    scripts/init.d/vpn-mode
     backup/backup.sh
     backup/restore.sh
 )
@@ -129,8 +127,6 @@ fi
 section "syntax check (sh -n / bash -n)"
 syntax_fail=0
 for f in "${POSIX_FILES[@]}"; do
-    # init.d/vpn-mode имеет шебанг "#!/bin/sh /etc/rc.common" — sh -n парсит сам файл,
-    # вторая часть шебанга для парсера неважна.
     if ! sh -n "$f" 2>/tmp/lint-syntax.err; then
         printf '  %s✗%s %s\n' "$R" "$N" "$f"
         cat /tmp/lint-syntax.err

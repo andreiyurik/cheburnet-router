@@ -4,13 +4,11 @@
 # HOME   — .ru/.su/.рф напрямую, остальное через VPN
 # TRAVEL — весь трафик через VPN
 #
-# Физическая кнопка (Cudy TR3000, Beryl AX) работает через hotplug:
-#   /etc/hotplug.d/button/10-vpn-mode → вызывает vpn-mode toggle
-# На Beryl AX также читает GPIO при загрузке: vpn-mode detect
+# Состояние хранится в UCI podkop'а (persistent через sysupgrade), отдельного
+# state-файла нет: HOME = community_lists в exclude_ru, TRAVEL = очищено.
+# UCI-логика — в lib/podkop-config.sh (общая со setup/02-podkop.sh).
 #
-# Usage: vpn-mode {home|travel|detect|toggle|status}
-
-STATE_FILE=/etc/vpn-mode.state
+# Usage: vpn-mode {home|travel|status}
 
 log() { logger -t vpn-mode "$*"; }
 
@@ -18,61 +16,35 @@ reload_podkop() {
     /etc/init.d/podkop reload >/dev/null 2>&1 &
 }
 
-# UCI-логика HOME/TRAVEL живёт в lib/podkop-config.sh — общий источник правды
-# с setup/02-podkop.sh. Фоллбэк на репо-чекаут нужен для прогона тестов
-# из исходников; на роутере всегда отрабатывает первая ветка.
 LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
 [ -f "$LIB_DIR/podkop-config.sh" ] || LIB_DIR="$(dirname "$0")/../lib"
 # shellcheck source=../lib/podkop-config.sh disable=SC1090,SC1091
 . "$LIB_DIR/podkop-config.sh"
 
-apply_home() {
-    podkop_apply_home
-    echo home > "$STATE_FILE"
-    log "mode=HOME applied (VPN for all except RU)"
+current_mode() {
+    if [ -n "$(uci -q get podkop.exclude_ru.community_lists)" ]; then
+        echo home
+    else
+        echo travel
+    fi
 }
-
-apply_travel() {
-    podkop_apply_travel
-    echo travel > "$STATE_FILE"
-    log "mode=TRAVEL applied (full tunnel)"
-}
-
-gpio_state() {
-    grep -E '\|mode[[:space:]]+\)' /sys/kernel/debug/gpio 2>/dev/null \
-        | grep -oE 'in +(hi|lo)' | awk '{print $2}'
-}
-
-detected_mode() {
-    case "$(gpio_state)" in
-        lo) echo travel ;;
-        hi) echo home ;;
-        *)  echo unknown ;;
-    esac
-}
-
-current_mode() { cat "$STATE_FILE" 2>/dev/null; }
 
 case "$1" in
     home)
         [ "$(current_mode)" = home ] && exit 0
-        apply_home; reload_podkop ;;
+        podkop_apply_home
+        log "mode=HOME applied (VPN for all except RU)"
+        reload_podkop ;;
     travel)
         [ "$(current_mode)" = travel ] && exit 0
-        apply_travel; reload_podkop ;;
-    detect)
-        want=$(detected_mode)
-        [ "$want" = unknown ] && { log "detect: GPIO state unknown, skipping"; exit 0; }
-        [ "$(current_mode)" = "$want" ] && exit 0
-        "$0" "$want" ;;
-    toggle)
-        [ "$(current_mode)" = home ] && "$0" travel || "$0" home ;;
+        podkop_apply_travel
+        log "mode=TRAVEL applied (full tunnel)"
+        reload_podkop ;;
     status)
-        echo "Режим:   $(current_mode || echo 'не задан')"
-        echo "GPIO:    $(gpio_state) -> $(detected_mode) (только Beryl AX)"
+        echo "Режим:   $(current_mode)"
         echo "Домены:  $(uci -q get podkop.exclude_ru.community_lists || echo '(пусто)')"
         echo "Домены+: $(uci -q get podkop.exclude_ru.user_domains || echo '(пусто)')" ;;
     *)
-        echo "Usage: $0 {home|travel|detect|toggle|status}" >&2
+        echo "Usage: $0 {home|travel|status}" >&2
         exit 1 ;;
 esac

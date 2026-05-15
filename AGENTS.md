@@ -25,7 +25,7 @@
 | nftables (fw4) | Kill switch и общий firewall | [docs/08](docs/08-killswitch.md) |
 | CLI `vpn-mode` | Управление режимами HOME ⇄ TRAVEL | [docs/07](docs/07-modes.md) |
 
-DNS-режим — **DoH, не FakeIP**. Если в диагностике видишь «Proxy traffic is not routed via FakeIP» — это **ожидаемо**.
+DNS-режим — DoH через sing-box (127.0.0.42). Подkop 0.7.17+ при этом помечает домены из rule_set'ов FakeIP'ом (198.18.0.0/15) — это сигнальная плоскость для tproxy-маршрутизации, не сам ответ пользователю. Поэтому `nslookup yandex.ru` может вернуть FakeIP, и это **нормально**: трафик до 198.18.x.y перехватывается sing-box, по rule_set'у `exclude_ru-user-domains` уходит в `direct-out` (WAN, не VPN). Контракт «.ru напрямую» проверяется наличием rule_set'а с `.ru` в `/tmp/sing-box/rulesets/exclude_ru-user-domains-ruleset.json`, а не DNS-ответом.
 
 ## СТРОГО ЗАПРЕЩЕНО ДЛЯ ИИ
 
@@ -67,8 +67,7 @@ DNS-режим — **DoH, не FakeIP**. Если в диагностике ви
 - **`lib/net-detect.sh`** (`net_lan_ip`, `net_lan_cidr`) — определение LAN с правильным fallback (netifd → uci+ipcalc.sh, CIDR-стрип `192.168.1.1/24` → `192.168.1.1`). **Не дублируй** `${LAN_IP%%/*}` — оборачивай в эти функции.
 - **`setup/install.sh` использует `cp + chmod`, не `install -m`.** Busybox-конфиг OpenWrt **не включает** утилиту `install`. Поймали в QEMU smoke на свежем snapshot.
 - **`vendor/` устаревает.** Vendored snapshot'ы upstream-инсталлеров (podkop, adblock-lean) используются как fallback при DPI-блокировке `raw.githubusercontent.com`. Структурный долг — нет автоматического обновления. При значимых обновлениях upstream — обновлять руками.
-- **Beryl AX slider:** GPIO `hi=HOME`, `lo=TRAVEL`. Slider читается через `vpn-mode detect` при загрузке.
-- **Cudy TR3000 button:** нажатие → `vpn-mode toggle` через `/etc/hotplug.d/button/10-vpn-mode`. State в `/etc/vpn-mode.state`, restore на boot через `/etc/init.d/vpn-mode`.
+- **HOME/TRAVEL переключаются только через web-UI и CLI** (`vpn-mode home/travel/status`). Hardware-кнопок/слайдеров не поддерживаем — поведение fragile (debounce, hardware-specific), большинство роутеров их не имеют, а целевая аудитория (бабушка/родители) ходит через `http://192.168.1.1/cheburnet/`. State хранится в UCI подkop'а (`podkop.exclude_ru.community_lists` пустой = TRAVEL, заполнен = HOME) — persistent через sysupgrade, отдельного state-файла нет.
 
 ## Где смотреть проблемы
 

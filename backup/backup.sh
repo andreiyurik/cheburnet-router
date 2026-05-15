@@ -34,23 +34,17 @@ for F in vpn-mode dns-provider dns-healthcheck awg-watchdog log-snapshot sqm-tun
     ssh "$ROUTER" "cat /usr/bin/$F 2>/dev/null" > "$SNAP/usr-bin/$F" || true
 done
 
-# === 3. Hotplug/init.d ===
-mkdir -p "$SNAP/hotplug/button" "$SNAP/init.d"
-ssh "$ROUTER" 'cat /etc/hotplug.d/button/10-vpn-mode 2>/dev/null' > "$SNAP/hotplug/button/10-vpn-mode" || true
-ssh "$ROUTER" 'cat /etc/init.d/vpn-mode 2>/dev/null' > "$SNAP/init.d/vpn-mode" || true
-
-# === 4. Чувствительные конфиги ===
+# === 3. Чувствительные конфиги ===
 echo "→ secrets (AWG, wifi) — храните архив приватно!"
 mkdir -p "$SNAP/secrets"
 ssh "$ROUTER" 'cat /etc/amnezia/amneziawg/awg0.conf 2>/dev/null' > "$SNAP/secrets/awg0.conf" || true
-ssh "$ROUTER" 'cat /etc/vpn-mode.state 2>/dev/null' > "$SNAP/secrets/vpn-mode.state" || true
 
-# === 5. Adblock-lean config ===
+# === 4. Adblock-lean config ===
 echo "→ adblock-lean"
 mkdir -p "$SNAP/adblock-lean"
 ssh "$ROUTER" 'cat /etc/adblock-lean/config 2>/dev/null' > "$SNAP/adblock-lean/config" || true
 
-# === 5b. ksmbd (SMB share) — пароли, hotplug handler ===
+# === 4b. ksmbd (SMB share) — пароли, hotplug handler ===
 echo "→ ksmbd (SMB share)"
 mkdir -p "$SNAP/ksmbd"
 ssh "$ROUTER" 'tar -cf - -C /etc ksmbd 2>/dev/null' 2>/dev/null | tar -xf - -C "$SNAP/" 2>/dev/null || true
@@ -58,11 +52,11 @@ mkdir -p "$SNAP/hotplug.d/block"
 ssh "$ROUTER" 'cat /etc/hotplug.d/block/10-usb-storage-mount 2>/dev/null' > "$SNAP/hotplug.d/block/10-usb-storage-mount" || true
 ssh "$ROUTER" 'cat /root/family-smb.txt 2>/dev/null' > "$SNAP/family-smb.txt" 2>/dev/null || true
 
-# === 6. Crontab ===
+# === 5. Crontab ===
 echo "→ crontab"
 ssh "$ROUTER" 'crontab -l 2>/dev/null' > "$SNAP/crontab.txt" || true
 
-# === 7. Метаданные ===
+# === 6. Метаданные ===
 echo "→ metadata"
 cat > "$SNAP/METADATA.txt" <<EOF
 Backup timestamp: $STAMP ($(date))

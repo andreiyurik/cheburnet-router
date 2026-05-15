@@ -268,27 +268,6 @@ nslookup pagead2.googlesyndication.com 192.168.1.1
 /etc/init.d/dnsmasq restart
 ```
 
-### «Роутер перезагрузился и режим не совпадает со слайдером» (Beryl AX)
-
-```bash
-# Debug initial state
-vpn-mode status
-# Saved state: travel
-# Slider GPIO: hi -> home    ← ага, slider в HOME но state=travel
-
-# Принудительный detect
-vpn-mode detect
-
-# Проверить что детектор работал при загрузке
-logread -t vpn-mode | head
-# Должно быть: mode=HOME applied или mode=TRAVEL applied в первые секунды после boot
-```
-
-Если `/etc/init.d/vpn-mode` не отработал — проверьте что включён:
-```bash
-/etc/init.d/vpn-mode enabled && echo OK
-```
-
 ### «Wi-Fi не видит родственников устройства»
 
 ```bash
