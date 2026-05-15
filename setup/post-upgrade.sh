@@ -28,11 +28,6 @@ if ! apk list --installed 2>/dev/null | grep -q wpad-mbedtls; then
 fi
 
 # === 3. AmneziaWG (kmod + tools + luci-proto) ===
-# Логика общая с setup/01-amneziawg.sh — см. lib/install-awg.sh.
-# install_awg_packages сама делает idempotent guard по lsmod, ждёт готовности
-# сети (после sysupgrade DHCP подъезжает не сразу), и делает retry скачивания/
-# apk add. Раньше тут была упрощённая версия без retry — post-upgrade падал на
-# одиночном wget-flake'е.
 # shellcheck source=/dev/null
 . /opt/cheburnet/lib/cheburnet-utils.sh
 # shellcheck source=/dev/null
