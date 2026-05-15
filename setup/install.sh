@@ -190,14 +190,15 @@ if [ -s "$STATE_DIR/root_pass" ]; then
         echo "⚠ passwd root не сработал — установите пароль вручную через SSH"
     fi
     unset pass
-    # Затираем файл (best-effort): сначала перезапись, потом unlink
-    dd if=/dev/urandom of="$STATE_DIR/root_pass" bs=1 count=64 conv=notrunc 2>/dev/null || true
+    # root_pass лежит в /tmp (tmpfs/RAM) — dd-перезапись бессмысленна
+    # (tmpfs не имеет дисковых блоков, по unlink RAM освобождается).
     rm -f "$STATE_DIR/root_pass"
 fi
 
 # === Удаляем install-токен (одноразовый, больше не нужен) ===
 if [ -f /etc/cheburnet/install-token ]; then
-    dd if=/dev/urandom of=/etc/cheburnet/install-token bs=1 count=32 conv=notrunc 2>/dev/null || true
+    # На UBI/JFFS2 с wear-leveling dd пишет в НОВЫЕ блоки, не затирая старые
+    # — «безопасная» перезапись была cargo cult. rm-а достаточно.
     rm -f /etc/cheburnet/install-token
     echo "→ install-токен удалён"
 fi

@@ -117,30 +117,17 @@ echo
 echo "→ Обновляю индекс пакетов"
 apk update 2>&1 | tail -3
 
-echo "→ Устанавливаю uhttpd-mod-ubus (HTTP-бридж для ubus)"
-if ! apk add --no-interactive uhttpd-mod-ubus >/tmp/apk-out 2>&1; then
-    tail -5 /tmp/apk-out
-    echo "✗ Не удалось установить uhttpd-mod-ubus."
+# rpcd обычно предустановлен, jsonfilter — отдельный пакет для парсинга
+# ubus-вывода. apk add идемпотентен — guard через `command -v` ничего не
+# экономит, только запутывает контроль-флоу.
+echo "→ Устанавливаю базовые пакеты (uhttpd-mod-ubus, rpcd, jsonfilter)"
+if ! apk add --no-interactive uhttpd-mod-ubus rpcd jsonfilter >/tmp/apk-out 2>&1; then
+    tail -10 /tmp/apk-out
+    echo "✗ Не удалось установить базовые пакеты."
     echo "  Проверьте: apk update && apk search uhttpd-mod-ubus"
     exit 1
 fi
 tail -3 /tmp/apk-out
-
-# rpcd обычно предустановлен, но проверим
-if ! command -v rpcd >/dev/null 2>&1 && [ ! -x /sbin/rpcd ] && [ ! -x /usr/sbin/rpcd ]; then
-    if ! apk add --no-interactive rpcd >/tmp/apk-out 2>&1; then
-        tail -5 /tmp/apk-out
-        echo "✗ Не удалось установить rpcd."; exit 1
-    fi
-fi
-
-# jsonfilter — для парсинга JSON из ubus-вызовов (отдельный apk-пакет)
-if ! command -v jsonfilter >/dev/null 2>&1; then
-    if ! apk add --no-interactive jsonfilter >/tmp/apk-out 2>&1; then
-        tail -5 /tmp/apk-out
-        echo "✗ Не удалось установить jsonfilter."; exit 1
-    fi
-fi
 
 # === 5. Скачать исходники ===
 echo
