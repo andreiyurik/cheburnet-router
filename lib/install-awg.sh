@@ -1,32 +1,11 @@
 # lib/install-awg.sh — установка пакетов AmneziaWG (kmod + tools + luci-proto).
 #
-# Source-only: ничего не выполняет, только определяет install_awg_packages.
-#
-# В отличие от lib/cheburnet-utils.sh, эта функция имеет ЯВНЫЕ side-effects:
-# скачивает .apk-файлы, делает `apk add`, грузит kernel-модуль. Поэтому она
-# живёт отдельно от pure-функций — контракт cheburnet-utils.sh «без
-# side-effects» (см. его шапку) ради этой одной функции ломать нельзя.
-#
-# Подключение (вызывающий должен предварительно загрузить cheburnet-utils.sh
-# ради awg_pick_version и cheburnet_apk_fail_advice):
-#   . /opt/cheburnet/lib/cheburnet-utils.sh
-#   . /opt/cheburnet/lib/install-awg.sh
-#   install_awg_packages
-#
-# Используется в setup/01-amneziawg.sh (первичная установка) и
-# setup/post-upgrade.sh (восстановление после sysupgrade). Раньше эти два
-# места содержали почти идентичные блоки скачивания/установки, но без общего
-# retry/wait-for-network — post-upgrade падал на flaky-сети там, где
-# 01-amneziawg.sh переживал транзиентные сбои.
+# Side-effects (apk add, modprobe) — поэтому отдельно от pure-функций
+# cheburnet-utils.sh. Вызывать после подключения cheburnet-utils.sh —
+# нужны awg_pick_version и cheburnet_apk_fail_advice.
 
-# install_awg_packages
-# Идемпотентно ставит AmneziaWG. Возвращает:
-#   0 — kmod загружен (либо был загружен с прошлого запуска).
-#   1 — фейл (диагностика — на stderr, человекочитаемая).
-# Сам читает /etc/openwrt_release и зовёт awg_pick_version из cheburnet-utils.sh.
-# Caller с set -e получит немедленный выход при return 1 — это и нужно.
+# install_awg_packages — 0 если kmod загружен, 1 на фейле (диагностика в stderr).
 install_awg_packages() {
-    # 1. Идемпотентность — kmod уже загружен, второй раз не ставим.
     if lsmod | grep -q '^amneziawg '; then
         echo "→ amneziawg уже установлен, пропускаю установку"
         return 0
@@ -34,9 +13,6 @@ install_awg_packages() {
 
     echo "→ скачиваем и ставим kmod-amneziawg + tools"
 
-    # 2. Автодетект архитектуры пакетов awg-openwrt:
-    # Формат тэга = ${DISTRIB_ARCH}_${DISTRIB_TARGET с / → _}
-    # Пример: aarch64_cortex-a53 + mediatek/filogic → aarch64_cortex-a53_mediatek_filogic
     # shellcheck disable=SC1091
     . /etc/openwrt_release
     if [ -z "${DISTRIB_ARCH:-}" ] || [ -z "${DISTRIB_TARGET:-}" ] || [ -z "${DISTRIB_RELEASE:-}" ]; then
@@ -47,20 +23,12 @@ install_awg_packages() {
     _arch="${DISTRIB_ARCH}_$(echo "$DISTRIB_TARGET" | tr '/' '_')"
     _release="$DISTRIB_RELEASE"
 
-    # 3. Ждём готовности сети — awg_pick_version ниже идёт на github
-    # (HEAD-запрос на .apk + GitHub API за latest-тегом). Если WAN ещё не
-    # приехал (после reboot DHCP занимает 15-30 сек), wget не разрезолвит
-    # хост, функция вернёт пусто, и юзер увидит ложное «нет совместимого
-    # релиза» вместо честного «сеть не готова». Эта же проверка нужна и в
-    # post-upgrade.sh — после sysupgrade сеть тоже поднимается не сразу.
-    # Ждём до 60 сек: nameserver в resolv.conf + ping до 8.8.8.8.
+    # После reboot/sysupgrade DHCP подъезжает 15-30 сек. Без этой проверки
+    # awg_pick_version вернёт пусто и юзер увидит «нет совместимого релиза»
+    # вместо «сеть не готова». ICMP || HTTP — ping режется на части сетей.
     echo "→ ожидаем готовности сети перед скачиванием..."
     _net_ready=0
     for _w in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        # ping ИЛИ wget-spider: ICMP режется в части сетей (корпоративные wifi,
-        # некоторые мобильные APN, qemu user-mode netdev), но HTTP к OpenWrt-
-        # зеркалам в них всё равно работает — это ровно тот канал, по которому
-        # пойдёт apk add ниже. Та же логика — в lib/cheburnet-preflight.sh.
         if grep -q '^nameserver' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null \
            && { ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 \
                 || wget -q --spider --timeout=5 http://downloads.openwrt.org/ 2>/dev/null; }; then
@@ -82,8 +50,6 @@ install_awg_packages() {
     fi
     echo "  ✓ сеть готова"
 
-    # 4. Выбор версии awg-openwrt. См. cheburnet-utils.sh:awg_pick_version
-    # — preferred (DISTRIB_RELEASE) → latest по GitHub API → fail.
     _awg_ver="$(awg_pick_version "$_release" "$_arch")" || _awg_ver=""
     if [ -z "$_awg_ver" ]; then
         echo "✗ Нет совместимого релиза awg-openwrt для OpenWrt ${_release} / ${_arch}." >&2
@@ -99,11 +65,8 @@ install_awg_packages() {
     cd /tmp || { echo "✗ cd /tmp failed" >&2; return 1; }
     for _pkg in "kmod-amneziawg_v${_awg_ver}" "amneziawg-tools_v${_awg_ver}" "luci-proto-amneziawg_v${_awg_ver}"; do
         _file="${_pkg}_${_arch}.apk"
-        # Один промах wget на GitHub releases CDN (release-assets.github*.com)
-        # = установка целиком падает у юзера. 3 попытки с backoff закрывают
-        # 99% транзиентных сбоев: DPI throttle, временный timeout, TCP RST
-        # после редиректа на blob.core.windows.net. Поймано T4 на alt-сети:
-        # один прогон файл не качался, второй прогон через минуту — OK.
+        # GitHub CDN изредка флэйкает (DPI throttle / TCP RST / redirect timeout).
+        # 3 попытки с backoff закрывают это без вмешательства юзера.
         _attempt=0
         while [ "$_attempt" -lt 3 ]; do
             if wget -q -T 30 -O "$_file" "$_base/$_file"; then break; fi
@@ -120,11 +83,8 @@ install_awg_packages() {
         done
     done
 
-    # apk изредка падает с "ADB integrity error" / "download failed"
-    # из-за рассинхрона индекса или оборванной закачки с зеркала. Один
-    # повтор после apk update закрывает такие транзиентные сбои без
-    # ручного вмешательства. Реальный kernel-mismatch ловится ниже через
-    # modprobe — гадать о причине по тексту apk не нужно.
+    # apk изредка падает с "ADB integrity error" из-за рассинхрона индекса.
+    # Повтор после apk update — закрывает. Реальный kernel-mismatch ловится modprobe ниже.
     _awg_apk_add() {
         apk add --allow-untrusted \
             "./kmod-amneziawg_v${_awg_ver}_${_arch}.apk" \
@@ -137,9 +97,6 @@ install_awg_packages() {
         if ! _apk_err=$(_awg_apk_add); then
             echo "✗ apk add не удался после повтора. Вывод apk:" >&2
             printf '%s\n' "$_apk_err" | grep -v '^$' >&2
-            # Диагностика причины — DPI на «amneziawg» сейчас редко (это не
-            # известный VPN-инструмент в DPI-сигнатурах), но всё же стоит
-            # проверить и направить юзера в правильное место.
             command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
                 && cheburnet_apk_fail_advice amneziawg
             return 1

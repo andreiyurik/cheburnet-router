@@ -27,8 +27,6 @@ fi
 chmod 600 "$CONF"
 
 # === 1. Установка пакетов ===
-# Логика общая с post-upgrade.sh — см. lib/install-awg.sh::install_awg_packages.
-# Там idempotent guard по lsmod, wait-for-network, retry скачивания и apk add.
 INSTALL_AWG_LIB="${CHEBURNET_INSTALL_AWG_LIB:-/opt/cheburnet/lib/install-awg.sh}"
 [ -f "$INSTALL_AWG_LIB" ] || INSTALL_AWG_LIB="$(dirname "$0")/../lib/install-awg.sh"
 # shellcheck source=../lib/install-awg.sh disable=SC1090,SC1091
