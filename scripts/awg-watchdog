@@ -38,8 +38,7 @@ else
 fi
 
 if [ "$stale" -eq 0 ]; then
-    # Всё хорошо — обнулить счётчик
-    echo 0 > "$STATE_DIR/fails" 2>/dev/null
+    echo 0 > "$STATE_DIR/fails"
     exit 0
 fi
 

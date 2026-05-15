@@ -44,7 +44,7 @@ _preflight_banner_unsupported() {
     echo "    • Cudy TR3000 v1 ⭐  — travel-форм-фактор"
     echo "    • Cudy WR3000P v1   — стационарный 4×GbE + 2.5 GbE WAN"
     echo "    • Cudy AP3000 v1    — больше flash для overlay"
-    echo "    • GL.iNet Beryl AX  — слайдер HOME/TRAVEL, кулер"
+    echo "    • GL.iNet Beryl AX  — мощное железо, кулер"
     echo ""
     echo "  Минимум: OpenWrt 25.12+, 256 МБ RAM, 64 МБ flash."
     echo ""
