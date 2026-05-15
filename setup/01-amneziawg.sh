@@ -27,126 +27,13 @@ fi
 chmod 600 "$CONF"
 
 # === 1. Установка пакетов ===
-# Если модуль уже загружен — пропускаем установку
-if lsmod | grep -q '^amneziawg '; then
-    echo "→ amneziawg уже установлен, пропускаю установку"
-else
-    echo "→ скачиваем и ставим kmod-amneziawg + tools"
-
-    # Автодетект архитектуры пакетов awg-openwrt:
-    # Формат тэга = ${DISTRIB_ARCH}_${DISTRIB_TARGET с / → _}
-    # Пример: aarch64_cortex-a53 + mediatek/filogic → aarch64_cortex-a53_mediatek_filogic
-    # shellcheck disable=SC1091
-    . /etc/openwrt_release
-    if [ -z "${DISTRIB_ARCH:-}" ] || [ -z "${DISTRIB_TARGET:-}" ] || [ -z "${DISTRIB_RELEASE:-}" ]; then
-        echo "✗ Не удалось определить архитектуру/версию роутера." >&2
-        echo "  Проверьте: cat /etc/openwrt_release" >&2
-        exit 1
-    fi
-    ARCH="${DISTRIB_ARCH}_$(echo "$DISTRIB_TARGET" | tr '/' '_')"
-
-    # Сначала ждём готовности сети — awg_pick_version ниже идёт на github
-    # (HEAD-запрос на .apk + GitHub API за latest-тегом). Если WAN ещё не
-    # приехал (после reboot DHCP занимает 15-30 сек), wget не разрезолвит
-    # хост, функция вернёт пусто, и юзер увидит ложное «нет совместимого
-    # релиза» вместо честного «сеть не готова». Раньше эта проверка была
-    # ПОСЛЕ awg_pick_version и каскадно отказывалась объяснять реальную причину.
-    # Ждём до 60 сек: nameserver в resolv.conf + ping до 8.8.8.8.
-    echo "→ ожидаем готовности сети перед скачиванием..."
-    _net_ready=0
-    for _w in 1 2 3 4 5 6 7 8 9 10 11 12; do
-        # ping ИЛИ wget-spider: ICMP режется в части сетей (корпоративные wifi,
-        # некоторые мобильные APN, qemu user-mode netdev), но HTTP к OpenWrt-
-        # зеркалам в них всё равно работает — это ровно тот канал, по которому
-        # пойдёт apk add ниже. Та же логика — в lib/cheburnet-preflight.sh.
-        if grep -q '^nameserver' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null \
-           && { ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 \
-                || wget -q --spider --timeout=5 http://downloads.openwrt.org/ 2>/dev/null; }; then
-            _net_ready=1
-            break
-        fi
-        echo "  ожидание сети... (${_w}/12, по 5 сек)"
-        sleep 5
-    done
-    if [ "$_net_ready" = "0" ]; then
-        echo "✗ Нет доступа к интернету через 60 сек." >&2
-        echo "  Возможные причины:" >&2
-        echo "  • WAN-кабель не подключён или провайдер не даёт DHCP" >&2
-        echo "  • IPv6-only WAN без IPv4 (проверьте настройки провайдера)" >&2
-        echo "  Диагностика:" >&2
-        ip route 2>&1 >&2 || true
-        cat /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null >&2 || echo "  (resolv.conf пустой)" >&2
-        exit 1
-    fi
-    echo "  ✓ сеть готова"
-
-    AWG_VER="$(awg_pick_version "$DISTRIB_RELEASE" "$ARCH")" || AWG_VER=""
-    if [ -z "$AWG_VER" ]; then
-        echo "✗ Нет совместимого релиза awg-openwrt для OpenWrt ${DISTRIB_RELEASE} / ${ARCH}." >&2
-        echo "  Доступные релизы: https://github.com/Slava-Shchipunov/awg-openwrt/releases" >&2
-        echo "  Если вашей архитектуры нет — соберите пакет вручную по инструкции из репозитория." >&2
-        exit 1
-    fi
-    echo "  arch=${ARCH}, awg-openwrt=v${AWG_VER}"
-
-    BASE="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${AWG_VER}"
-
-    mkdir -p /etc/amnezia/amneziawg
-    cd /tmp
-    for PKG in "kmod-amneziawg_v${AWG_VER}" "amneziawg-tools_v${AWG_VER}" "luci-proto-amneziawg_v${AWG_VER}"; do
-        FILE="${PKG}_${ARCH}.apk"
-        # Один промах wget на GitHub releases CDN (release-assets.github*.com)
-        # = установка целиком падает у юзера. 3 попытки с backoff закрывают
-        # 99% транзиентных сбоев: DPI throttle, временный timeout, TCP RST
-        # после редиректа на blob.core.windows.net. Поймано T4 на alt-сети:
-        # один прогон файл не качался, второй прогон через минуту — OK.
-        attempt=0
-        while [ "$attempt" -lt 3 ]; do
-            if wget -q -T 30 -O "$FILE" "$BASE/$FILE"; then break; fi
-            attempt=$((attempt + 1))
-            if [ "$attempt" -ge 3 ]; then
-                echo "✗ download failed after 3 attempts: $FILE"
-                echo "  URL: $BASE/$FILE"
-                echo "  Проверьте: wget $BASE/$FILE с роутера руками; если падает —"
-                echo "  возможно блокировка release-assets.githubusercontent.com у провайдера."
-                exit 1
-            fi
-            echo "  ⚠ download flake (попытка $attempt/3), повтор через $((attempt * 5))s..."
-            sleep $((attempt * 5))
-        done
-    done
-    # apk изредка падает с "ADB integrity error" / "download failed"
-    # из-за рассинхрона индекса или оборванной закачки с зеркала. Один
-    # повтор после apk update закрывает такие транзиентные сбои без
-    # ручного вмешательства. Реальный kernel-mismatch ловится ниже через
-    # modprobe — гадать о причине по тексту apk не нужно.
-    awg_apk_add() {
-        apk add --allow-untrusted \
-            "./kmod-amneziawg_v${AWG_VER}_${ARCH}.apk" \
-            "./amneziawg-tools_v${AWG_VER}_${ARCH}.apk" \
-            "./luci-proto-amneziawg_v${AWG_VER}_${ARCH}.apk" 2>&1
-    }
-    if ! APK_ERR=$(awg_apk_add); then
-        echo "  apk add упал, обновляю индексы и повторяю..."
-        apk update >/dev/null 2>&1 || true
-        if ! APK_ERR=$(awg_apk_add); then
-            echo "✗ apk add не удался после повтора. Вывод apk:" >&2
-            printf '%s\n' "$APK_ERR" | grep -v '^$' >&2
-            # Диагностика причины — DPI на «amneziawg» сейчас редко (это не
-            # известный VPN-инструмент в DPI-сигнатурах), но всё же стоит
-            # проверить и направить юзера в правильное место.
-            command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
-                && cheburnet_apk_fail_advice amneziawg
-            exit 1
-        fi
-    fi
-    if ! modprobe amneziawg; then
-        echo "✗ modprobe amneziawg завершился с ошибкой." >&2
-        echo "  kmod-amneziawg v${AWG_VER} установлен, но не совместим с текущим ядром ($(uname -r))." >&2
-        echo "  Диагностика: dmesg | tail -20" >&2
-        exit 1
-    fi
-fi
+# Логика общая с post-upgrade.sh — см. lib/install-awg.sh::install_awg_packages.
+# Там idempotent guard по lsmod, wait-for-network, retry скачивания и apk add.
+INSTALL_AWG_LIB="${CHEBURNET_INSTALL_AWG_LIB:-/opt/cheburnet/lib/install-awg.sh}"
+[ -f "$INSTALL_AWG_LIB" ] || INSTALL_AWG_LIB="$(dirname "$0")/../lib/install-awg.sh"
+# shellcheck source=../lib/install-awg.sh disable=SC1090,SC1091
+. "$INSTALL_AWG_LIB"
+install_awg_packages
 
 # === 2. Парсим .conf ===
 PRIV=$(awg_get_iface PrivateKey "$CONF")

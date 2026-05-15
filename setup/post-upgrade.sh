@@ -28,40 +28,16 @@ if ! apk list --installed 2>/dev/null | grep -q wpad-mbedtls; then
 fi
 
 # === 3. AmneziaWG (kmod + tools + luci-proto) ===
-if ! lsmod | grep -q '^amneziawg '; then
-    echo "→ AmneziaWG пакеты"
-
-    # Подключаем общую awg_pick_version — ту же, что использует 01-amneziawg.sh.
-    # Без неё этот блок дублировал цикл fallback-версий и потенциально
-    # расходился при добавлении новых версий апстрима.
-    # shellcheck source=/dev/null
-    . /opt/cheburnet/lib/cheburnet-utils.sh
-    # shellcheck disable=SC1091
-    . /etc/openwrt_release
-    if [ -z "${DISTRIB_ARCH:-}" ] || [ -z "${DISTRIB_TARGET:-}" ] || [ -z "${DISTRIB_RELEASE:-}" ]; then
-        echo "✗ Не удалось определить архитектуру/версию роутера." >&2
-        exit 1
-    fi
-    ARCH="${DISTRIB_ARCH}_$(echo "$DISTRIB_TARGET" | tr '/' '_')"
-
-    AWG_VER="$(awg_pick_version "$DISTRIB_RELEASE" "$ARCH")" || AWG_VER=""
-    if [ -z "$AWG_VER" ]; then
-        echo "✗ Нет совместимого релиза awg-openwrt для OpenWrt ${DISTRIB_RELEASE} / ${ARCH}." >&2
-        exit 1
-    fi
-    echo "  arch=${ARCH}, awg-openwrt=v${AWG_VER}"
-
-    BASE="https://github.com/Slava-Shchipunov/awg-openwrt/releases/download/v${AWG_VER}"
-    cd /tmp
-    for PKG in "kmod-amneziawg_v${AWG_VER}" "amneziawg-tools_v${AWG_VER}" "luci-proto-amneziawg_v${AWG_VER}"; do
-        FILE="${PKG}_${ARCH}.apk"
-        wget -q -O "$FILE" "$BASE/$FILE" || { echo "download failed: $FILE"; exit 1; }
-    done
-    apk add --allow-untrusted "./kmod-amneziawg_v${AWG_VER}_${ARCH}.apk" \
-                              "./amneziawg-tools_v${AWG_VER}_${ARCH}.apk" \
-                              "./luci-proto-amneziawg_v${AWG_VER}_${ARCH}.apk"
-    modprobe amneziawg
-fi
+# Логика общая с setup/01-amneziawg.sh — см. lib/install-awg.sh.
+# install_awg_packages сама делает idempotent guard по lsmod, ждёт готовности
+# сети (после sysupgrade DHCP подъезжает не сразу), и делает retry скачивания/
+# apk add. Раньше тут была упрощённая версия без retry — post-upgrade падал на
+# одиночном wget-flake'е.
+# shellcheck source=/dev/null
+. /opt/cheburnet/lib/cheburnet-utils.sh
+# shellcheck source=/dev/null
+. /opt/cheburnet/lib/install-awg.sh
+install_awg_packages
 
 # === 4. Podkop + sing-box ===
 if [ ! -x /etc/init.d/podkop ]; then
