@@ -119,11 +119,7 @@ sleep 5
 /etc/init.d/adblock-lean start >/dev/null 2>&1
 wifi reload
 
-# === 9. Применяем режим слайдера ===
-sleep 3
-/usr/bin/vpn-mode detect 2>/dev/null || true
-
-# === 10. Финальная проверка ===
+# === 9. Финальная проверка ===
 echo
 echo "=== СТАТУС ==="
 echo "AWG: $(awg show awg0 2>/dev/null | awk '/latest handshake/{print; exit}' || echo 'interface not up — check logread')"

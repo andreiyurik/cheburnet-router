@@ -31,19 +31,7 @@ for F in vpn-mode dns-provider dns-healthcheck awg-watchdog log-snapshot sqm-tun
     fi
 done
 
-# === 3. Hotplug / init.d ===
-if [ -f "$SNAP/hotplug/button/10-vpn-mode" ]; then
-    ssh "$ROUTER" 'mkdir -p /etc/hotplug.d/button'
-    scp -q "$SNAP/hotplug/button/10-vpn-mode" "$ROUTER":/etc/hotplug.d/button/
-    ssh "$ROUTER" 'chmod +x /etc/hotplug.d/button/10-vpn-mode'
-fi
-
-if [ -f "$SNAP/init.d/vpn-mode" ]; then
-    scp -q "$SNAP/init.d/vpn-mode" "$ROUTER":/etc/init.d/vpn-mode
-    ssh "$ROUTER" 'chmod +x /etc/init.d/vpn-mode; /etc/init.d/vpn-mode enable'
-fi
-
-# === 4. Секреты ===
+# === 3. Секреты ===
 if [ -f "$SNAP/secrets/awg0.conf" ]; then
     echo "→ awg0.conf"
     ssh "$ROUTER" 'mkdir -p /etc/amnezia/amneziawg'
@@ -51,25 +39,21 @@ if [ -f "$SNAP/secrets/awg0.conf" ]; then
     ssh "$ROUTER" 'chmod 600 /etc/amnezia/amneziawg/awg0.conf'
 fi
 
-if [ -f "$SNAP/secrets/vpn-mode.state" ]; then
-    scp -q "$SNAP/secrets/vpn-mode.state" "$ROUTER":/etc/vpn-mode.state
-fi
-
-# === 5. Adblock-lean ===
+# === 4. Adblock-lean ===
 if [ -f "$SNAP/adblock-lean/config" ]; then
     echo "→ adblock-lean config"
     ssh "$ROUTER" 'mkdir -p /etc/adblock-lean'
     scp -q "$SNAP/adblock-lean/config" "$ROUTER":/etc/adblock-lean/config
 fi
 
-# === 6. Crontab ===
+# === 5. Crontab ===
 if [ -s "$SNAP/crontab.txt" ]; then
     echo "→ crontab"
     scp -q "$SNAP/crontab.txt" "$ROUTER":/tmp/crontab.txt
     ssh "$ROUTER" 'crontab /tmp/crontab.txt; rm /tmp/crontab.txt'
 fi
 
-# === 7. Перезагрузка сервисов ===
+# === 6. Перезагрузка сервисов ===
 echo "→ restart сервисов"
 ssh "$ROUTER" '/etc/init.d/network reload; \
     /etc/init.d/firewall reload; \

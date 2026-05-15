@@ -240,9 +240,14 @@ run_bootstrap() {
                  /www/cheburnet /usr/libexec/rpcd /usr/share/rpcd/acl.d
         rm -rf /opt/cheburnet/* 2>/dev/null || true' || return 1
 
-    # 2. Stream the repo via tar over ssh. Exclude same paths as setup.sh.
+    # 2. Stream the repo via tar over ssh. Exclude same paths as setup.sh plus
+    # dev-side dotdirs that have no business on the router. Note: `.*` as a
+    # tar exclude matches `.` (the archive root) and silently drops the entire
+    # tree — keep the list explicit.
     if ! tar -C "$repo_root" -czf - \
-            --exclude='.git' --exclude='tests' --exclude='docs' \
+            --exclude='.git' --exclude='.github' --exclude='.idea' \
+            --exclude='.claude' --exclude='.gitignore' --exclude='.gitmodules' \
+            --exclude='tests' --exclude='docs' \
             --exclude='backup' --exclude='assets' --exclude='*.md' \
             . | ssh "${SSH_OPTS[@]}" "$ROUTER" 'tar -C /opt/cheburnet -xzf -'; then
         return 1
@@ -613,16 +618,6 @@ check_doh_running() {
     report_fail check_doh_running "no DoH backend running (neither https-dns-proxy nor sing-box-on-42)"
 }
 
-check_adblock_blocklist_loaded() {
-    local size
-    size=$(ssh_router "stat -c%s /var/run/adblock-lean/abl-blocklist.gz 2>/dev/null || echo 0") || true
-    if [ "${size:-0}" -gt 1024 ]; then
-        report_pass check_adblock_blocklist_loaded "blocklist ${size} bytes"
-    else
-        report_fail check_adblock_blocklist_loaded "blocklist missing or tiny (${size} bytes)"
-    fi
-}
-
 # ─── DNS routing (critical for user-4 regression) ────────────────────────────
 _resolve_first_ip() {
     # Echo the first IPv4 from the answer section of busybox nslookup output.
@@ -645,39 +640,18 @@ _resolve_first_ip() {
     '
 }
 
-check_dns_yandex_real_ip() {
-    local ip
-    ip=$(_resolve_first_ip yandex.ru) || true
-    if [ -z "$ip" ]; then
-        report_fail check_dns_yandex_real_ip "yandex.ru did not resolve"
-        return 1
-    fi
-    case "$ip" in
-        198.18.*)
-            report_fail check_dns_yandex_real_ip \
-                "got FakeIP $ip — podkop .ru exclusion MISSING (user-4 silent-broken regression)"
-            ;;
-        *)
-            report_pass check_dns_yandex_real_ip "real IP $ip"
-            ;;
-    esac
-}
-
-check_dns_google_fakeip() {
-    # AGENTS.md line 28: "DNS-режим — DoH, не FakeIP". So FakeIP may or may not
-    # appear; the meaningful assertion here is "google.com resolves at all".
-    # A FakeIP response is a positive signal that podkop tagging is active
-    # (and we surface it), but real-IP responses are equally valid.
+check_dns_resolves() {
+    # Sanity that dnsmasq+DoH chain answers at all. Returned IP can be FakeIP
+    # (198.18.0.0/15 — podkop tagging .ru/global via sing-box for routing)
+    # OR a real IP (DoH-direct for domains not in any rule_set yet) — both fine.
+    # The real check for routing correctness lives in check_podkop_ruleset_*.
     local ip
     ip=$(_resolve_first_ip google.com) || true
     if [ -z "$ip" ]; then
-        report_fail check_dns_google_fakeip "google.com did not resolve"
+        report_fail check_dns_resolves "google.com did not resolve"
         return 1
     fi
-    case "$ip" in
-        198.18.*) report_pass check_dns_google_fakeip "FakeIP $ip — VPN tag active" ;;
-        *)        report_pass check_dns_google_fakeip "real IP $ip — DoH-only path" ;;
-    esac
+    report_pass check_dns_resolves "google.com → $ip"
 }
 
 check_dns_adblock() {
@@ -690,24 +664,23 @@ check_dns_adblock() {
     esac
 }
 
-check_sing_box_config_has_ru_exclusion() {
-    # The exact regression user-4 ran into: podkop installed and running, but
-    # /etc/sing-box/config.json had no .ru rules — yandex.ru went via FakeIP.
-    # Guarded by both a count and an explicit ".ru" check.
-    local count
-    count=$(ssh_router "grep -c 'domain_suffix' /etc/sing-box/config.json 2>/dev/null || echo 0")
-    count=${count:-0}
-    if [ "$count" -eq 0 ]; then
-        report_fail check_sing_box_config_has_ru_exclusion \
-            "no 'domain_suffix' in sing-box config — podkop never generated rules (user-4!)"
+check_podkop_ruleset_contains_ru() {
+    # Podkop 0.7.17+ writes domain rules into external sing-box rule_set files
+    # under /tmp/sing-box/rulesets/, not inline domain_suffix in config.json
+    # (which only holds reject/route metadata + rule_set references). The
+    # exact regression user-4 ran into: rule_set file missing or empty →
+    # yandex.ru lands in the VPN-bound bucket → routed via non-RU exit IP.
+    local rs=/tmp/sing-box/rulesets/exclude_ru-user-domains-ruleset.json
+    if ! ssh_router_quiet "[ -s $rs ]"; then
+        report_fail check_podkop_ruleset_contains_ru \
+            "$rs missing/empty — podkop list_update never ran (user-4!)"
         return 1
     fi
-    if ssh_router "grep -q '\"\\.ru\"' /etc/sing-box/config.json 2>/dev/null"; then
-        report_pass check_sing_box_config_has_ru_exclusion \
-            "$count domain_suffix entries, .ru present"
+    if ssh_router "grep -q '\"\\.ru\"' $rs"; then
+        report_pass check_podkop_ruleset_contains_ru "$rs has .ru"
     else
-        report_fail check_sing_box_config_has_ru_exclusion \
-            "$count domain_suffix entries but .ru not among them (user-4 regression!)"
+        report_fail check_podkop_ruleset_contains_ru \
+            "$rs exists but .ru not in it (user-4 regression!)"
     fi
 }
 

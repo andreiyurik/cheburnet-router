@@ -27,11 +27,12 @@
 - [ ] **WPA3 (sae-mixed)** — клиент с WPA3-only подключается, клиент с WPA2-only тоже (mixed mode).
 - [ ] **5 GHz radio** работает. Проверить на устройстве с 5G: `iwinfo wlan1 info`.
 
-## Физическая кнопка / слайдер (HOME ↔ TRAVEL)
+## Переключение режима HOME ↔ TRAVEL
 
-- [ ] **Cudy TR3000**: однократное нажатие физической кнопки → `vpn-mode toggle` сработал, `cat /etc/vpn-mode.state` поменялся.
-- [ ] **Beryl AX**: переключение слайдера → `vpn-mode detect` → состояние применилось, `logread -t vpn-mode` показывает событие.
-- [ ] После перезагрузки роутера состояние восстанавливается (`/etc/init.d/vpn-mode` boot-hook).
+- [ ] `vpn-mode travel` → `vpn-mode status` показывает travel, exclude_ru пустой.
+- [ ] `vpn-mode home` → status показывает home, exclude_ru содержит community_lists/.ru.
+- [ ] Web-UI кнопки HOME/TRAVEL дают идентичный результат CLI.
+- [ ] После перезагрузки роутера mode остаётся прежним (UCI подkop'а persistent через sysupgrade).
 
 ## Three-layer kill switch
 

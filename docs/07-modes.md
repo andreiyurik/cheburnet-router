@@ -2,9 +2,7 @@
 
 ## TL;DR
 
-Два режима: **HOME** (split-routing — основной трафик через VPN, RU-сервисы напрямую) и **TRAVEL** (full-tunnel — всё через VPN без исключений). Переключение через CLI: `vpn-mode home/travel/toggle/status`. Настройки сохраняются в UCI и в `/etc/vpn-mode.state`, применяются при каждой загрузке автоматически.
-
-На роутерах Cudy переключение выполняется через CLI: `vpn-mode home` / `vpn-mode travel`.
+Два режима: **HOME** (split-routing — основной трафик через VPN, RU-сервисы напрямую) и **TRAVEL** (full-tunnel — всё через VPN без исключений). Переключение через web-UI (`http://192.168.1.1/cheburnet/`) или CLI (`vpn-mode home/travel/status`). Состояние хранится в UCI подkop'а — persistent через перезагрузки и sysupgrade автоматически.
 
 ## Два режима — что они делают
 
@@ -42,9 +40,7 @@
 ```bash
 vpn-mode home        # включить HOME
 vpn-mode travel      # включить TRAVEL
-vpn-mode toggle      # переключить в противоположный
 vpn-mode status      # показать текущее состояние
-vpn-mode detect      # прочитать GPIO (если есть) и применить
 ```
 
 ### Пример использования
@@ -53,7 +49,7 @@ vpn-mode detect      # прочитать GPIO (если есть) и приме
 ```bash
 ssh root@192.168.1.1 vpn-mode home
 ```
-Роутер помнит этот режим навсегда, в том числе после перезагрузки.
+Роутер помнит этот режим в UCI подkop'а — переживает перезагрузку и sysupgrade.
 
 Перед поездкой:
 ```bash
@@ -79,7 +75,6 @@ uci add_list podkop.exclude_ru.user_domains='.su'
 uci add_list podkop.exclude_ru.user_domains='.xn--p1ai'
 uci add_list podkop.exclude_ru.user_domains='vk.com'
 uci commit podkop
-echo home > /etc/vpn-mode.state
 /etc/init.d/podkop reload
 ```
 
@@ -88,18 +83,14 @@ echo home > /etc/vpn-mode.state
 uci -q delete podkop.exclude_ru.community_lists
 uci -q delete podkop.exclude_ru.user_domains
 uci commit podkop
-echo travel > /etc/vpn-mode.state
 /etc/init.d/podkop reload
 ```
 
-## Автоматическое применение при загрузке
+`current_mode` определяется по наличию `community_lists` в UCI — отдельного state-файла нет, source of truth один.
 
-`/etc/init.d/vpn-mode` стартует с приоритетом `START=99` (после podkop), ждёт 5 секунд и вызывает `vpn-mode detect`:
+## Состояние после перезагрузки
 
-- **Beryl AX** — читает GPIO-слайдер и применяет соответствующий режим.
-- **Cudy TR3000 и другие** — `detect` возвращает `unknown`, используется последний сохранённый режим из `/etc/vpn-mode.state`.
-
-Это гарантирует корректное состояние после каждой перезагрузки.
+Состояние режима живёт в `/etc/config/podkop` (UCI), который **по умолчанию** сохраняется через sysupgrade. После перезагрузки подkop стартует, читает свой UCI и применяет соответствующий режим автоматически — нашего init.d-сервиса для этого не требуется.
 
 ## Переключение по домашней автоматизации
 
@@ -120,17 +111,16 @@ fi
 
 ## Проверь себя
 
-1. **У меня нет физической кнопки или слайдера. Потеряю ли я функциональность?**
-   <details><summary>Ответ</summary>
-   Нет. Всё работает через CLI: `vpn-mode home/travel/status`. Режим сохраняется в `/etc/vpn-mode.state` и восстанавливается при каждой загрузке. Физическая кнопка — удобство, не требование.
-   </details>
-
-2. **Можно ли добавить третий режим (например, «VPN выключен»)?**
+1. **Можно ли добавить третий режим (например, «VPN выключен»)?**
    <details><summary>Ответ</summary>
    Технически да — добавить в `vpn-mode` ещё одну функцию `apply_off()`, которая удаляет `fully_routed_ips` из секции `main`. Но это меняет смысл архитектуры: вы получаете роутер без VPN, что противоречит цели проекта (если VPN не нужен — проще отдельный роутер). Рекомендую не добавлять.
+   </details>
+
+2. **Почему убрали slider/кнопку для переключения режимов?**
+   <details><summary>Ответ</summary>
+   Hardware-кнопки/слайдеры есть не у всех роутеров (только Beryl AX и Cudy TR3000), а поведение fragile (GPIO debounce, hardware-specific события). Web-UI и CLI работают одинаково на любом железе, состояние атомарно и журналируемо. Целевая аудитория проекта (родители/бабушка) ходит через web — hardware-кнопка для них не была полезным сценарием.
    </details>
 
 ## 📚 Глубже изучить
 
 - [docs/03-podkop-routing.md](03-podkop-routing.md) — как устроен split-routing на уровне sing-box
-- [OpenWrt: hotplug](https://openwrt.org/docs/guide-user/base-system/hotplug) — как работают системные события для кнопок и интерфейсов

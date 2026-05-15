@@ -40,13 +40,10 @@ logread | tail -50
 ```bash
 vpn-mode home          # HOME: split-routing (VPN для всего кроме .ru/vk/etc)
 vpn-mode travel        # TRAVEL: full tunnel, всё через VPN
-vpn-mode toggle        # Переключить на противоположный
 vpn-mode status        # Показать текущее
-vpn-mode detect        # Синхронизировать по GPIO-слайдеру (только Beryl AX)
 ```
 
-**Физическая кнопка** (Cudy TR3000, Beryl AX) — переключает режим нажатием автоматически.  
-На других роутерах — только CLI.
+Переключение также доступно через web-UI: `http://192.168.1.1/cheburnet/`.
 
 ---
 
