@@ -35,7 +35,9 @@
       "Bash(chmod +x /home/pingvinus/cheburnet-router/scripts/install-via-tether.sh)",
       "Bash(grep -r 'echo.*> .*DONE\\\\|> \"$DONE\"' /home/pingvinus/cheburnet-router/setup/)",
       "Bash(bash tests/lint.sh)",
-      "Bash(ping -c 2 -W 2 192.168.1.1)"
+      "Bash(ping -c 2 -W 2 192.168.1.1)",
+      "Bash(awk '/^cheburnet_diagnose_apk_fail\\\\\\(\\\\\\) \\\\{$/,/^\\\\}$/' lib/cheburnet-utils.sh)",
+      "Bash(awk '/^cheburnet_apk_fail_advice\\\\\\(\\\\\\) \\\\{$/,/^\\\\}$/' lib/cheburnet-utils.sh)"
     ]
   }
 }

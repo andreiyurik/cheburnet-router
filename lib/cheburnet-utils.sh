@@ -209,20 +209,22 @@ cheburnet_valid_factory_confirm() {
 # Диагностика — два wget --spider запроса (~5-15 сек), без модификации
 # системного состояния.
 
-# cheburnet_diagnose_apk_fail [MARKER]
+# cheburnet_apk_fail_advice [MARKER]
+#
+# Юзер вызвал `apk add MARKER` и оно упало. Эта функция:
+#   1) делает два wget --spider запроса к OpenWrt-зеркалу: один с именем
+#      пакета в URL, второй с нейтральным именем — оба к 404-страницам;
+#   2) по их исходам различает три случая: DPI на имя файла, общая
+#      недоступность зеркала, или временный mirror-lag;
+#   3) печатает в stdout диагностику (попадает в install.log), в stderr —
+#      human-readable «ЧТО ДЕЛАТЬ» с командами обхода.
+#
+# Раньше это были две функции с 4 return-кодами (0/2/3/99) — слой
+# абстракции, который никто не использовал: все callsites просто хотели
+# «упало → расскажи юзеру что делать». Объединено в одну.
+#
 # MARKER — имя пакета (по умолчанию sing-box) для подстановки в suspect-URL.
-#
-# Возвращает:
-#   0   — Зеркало отвечает на оба теста (404 expected) → DPI на имя не виден.
-#         Скорее всего временный сбой, юзеру: «попробуйте через 1-2 мин».
-#   2   — Suspect-URL не доходит, control-URL — доходит → DPI на имя пакета
-#         (или похожий механизм фильтрации). Юзеру: «обход через VPN-tether».
-#   3   — Оба URL'а не дошли → общая проблема с зеркалом (или интернетом).
-#         Юзеру: «проверьте сеть, попробуйте позже».
-#   99  — Неоднозначный результат / не удалось определить arch/release.
-#
-# Печатает диагностические строки в stdout (попадают в install.log).
-cheburnet_diagnose_apk_fail() {
+cheburnet_apk_fail_advice() {
     _marker="${1:-sing-box}"
 
     # Читаем DISTRIB_* в subshell — не утекают в окружение caller'а
@@ -230,83 +232,77 @@ cheburnet_diagnose_apk_fail() {
     # shellcheck disable=SC1091
     _release=$( . /etc/openwrt_release 2>/dev/null && echo "$DISTRIB_RELEASE" )
     _arch=$(    . /etc/openwrt_release 2>/dev/null && echo "$DISTRIB_ARCH"    )
-    if [ -z "$_release" ] || [ -z "$_arch" ]; then
-        echo "  ? Не могу определить arch/release для диагностики"
-        return 99
-    fi
-
-    _base="https://downloads.openwrt.org/releases/${_release}/packages/${_arch}/packages"
-    _suspect_url="${_base}/${_marker}-cheburnet-diag-noexist.apk"
-    _control_url="${_base}/cheburnet-diag-noexist.apk"
 
     echo ""
     echo "─── ДИАГНОСТИКА (что блокируется: зеркало, IPv6, или имя пакета) ───"
 
-    # Запрос с именем пакета в URL
-    _suspect_out=$(wget --spider --timeout=10 "$_suspect_url" 2>&1 || true)
-    # Запрос с нейтральным именем
-    _control_out=$(wget --spider --timeout=10 "$_control_url" 2>&1 || true)
-
-    # busybox wget на 404 печатает строку с «404» (или response: 404).
-    # На сетевой ошибке (connect refused / EPERM / TLS reject) — печатает
-    # «can't connect», «Failed to send request», «Operation not permitted»
-    # и т.п., без упоминания HTTP-статуса. По этому маркеру и различаем.
-    if printf '%s' "$_suspect_out" | grep -qE '404|response: 4[0-9][0-9]'; then
-        _suspect_kind="http"
+    if [ -z "$_release" ] || [ -z "$_arch" ]; then
+        echo "  ? Не могу определить arch/release для диагностики"
+        echo "─── /ДИАГНОСТИКА ───"
+        _verdict="unknown"
     else
-        _suspect_kind="netfail"
-    fi
-    if printf '%s' "$_control_out" | grep -qE '404|response: 4[0-9][0-9]'; then
-        _control_kind="http"
-    else
-        _control_kind="netfail"
-    fi
+        _base="https://downloads.openwrt.org/releases/${_release}/packages/${_arch}/packages"
+        _suspect_url="${_base}/${_marker}-cheburnet-diag-noexist.apk"
+        _control_url="${_base}/cheburnet-diag-noexist.apk"
 
-    echo "  control-URL ($_control_url):  $_control_kind"
-    echo "  suspect-URL (...${_marker}...): $_suspect_kind"
+        _suspect_out=$(wget --spider --timeout=10 "$_suspect_url" 2>&1 || true)
+        _control_out=$(wget --spider --timeout=10 "$_control_url" 2>&1 || true)
 
-    case "${_suspect_kind}/${_control_kind}" in
-        http/http)
-            echo "  ✅ ВЕРДИКТ: зеркало нормально отвечает на оба URL'а — DPI не виден."
-            echo "  Похоже, у вас был временный сбой скачивания (mirror lag)."
-            echo "─── /ДИАГНОСТИКА ───"
-            return 0
-            ;;
-        netfail/http)
-            echo ""
-            echo "  ⚠ ВЕРДИКТ: запросы с '${_marker}' в URL блокируются вашим провайдером."
-            echo "    Control-URL без этого имени проходит, suspect-URL — нет."
-            echo "    Это техника DPI на имя файла, известна у части провайдеров."
-            echo "─── /ДИАГНОСТИКА ───"
-            return 2
-            ;;
-        netfail/netfail)
-            echo ""
-            echo "  ✗ ВЕРДИКТ: зеркало downloads.openwrt.org вообще недоступно."
-            echo "    Это общая сетевая проблема, не специфика '${_marker}'."
-            echo "─── /ДИАГНОСТИКА ───"
-            return 3
-            ;;
-        *)
-            echo "  ? Неоднозначный результат."
-            echo "─── /ДИАГНОСТИКА ───"
-            return 99
-            ;;
-    esac
-}
+        # busybox wget на 404 печатает «404» / «response: 404». На сетевом
+        # отказе (refused / EPERM / TLS reject / DPI-RST) — печатает
+        # «can't connect», «Failed to send request», «Operation not permitted»
+        # без упоминания HTTP-статуса. По этому маркеру и различаем.
+        if printf '%s' "$_suspect_out" | grep -qE '404|response: 4[0-9][0-9]'; then
+            _suspect_kind=http
+        else
+            _suspect_kind=netfail
+        fi
+        if printf '%s' "$_control_out" | grep -qE '404|response: 4[0-9][0-9]'; then
+            _control_kind=http
+        else
+            _control_kind=netfail
+        fi
 
-# cheburnet_apk_fail_advice [MARKER]
-# Запускает cheburnet_diagnose_apk_fail и печатает в stderr человеко-читаемую
-# рекомендацию по результату. Юзер увидит это сразу после «✗ ... не удался».
-# Возвращает rc диагностики (0/2/3/99).
-cheburnet_apk_fail_advice() {
-    cheburnet_diagnose_apk_fail "$1"
-    _rc=$?
-    {
-        case "$_rc" in
-            2)
+        echo "  control-URL ($_control_url):  $_control_kind"
+        echo "  suspect-URL (...${_marker}...): $_suspect_kind"
+
+        case "${_suspect_kind}/${_control_kind}" in
+            http/http)
+                echo "  ✅ ВЕРДИКТ: зеркало нормально отвечает на оба URL'а — DPI не виден."
+                echo "  Похоже, у вас был временный сбой скачивания (mirror lag)."
+                _verdict=mirror_ok
+                ;;
+            netfail/http)
                 echo ""
-                echo "ЧТО ДЕЛАТЬ:"
+                echo "  ⚠ ВЕРДИКТ: запросы с '${_marker}' в URL блокируются вашим провайдером."
+                echo "    Control-URL без этого имени проходит, suspect-URL — нет."
+                echo "    Это техника DPI на имя файла, известна у части провайдеров."
+                _verdict=dpi_on_name
+                ;;
+            netfail/netfail)
+                echo ""
+                echo "  ✗ ВЕРДИКТ: зеркало downloads.openwrt.org вообще недоступно."
+                echo "    Это общая сетевая проблема, не специфика '${_marker}'."
+                _verdict=mirror_down
+                ;;
+            *)
+                echo "  ? Неоднозначный результат."
+                _verdict=unknown
+                ;;
+        esac
+        echo "─── /ДИАГНОСТИКА ───"
+    fi
+
+    {
+        echo ""
+        echo "ЧТО ДЕЛАТЬ:"
+        case "$_verdict" in
+            mirror_ok)
+                echo "  Диагностика показывает, что зеркало вам доступно."
+                echo "  Это был, вероятно, временный сбой скачивания (mirror lag)."
+                echo "  Подождите 1-2 минуты и запустите setup.sh снова."
+                ;;
+            dpi_on_name)
                 echo "  Обход — установка через мобильный интернет с AmneziaVPN."
                 echo "  Самый простой путь — одной командой:"
                 echo ""
@@ -321,9 +317,7 @@ cheburnet_apk_fail_advice() {
                 echo ""
                 echo "  Полная инструкция: docs/install-blocked.md"
                 ;;
-            3)
-                echo ""
-                echo "ЧТО ДЕЛАТЬ:"
+            mirror_down)
                 echo "  Зеркало OpenWrt полностью недоступно. Варианты:"
                 echo "    1. Подождите 1-2 минуты — возможен временный сбой зеркала."
                 echo "    2. Проверьте интернет: wget -q --spider http://downloads.openwrt.org"
@@ -334,16 +328,7 @@ cheburnet_apk_fail_advice() {
                 echo "         /opt/cheburnet/scripts/install-via-tether.sh"
                 echo "       (см. docs/install-blocked.md)"
                 ;;
-            0)
-                echo ""
-                echo "ЧТО ДЕЛАТЬ:"
-                echo "  Диагностика показывает, что зеркало вам доступно."
-                echo "  Это был, вероятно, временный сбой скачивания (mirror lag)."
-                echo "  Подождите 1-2 минуты и запустите setup.sh снова."
-                ;;
             *)
-                echo ""
-                echo "ЧТО ДЕЛАТЬ:"
                 echo "  Диагностика не дала однозначного результата."
                 echo "  Универсальный обход — установка через мобильный:"
                 echo "    /opt/cheburnet/scripts/install-via-tether.sh"
@@ -351,5 +336,4 @@ cheburnet_apk_fail_advice() {
                 ;;
         esac
     } >&2
-    return "$_rc"
 }

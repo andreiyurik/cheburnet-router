@@ -28,16 +28,19 @@ fi
 # Применяем немедленно
 /usr/bin/conntrack-tune 2>/dev/null && echo "→ conntrack-tune применён" || true
 
-# Прописываем в sysctl.conf чтобы пережить ребут
-# (sysctl.d/11-nf-conntrack.conf нельзя редактировать — теряется при sysupgrade)
+# Прописываем в /etc/sysctl.conf чтобы пережить ребут. Делаем идемпотентно:
+# на повторной установке предыдущий cheburnet-блок удаляем перед записью,
+# иначе дубликаты тайм-аутов копятся при каждом прогоне.
+sed -i '/^# cheburnet conntrack-tune/,/^$/d' /etc/sysctl.conf 2>/dev/null || true
 cat >> /etc/sysctl.conf <<'SYSCTL'
 
-# conntrack-tune: оптимальные тайм-ауты для VPN-шлюза (cheburnet-router)
+# cheburnet conntrack-tune: оптимальные тайм-ауты для VPN-шлюза
 net.netfilter.nf_conntrack_tcp_timeout_established=3600
 net.netfilter.nf_conntrack_tcp_timeout_close_wait=60
 net.netfilter.nf_conntrack_tcp_timeout_fin_wait=60
 net.netfilter.nf_conntrack_tcp_timeout_time_wait=30
 net.netfilter.nf_conntrack_udp_timeout_stream=60
+
 SYSCTL
 echo "  записано в /etc/sysctl.conf"
 

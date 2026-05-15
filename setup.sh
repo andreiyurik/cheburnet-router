@@ -96,76 +96,34 @@ fi
 ok "OpenWrt подтверждён"
 
 # === Бутстрап SSH-ключа ===
-# Дальнейшая установка делает rsync репо + ssh-запуск install.sh.
-# Каждый раз вводить пароль мучительно, поэтому сейчас один раз кладём публичный
-# ключ на роутер — после этого всё пойдёт без запроса пароля.
+# Дальнейшая установка — rsync репо + ssh-запуск install.sh. Каждый раз
+# вводить пароль мучительно: разово копируем публичный ключ, далее всё без
+# пароля. ssh-copy-id сам подберёт ключ из ~/.ssh/id_{ed25519,rsa,ecdsa}.
 if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1; then
     printf "\n"
     info "Для автоматической установки нужен SSH-ключ."
     printf "  Это разовая операция: сейчас скопируем ключ на роутер, дальше мастер\n"
     printf "  будет выполнять команды без ввода пароля.\n\n"
 
-    # Ищем существующий SSH-ключ пользователя
-    USER_KEY=""
-    for K in "$HOME/.ssh/id_ed25519" "$HOME/.ssh/id_rsa" "$HOME/.ssh/id_ecdsa"; do
-        if [ -f "${K}.pub" ]; then
-            USER_KEY="$K"
-            break
-        fi
-    done
-
-    if [ -z "$USER_KEY" ]; then
-        info "SSH-ключа на вашем компьютере ещё нет — создаю новый (ed25519, без пароля)."
+    if [ ! -f "$HOME/.ssh/id_ed25519.pub" ] \
+       && [ ! -f "$HOME/.ssh/id_rsa.pub" ] \
+       && [ ! -f "$HOME/.ssh/id_ecdsa.pub" ]; then
+        info "SSH-ключа на вашем компьютере нет — создаю свежий ed25519 (без пароля)."
         mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
-        if ! ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519" -C "cheburnet-router" >/dev/null; then
-            printf "\n"
-            printf "  Что сделать:\n"
-            printf "    • Установите OpenSSH: на Linux — пакет 'openssh-client',\n"
-            printf "      на macOS — обычно уже есть\n"
-            printf "    • Проверьте что ssh-keygen доступен: which ssh-keygen\n"
-            die "Не удалось создать SSH-ключ"
-        fi
-        USER_KEY="$HOME/.ssh/id_ed25519"
-        ok "Создан SSH-ключ: $USER_KEY"
-    else
-        ok "Используем существующий SSH-ключ: $USER_KEY"
+        ssh-keygen -t ed25519 -N "" -f "$HOME/.ssh/id_ed25519" -C "cheburnet-router" >/dev/null \
+            || die "Не удалось создать SSH-ключ. Установите OpenSSH (apt install openssh-client / brew install openssh) и повторите."
     fi
 
     printf "\n"
     info "Копирую публичный ключ на роутер. Введите пароль роутера один раз."
     info "(по умолчанию пароль пустой — просто нажмите Enter)"
     printf "\n"
+    ssh-copy-id -o StrictHostKeyChecking=accept-new "$ROUTER" \
+        || die "ssh-copy-id не смог скопировать ключ. Проверьте пароль и повторите."
 
-    if command -v ssh-copy-id >/dev/null 2>&1; then
-        if ! ssh-copy-id -o StrictHostKeyChecking=accept-new -i "${USER_KEY}.pub" "$ROUTER"; then
-            printf "\n"
-            printf "  Что проверить:\n"
-            printf "    • Введённый пароль — попробуйте ещё раз\n"
-            printf "    • Роутер не перегружается (подождите 30 сек и повторите)\n"
-            die "ssh-copy-id не смог скопировать ключ"
-        fi
-    else
-        # ssh-copy-id отсутствует (редко на голой macOS/Alpine) — делаем вручную
-        warn "ssh-copy-id не найден, копирую ключ вручную"
-        PUB_CONTENT=$(cat "${USER_KEY}.pub")
-        if ! ssh -o StrictHostKeyChecking=accept-new "$ROUTER" \
-            "mkdir -p /etc/dropbear && \
-             grep -qF '$PUB_CONTENT' /etc/dropbear/authorized_keys 2>/dev/null || \
-             echo '$PUB_CONTENT' >> /etc/dropbear/authorized_keys && \
-             chmod 600 /etc/dropbear/authorized_keys"; then
-            die "Не удалось скопировать ключ вручную. Попробуйте:  cat ${USER_KEY}.pub | ssh $ROUTER 'cat >> /etc/dropbear/authorized_keys'"
-        fi
-    fi
+    ssh -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1 \
+        || die "Ключ скопирован, но вход не работает. Проверьте: ssh $ROUTER 'cat /etc/dropbear/authorized_keys'"
 
-    # Финальная проверка
-    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1; then
-        printf "\n"
-        printf "  Ключ скопирован, но автоматический вход всё ещё не работает.\n"
-        printf "  Что проверить:\n"
-        printf "    • На роутере: ssh %s 'cat /etc/dropbear/authorized_keys'\n" "$ROUTER"
-        printf "    • Права файла должны быть 600 (см. ls -la /etc/dropbear/)\n"
-        die "SSH-ключ не сработал — откройте issue на GitHub с выводом проверок"
-    fi
     ok "SSH-ключ установлен — дальше всё пойдёт автоматически"
 fi
 
@@ -311,6 +269,13 @@ INSTALL_DIR="/opt/cheburnet"
 info "Копирую репозиторий на роутер в $INSTALL_DIR"
 ssh "$ROUTER" "mkdir -p '$INSTALL_DIR' /etc/amnezia/amneziawg /tmp/cheburnet"
 
+# Если rsync/tar/scp оборвётся посреди транзакции (сеть моргнула, Ctrl-C,
+# kill из-за timeout) — /opt/cheburnet останется в half-state. Следующий
+# install.sh поверх частичных файлов даёт cryptic ошибки. Trap снимает
+# мусор на ошибке; снимаем сам trap после deployment чтобы фейлы install.sh
+# не стирали install.log — он нужен для пост-мортема.
+trap 'ssh -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>/dev/null || true' INT TERM ERR
+
 # rsync если есть (быстрее и надёжнее), иначе fallback на tar|ssh.
 # Исключаем .git/, tests/, docs/ — они не нужны на роутере и съедают место.
 if command -v rsync >/dev/null 2>&1; then
@@ -336,6 +301,7 @@ printf '%s' "$ROOT_PASS" | ssh "$ROUTER" \
     'umask 077 && cat > /tmp/cheburnet/root_pass && chmod 600 /tmp/cheburnet/root_pass'
 unset ROOT_PASS
 
+trap - INT TERM ERR
 ok "Файлы скопированы — запускаю установку"
 printf "\n"
 ssh -t "$ROUTER" "$INSTALL_DIR/setup/install.sh"
