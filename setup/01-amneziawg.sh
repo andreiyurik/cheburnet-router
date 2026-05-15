@@ -102,7 +102,25 @@ else
     cd /tmp
     for PKG in "kmod-amneziawg_v${AWG_VER}" "amneziawg-tools_v${AWG_VER}" "luci-proto-amneziawg_v${AWG_VER}"; do
         FILE="${PKG}_${ARCH}.apk"
-        wget -q -T 30 -O "$FILE" "$BASE/$FILE" || { echo "download failed: $FILE"; exit 1; }
+        # Один промах wget на GitHub releases CDN (release-assets.github*.com)
+        # = установка целиком падает у юзера. 3 попытки с backoff закрывают
+        # 99% транзиентных сбоев: DPI throttle, временный timeout, TCP RST
+        # после редиректа на blob.core.windows.net. Поймано T4 на alt-сети:
+        # один прогон файл не качался, второй прогон через минуту — OK.
+        attempt=0
+        while [ "$attempt" -lt 3 ]; do
+            if wget -q -T 30 -O "$FILE" "$BASE/$FILE"; then break; fi
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge 3 ]; then
+                echo "✗ download failed after 3 attempts: $FILE"
+                echo "  URL: $BASE/$FILE"
+                echo "  Проверьте: wget $BASE/$FILE с роутера руками; если падает —"
+                echo "  возможно блокировка release-assets.githubusercontent.com у провайдера."
+                exit 1
+            fi
+            echo "  ⚠ download flake (попытка $attempt/3), повтор через $((attempt * 5))s..."
+            sleep $((attempt * 5))
+        done
     done
     # apk изредка падает с "ADB integrity error" / "download failed"
     # из-за рассинхрона индекса или оборванной закачки с зеркала. Один
@@ -303,7 +321,10 @@ awg_wait_ready 60 && AWG_OK=1
 # просто не уходят decoy-пакеты, обфускация чуть слабее, но handshake идёт.
 if [ "$AWG_OK" = "0" ] && [ -n "$I1" ]; then
     echo "⚠ awg0 не готов за 60 сек — пробую без I1..."
-    uci -q delete network.awg0.awg_i1
+    # `uci -q delete` возвращает 1 если ключа нет; с `set -e` это убивает
+    # шаг. На "грязных" UCI-состояниях (повторный install после фейла) I1
+    # уже может быть удалён предыдущим запуском. Защита-в-глубину.
+    uci -q delete network.awg0.awg_i1 2>/dev/null || true
     uci commit network
     ifdown awg0 2>/dev/null; sleep 2; ifup awg0
     if awg_wait_ready 30; then
@@ -321,9 +342,11 @@ fi
 # (см. docs/09-troubleshooting.md «AmneziaWG: handshake не идёт»).
 if [ "$AWG_OK" = "0" ] && { [ -n "$S3" ] || [ -n "$S4" ]; }; then
     echo "⚠ всё ещё не готов — пробую без S3/S4 (похоже на legacy AWG 1.0 сервер)..."
-    uci -q delete network.awg0.awg_i1   2>/dev/null
-    uci -q delete network.awg0.awg_s3   2>/dev/null
-    uci -q delete network.awg0.awg_s4   2>/dev/null
+    # Все три могут быть уже удалены фолбэком 1 или отсутствовать в конфиге;
+    # `set -e` на их exit-1 убивает фолбэк-цепочку до её завершения.
+    uci -q delete network.awg0.awg_i1   2>/dev/null || true
+    uci -q delete network.awg0.awg_s3   2>/dev/null || true
+    uci -q delete network.awg0.awg_s4   2>/dev/null || true
     uci commit network
     ifdown awg0 2>/dev/null; sleep 2; ifup awg0
     if awg_wait_ready 30; then

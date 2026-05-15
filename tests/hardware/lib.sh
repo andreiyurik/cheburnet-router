@@ -156,19 +156,18 @@ hw_init() {
     esac
 }
 
-# ─── Reboot / firstboot ──────────────────────────────────────────────────────
-firstboot_reset() {
-    report_info firstboot_reset "issuing firstboot -y && reboot on $ROUTER"
-    # SSH session dies when the kernel reboots — exit code is non-zero
-    # (connection closed). We swallow that; the manual release checklist
-    # uses the same pattern and it has worked reliably in QA for months.
-    # Backgrounding the reboot with `&` is fragile: dropbear may SIGHUP
-    # the child before reboot fires.
-    ssh_router 'firstboot -y && reboot' >/dev/null 2>&1 || :
-    sleep 30
-    : >"$HW_KNOWN_HOSTS"   # host key rotates after firstboot
-    wait_router_ssh 300
-}
+# ─── Reboot ──────────────────────────────────────────────────────────────────
+#
+# Note: there is no automated firstboot_reset in this framework. factoryreset
+# wipes /root/.ssh/authorized_keys along with /overlay/upper, leaving the
+# router unreachable from any test driver. Mirroring the real-user workflow,
+# we treat fresh-OpenWrt-with-SSH-access as a manual *precondition* (LuCI
+# setup or USB-tether bootstrap, exactly what a new user does) and assert it
+# in phase 0. T4 then takes over from "SSH-accessible fresh OpenWrt", which
+# is precisely where a real user starts their cheburnet journey.
+#
+# reboot_only is still here — a plain reboot does NOT wipe SSH, so phase 6's
+# cold-boot recovery check is safe to automate.
 
 reboot_only() {
     report_info reboot_only "issuing reboot on $ROUTER"
@@ -222,23 +221,56 @@ wait_for_install_done() {
 }
 
 # ─── Bootstrap / install drivers ─────────────────────────────────────────────
+# Deploys the LOCAL working tree to the router and stands up the web master —
+# exactly the side effect install.sh produces, minus the GitHub download.
+#
+# Rationale: T4 should validate the code in front of us, not whatever happens
+# to be on origin. Going through wget|sh adds a network dependency, requires
+# the dev branch to be pushed, and obscures which version is under test.
+# Mirrors the tar|ssh pattern in setup.sh:316-326 (rsync excluded — dropbear
+# ships rsync inconsistently across vendors; tar|ssh works everywhere).
 run_bootstrap() {
     local branch=${1:-$BRANCH}
-    report_info run_bootstrap "bootstrap on $ROUTER (branch=$branch)"
-    if [ "$branch" = "master" ]; then
-        ssh_router 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
-    else
-        # Fetch install.sh from the requested branch and rewrite the REPO_TAR
-        # URL so the bootstrap pulls the matching tarball. install.sh hard-codes
-        # `refs/heads/master`; without this sed we'd install master regardless
-        # of the branch flag.
-        ssh_router "set -e; \
-            wget -qO /tmp/cheburnet-bootstrap.sh \
-                https://raw.githubusercontent.com/yurik2718/cheburnet-router/${branch}/install.sh; \
-            sed -i 's|refs/heads/master|refs/heads/${branch}|g' /tmp/cheburnet-bootstrap.sh; \
-            sh /tmp/cheburnet-bootstrap.sh; \
-            rm -f /tmp/cheburnet-bootstrap.sh"
+    local repo_root="${HW_DIR%/tests/hardware}"
+    report_info run_bootstrap "deploy local working tree → $ROUTER (branch ref: $branch)"
+
+    # 1. Stage directories on the router.
+    ssh_router 'set -e
+        mkdir -p /opt/cheburnet /etc/cheburnet /tmp/cheburnet \
+                 /www/cheburnet /usr/libexec/rpcd /usr/share/rpcd/acl.d
+        rm -rf /opt/cheburnet/* 2>/dev/null || true' || return 1
+
+    # 2. Stream the repo via tar over ssh. Exclude same paths as setup.sh.
+    if ! tar -C "$repo_root" -czf - \
+            --exclude='.git' --exclude='tests' --exclude='docs' \
+            --exclude='backup' --exclude='assets' --exclude='*.md' \
+            . | ssh "${SSH_OPTS[@]}" "$ROUTER" 'tar -C /opt/cheburnet -xzf -'; then
+        return 1
     fi
+
+    # 3. Reproduce install.sh's web-master setup (sections 4–9).
+    ssh_router 'set -e
+        apk update >/dev/null 2>&1
+        apk add --no-interactive uhttpd-mod-ubus rpcd jsonfilter >/dev/null 2>&1 || true
+        cp /opt/cheburnet/web/rpcd-cheburnet /usr/libexec/rpcd/cheburnet
+        chmod +x /usr/libexec/rpcd/cheburnet
+        cp /opt/cheburnet/web/rpcd-acl.json  /usr/share/rpcd/acl.d/cheburnet.json
+        cp /opt/cheburnet/web/index.html     /www/cheburnet/index.html
+        chmod +x /opt/cheburnet/setup/*.sh /opt/cheburnet/scripts/* 2>/dev/null || true
+        if ! uci -q get uhttpd.main.ubus_prefix >/dev/null; then
+            uci set uhttpd.main.ubus_prefix=/ubus
+            uci commit uhttpd
+        fi
+        head -c 16 /dev/urandom | hexdump -e "16/1 \"%02x\"" > /etc/cheburnet/install-token
+        chmod 600 /etc/cheburnet/install-token
+        /etc/init.d/rpcd enable    >/dev/null 2>&1
+        /etc/init.d/rpcd restart   >/dev/null 2>&1
+        /etc/init.d/uhttpd enable  >/dev/null 2>&1
+        /etc/init.d/uhttpd restart >/dev/null 2>&1
+    ' || return 1
+
+    sleep 3
+    return 0
 }
 
 # Kick off the full install via the install_start RPC — exactly what the
@@ -381,12 +413,25 @@ check_ram_total() {
 }
 
 check_internet_https() {
-    if ssh_router 'wget -qO /dev/null --timeout=15 \
-        https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh' >/dev/null 2>&1; then
-        report_pass check_internet_https "https raw.github reachable"
-    else
-        report_fail check_internet_https "wget https failed"
-    fi
+    # 3 attempts with backoff. Found necessary on flaky uplinks (alt-networks,
+    # mobile-tethered WAN) where a single TLS handshake can stall but the
+    # next succeeds within seconds. One transient failure here would hard-
+    # abort the entire run.
+    local attempt=0
+    while [ "$attempt" -lt 3 ]; do
+        if ssh_router 'wget -qO /dev/null --timeout=15 \
+            https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh' >/dev/null 2>&1; then
+            if [ "$attempt" -eq 0 ]; then
+                report_pass check_internet_https "https raw.github reachable"
+            else
+                report_pass check_internet_https "https raw.github reachable (after $((attempt + 1)) attempts)"
+            fi
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        [ "$attempt" -lt 3 ] && sleep $((attempt * 5))
+    done
+    report_fail check_internet_https "wget https failed after 3 attempts (network unstable?)"
 }
 
 check_openwrt_version() {
@@ -861,24 +906,21 @@ check_rpc_set_blocklist_tier() {
 }
 
 check_rpc_set_family_filter() {
-    local state=$1 enabled out
+    local state=$1 enabled rc out
     if [ "$state" = "on" ]; then enabled=true; else enabled=false; fi
-    # Use 2>&1 to capture "Method not found" — that error comes on stderr.
-    # set_family_filter is a recent addition; older installed versions of
-    # cheburnet legitimately don't have it. Surface a warn (not a fail) so
-    # T4 against an older install doesn't lie about the codebase.
-    out=$(ssh_router "ubus call cheburnet set_family_filter '{\"enabled\":$enabled}' 2>&1") || true
-    case "$out" in
-        *'Method not found'*)
-            report_warn check_rpc_set_family_filter "method absent in installed rpcd (older cheburnet?)"
-            ;;
-        '')
-            report_pass check_rpc_set_family_filter "set_family_filter $state accepted"
-            ;;
-        *)
-            report_fail check_rpc_set_family_filter "$out"
-            ;;
-    esac
+    # Distinguish via exit code, not stdout content. Successful ubus call
+    # to set_family_filter returns 0 and emits the JSON response on stdout
+    # (e.g. {"status": "family_filter set", "enabled": true}). Missing
+    # method comes out on stderr with exit code 4 ("Method not found").
+    out=$(ssh_router "ubus call cheburnet set_family_filter '{\"enabled\":$enabled}'" 2>&1)
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        report_pass check_rpc_set_family_filter "$state — handler accepted"
+    elif echo "$out" | grep -q 'Method not found'; then
+        report_warn check_rpc_set_family_filter "method absent in installed rpcd (older cheburnet?)"
+    else
+        report_fail check_rpc_set_family_filter "rc=$rc — ${out%%$'\n'*}"
+    fi
 }
 
 # ─── CLI tools (phase 3) ─────────────────────────────────────────────────────

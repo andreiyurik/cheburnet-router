@@ -107,7 +107,11 @@ for IFACE in $IFACES; do
     else
         # PMF имеет смысл только при SAE; на чистом WPA2 он скорее ломает
         # совместимость со старыми клиентами (телефонами/IoT), чем помогает.
-        uci -q delete wireless."$IFACE".ieee80211w
+        # `-q` подавляет вывод, НО на отсутствующем ключе uci всё равно
+        # exit 1 → `set -e` убивает шаг 05 до wifi reload, и пользователь
+        # остаётся с дефолтным `ssid='OpenWrt' disabled='1'`. Поймано T4
+        # на vanilla 25.12.2: default_radio0/1 не имеют ieee80211w.
+        uci -q delete wireless."$IFACE".ieee80211w 2>/dev/null || true
     fi
     uci set wireless."$IFACE".disabled='0'
 done

@@ -30,15 +30,40 @@ T3c уходит в фейл на 01-amneziawg (на x86-snapshot нет `kmod-a
 
 ## Preconditions
 
-Перед запуском убедись:
+Перед каждым полным прогоном T4 — **руками** выполни чек-лист. Это **тот же путь, через который проходит реальный новый пользователь** при первой настройке; автоматизация невозможна (factoryreset стирает SSH-ключ из `/root/.ssh/authorized_keys`, и фреймворк теряет доступ к роутеру).
 
-1. **Тестовый роутер** (не основной домашний!) Beryl AX или Cudy TR3000, прошитый ваниль-OpenWrt 25.12+.
-2. **SSH-доступ** `ssh root@192.168.1.1` работает (по ключу или паролю).
-3. **WAN** воткнут и провайдер выдаёт IPv4. `ping 8.8.8.8` с роутера проходит.
-4. **Свой работающий AWG-конфиг** положен в `tests/hardware/fixtures/awg.conf`. Файл `.gitignore`-нут — секрет, не коммитим.
-5. На ноутбуке стоят: `ssh`, `scp`, `python3` (нужен для генерации install_start payload).
+### Чек-лист перед каждым запуском full T4
 
-Если что-то из этого не сходится — раннер упадёт на phase 0 с понятным сообщением.
+- [ ] **1. Factory reset роутера.** Один из вариантов:
+  - GL.iNet веб-UI → Settings → Factory Reset
+  - LuCI → System → Backup/Flash → Reset
+  - Зажать reset-кнопку 10 сек при включении (см. мануал модели)
+- [ ] **2. Дождаться boot** (~60-90 сек после reset).
+- [ ] **3. Подключиться к Wi-Fi роутера или LAN-кабелем** к свежеродившейся `192.168.1.1` (или GL.iNet default `192.168.8.1`).
+- [ ] **4. Открыть http://192.168.1.1/** в браузере. OpenWrt LuCI прогрузится с предложением задать root-пароль (или GL.iNet wizard).
+- [ ] **5. Задать root-пароль** (любой, для тестов — `cheburnet-test`).
+- [ ] **6. Добавить SSH-публичный ключ** в LuCI → System → Administration → SSH-Keys. Paste содержимое `~/.ssh/beryl.pub` (или твой ключ).
+- [ ] **7. Проверить SSH-доступ с ноута:**
+      ```sh
+      ssh -i ~/.ssh/beryl root@192.168.1.1 'echo up'
+      ```
+      Должно вернуть `up`. Если нет — повтори шаги 4-6.
+- [ ] **8. WAN подключён**, интернет с роутера идёт: `ssh root@192.168.1.1 'ping -c 1 8.8.8.8'`.
+- [ ] **9. `tests/hardware/fixtures/awg.conf`** — твой рабочий AmneziaWG конфиг (gitignored).
+
+### Прочие требования
+
+- На ноутбуке должны быть: `ssh`, `python3`, `tar`.
+- Параметры теста (SSID, Wi-Fi пароль, root-пароль) задаются через `HW_*` env-vars (см. ниже), либо используются дефолты для теста.
+
+### Что НЕ требуется
+
+- **Не нужно** firstboot'ить через T4 — раннер не делает это автоматически. После каждого full T4 (включая phase 4 rollback test) роутер остаётся **работоспособным** (rollback восстанавливает рабочий awg.conf). Можно сразу гонять следующую итерацию без manual reset.
+- **Не нужно** push'ить ветку в GitHub — T4 разворачивает локальный working tree через tar|ssh (`run_bootstrap` в `lib.sh`).
+
+### Phase 0 — gate
+
+Если какой-либо пункт чек-листа не выполнен (нет SSH доступа, /opt/cheburnet остался от прошлой установки, WAN не работает, мало RAM) — phase 0 упадёт с понятной диагностикой и `run-all.sh` остановится. Это намеренно: **запускать тест с дырявой precondition = получать каскад из 30+ ложных fail'ов**, который скрывает реальную проблему.
 
 ## Запуск
 
@@ -50,9 +75,9 @@ cd tests/hardware
 ./run-all.sh root@192.168.1.1 improve/install-robustness  # любая ветка
 ```
 
-Раннер сам:
-1. Делает `firstboot -y && reboot` на роутере (получаем чистое состояние).
-2. Прогоняет `phase 0 → 1 → 2 → 3 → 6 → 4`.
+Раннер:
+1. Прогоняет `phase 0` как gate — если precondition не выполнен, останавливается с инструкцией.
+2. При успехе phase 0 — гоняет `phase 1 → 2 → 3 → 6 → 4`.
 3. Печатает markdown-отчёт в stdout + сохраняет в `/tmp/cheburnet-hwtest-YYYYMMDD-HHMMSS.md`.
 4. Полный log сохраняется в `/tmp/cheburnet-hwtest-YYYYMMDD-HHMMSS.log`.
 
@@ -60,9 +85,8 @@ cd tests/hardware
 
 | Что | Как |
 |---|---|
-| Не делать firstboot вначале (быстрая повторка) | `./run-all.sh --no-reset root@…` |
-| Пропустить долгую фазу 4 (8 мин AWG-фолбэков) | `HW_SKIP_BAD_AWG=1 ./run-all.sh …` |
 | Пропустить фазы целиком | `HW_SKIP_PHASES=phase4,phase6 ./run-all.sh …` |
+| Указать SSH-ключ для роутера | `HW_SSH_KEY=~/.ssh/beryl ./run-all.sh …` |
 | Переопределить SSID/пароли/страну | `HW_SSID=test HW_WIFI_KEY=… HW_COUNTRY=US HW_ROOT_PASS=… ./run-all.sh …` |
 
 ### Прогон отдельной фазы
@@ -97,24 +121,26 @@ check_dns_yandex_real_ip
 ## Порядок фаз
 
 ```
-phase0 (clean state)        — verify firstboot landed
+phase0 (precondition gate)   — verify clean fresh-OpenWrt + SSH access
+                                ↓ если fail — раннер останавливается с инструкцией
+phase1 (bootstrap + install)  — local tree → /opt/cheburnet (tar|ssh, no GitHub
+                                dependency), RPC install_start, ждать done=ok,
+                                + 5 priority регрессий
    ↓
-phase1 (bootstrap + install) — wget|sh, RPC install_start, ждать done=ok
+phase2 (web RPC handlers)     — ubus call cheburnet {get_status, mode_switch, ...}
    ↓
-phase2 (web RPC handlers)    — ubus call cheburnet {get_status, mode_switch, ...}
+phase3 (CLI tools)            — vpn-mode, dns-provider, awg-watchdog, log-snapshot
    ↓
-phase3 (CLI tools)           — vpn-mode, dns-provider, awg-watchdog, log-snapshot
+phase6 (reboot + steady)      — reboot, poll podkop readiness, re-verify
    ↓
-phase6 (reboot + steady)     — reboot, 30s wait, re-verify everything
-   ↓
-phase4 (failure injection)   — DESTRUCTIVE: bad AWG endpoint → fail-01-amneziawg
+phase4 (replace_awg rollback) — replace_awg_conf RPC с bad-AWG, expect
+                                done=fail-rolled-back + awg0.conf restored
+                                + handshake восстанавливается
 ```
 
-Фаза 4 — последняя по двум причинам:
-- Она destructive (firstboot внутри, бутстрап с битым конфигом, install падает).
-- Её результат не зависит от установленного cheburnet — может работать в изоляции.
+Все фазы **не разрушают** SSH-доступ. Phase 4 — про rollback пути в боевом коде (юзер заменил awg.conf, получил битый — система должна откатить). По её окончании роутер остаётся **операционным** на оригинальном awg.conf.
 
-Фаза 6 поставлена ДО фазы 4: ей нужен живой install из фазы 1; если бы 4 шла раньше, для 6 пришлось бы делать повторную инсталляцию.
+Phase 6 — настоящий kernel-reboot (не factoryreset), SSH восстанавливается сам. Безопасно автоматизировать.
 
 ## Регрессионные тесты (что специально ловим)
 

@@ -92,5 +92,15 @@ check_podkop_fully_routed_ips_matches_lan      # AGENTS.md invariant: kill-switc
 check_podkop_exclude_ru_community_lists
 check_podkop_route_allowed_ips_zero
 
+# Snapshot /tmp/cheburnet/install.log locally — phase 4 reuses install.log
+# (via replace_awg_conf → 01-amneziawg) and phase 6 wipes it via reboot
+# (it's on tmpfs). Saving here keeps phase-1's diagnostic for post-mortem.
+LOCAL_LOG="/tmp/cheburnet-hwtest-phase1-install.log"
+if ssh_router 'cat /tmp/cheburnet/install.log' >"$LOCAL_LOG" 2>/dev/null; then
+    report_info phase1 "install.log saved to $LOCAL_LOG ($(wc -c <"$LOCAL_LOG") bytes)"
+else
+    report_warn phase1 "could not snapshot install.log"
+fi
+
 report_summary
 exit $?
