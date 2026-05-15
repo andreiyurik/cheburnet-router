@@ -4,14 +4,19 @@
 #
 # Usage:
 #   ./run-all.sh root@192.168.1.1 [branch]
-#   ./run-all.sh --no-reset root@192.168.1.1   # skip initial firstboot
-#   HW_SKIP_PHASES=4 ./run-all.sh ...          # comma-list of phases to skip
-#   HW_SKIP_BAD_AWG=1 ./run-all.sh ...         # skip the 8-min bad-AWG scenario
+#   HW_SKIP_PHASES=phase4 ./run-all.sh ...     # comma-list of phases to skip
+#   HW_SSH_KEY=~/.ssh/beryl ./run-all.sh ...   # SSH key path (defaults
+#                                              # match ssh's id_* search)
 #
-# Phase order is phase0 → 1 → 2 → 3 → 6 → 4. This differs from the linear
-# numbering: phase 4 (failure injection) is destructive and runs last because
-# it leaves the router half-installed. Phase 6 (reboot + steady-state) lives
-# before phase 4 so it can exercise the working install from phase 1.
+# PRECONDITION: the router is in a fresh-OpenWrt + SSH-access state. Factory
+# reset and SSH setup (root password + authorized_keys) are manual steps —
+# automating factoryreset would wipe authorized_keys and lock the framework
+# out. See README.md → Precondition.
+#
+# Phase order is phase0 → 1 → 2 → 3 → 6 → 4. Phase 0 is the precondition gate
+# (aborts the run on fail). Phase 4 (fault injection) runs last but is
+# non-destructive — it exercises the replace_awg_conf rollback path on the
+# install from phase 1, no firstboot needed.
 #
 # Outputs:
 #   • Live log to stdout (tee'd from each phase)
@@ -21,13 +26,16 @@
 set -u
 
 # ─── arg parsing ─────────────────────────────────────────────────────────────
-NO_RESET=0
+# Precondition: the router is already in a "fresh OpenWrt + SSH access" state.
+# Factory reset + LuCI password + authorized_keys setup is the user's job —
+# automated factoryreset would wipe authorized_keys and lock the framework
+# out, defeating the test. Phase 0 enforces the precondition and aborts the
+# run if not met. See README.md → Precondition section.
 ARGS=()
 for a in "$@"; do
     case "$a" in
-        --no-reset|-n) NO_RESET=1 ;;
         --help|-h)
-            sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *) ARGS+=("$a") ;;
@@ -107,17 +115,30 @@ START=$(date +%s)
     echo "═══════════════════════════════════════════════════════════════"
 } | tee "$LOG_FILE"
 
-# ─── firstboot before phase 0 (unless --no-reset) ────────────────────────────
-if [ "$NO_RESET" = "0" ]; then
+# ─── ordered phase execution ─────────────────────────────────────────────────
+# phase 0 is the precondition gate — if it fails, the user hasn't done the
+# manual factoryreset+SSH setup, so everything else is meaningless. Abort
+# fast with a helpful message rather than cascading 30+ false fails.
+run_phase phase0 "clean state" phase0-cleanstate.sh
+if [ "${FAIL_OF[phase0]:-0}" -gt 0 ]; then
     {
         echo
-        echo "[INFO] run-all: firstboot before phase 0 (use --no-reset to skip)"
+        echo "✗ Phase 0 failed — precondition not met. Run aborted."
+        echo
+        echo "T4 expects a fresh-OpenWrt + SSH-access state. Steps to fix:"
+        echo "  1. Factory-reset the router (LuCI: System → Backup/Flash → Reset"
+        echo "     OR GL.iNet web UI: Settings → Factory Reset, OR press the"
+        echo "     reset button per the hardware manual)."
+        echo "  2. Connect to http://192.168.1.1/ in a browser."
+        echo "  3. Set a root password when prompted."
+        echo "  4. System → Administration → SSH-Keys → paste \$HW_SSH_KEY.pub."
+        echo "  5. Verify: ssh -i \$HW_SSH_KEY root@192.168.1.1 'echo up'."
+        echo "  6. Re-run this script."
+        echo
+        echo "See tests/hardware/README.md → Precondition for the full checklist."
     } | tee -a "$LOG_FILE"
-    firstboot_reset 2>&1 | tee -a "$LOG_FILE"
+    exit 1
 fi
-
-# ─── ordered phase execution ─────────────────────────────────────────────────
-run_phase phase0 "clean state"           phase0-cleanstate.sh
 run_phase phase1 "happy install"         phase1-install.sh
 run_phase phase2 "web UI via RPC"        phase2-webui.sh
 run_phase phase3 "CLI tools"             phase3-cli.sh
