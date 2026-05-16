@@ -62,12 +62,16 @@ ROUTER_IP="${_input:-192.168.1.1}"
 ROUTER="root@${ROUTER_IP}"
 
 info "Проверяем подключение к $ROUTER_IP..."
-if ! ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+# -n: не читать локальный stdin. Без него ssh слурпает heredoc/pipe и съедает
+# ввод, предназначенный для следующего `read` в этом скрипте. Под TTY скрытно
+# работает (терминал не отдаёт буфер вперёд), под `< inputs.txt` ломает всё.
+if ! ssh -n -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
          "$ROUTER" 'echo ok' >/dev/null 2>&1; then
     printf "\n"
     warn "Не удалось подключиться автоматически (без пароля)."
     printf "  Это нормально при первом запуске — введите пароль роутера.\n"
     printf "  По умолчанию пароль пустой — просто нажмите Enter.\n\n"
+    # БЕЗ -n: ssh здесь интерактивно спросит пароль и читает его с terminal.
     if ! ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new \
              "$ROUTER" 'echo ok' >/dev/null 2>&1; then
         printf "\n"
@@ -83,7 +87,7 @@ if ! ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=accept-n
 fi
 ok "Роутер $ROUTER_IP доступен"
 
-if ! ssh -o ConnectTimeout=10 "$ROUTER" 'grep -q OpenWrt /etc/openwrt_release 2>/dev/null'; then
+if ! ssh -n -o ConnectTimeout=10 "$ROUTER" 'grep -q OpenWrt /etc/openwrt_release 2>/dev/null'; then
     printf "\n"
     printf "  На %s что-то есть, но это не OpenWrt.\n\n" "$ROUTER_IP"
     printf "  Возможные причины:\n"
@@ -99,7 +103,7 @@ ok "OpenWrt подтверждён"
 # Дальнейшая установка — rsync репо + ssh-запуск install.sh. Каждый раз
 # вводить пароль мучительно: разово копируем публичный ключ, далее всё без
 # пароля. ssh-copy-id сам подберёт ключ из ~/.ssh/id_{ed25519,rsa,ecdsa}.
-if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1; then
+if ! ssh -n -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1; then
     printf "\n"
     info "Для автоматической установки нужен SSH-ключ."
     printf "  Это разовая операция: сейчас скопируем ключ на роутер, дальше мастер\n"
@@ -121,7 +125,7 @@ if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1; 
     ssh-copy-id -o StrictHostKeyChecking=accept-new "$ROUTER" \
         || die "ssh-copy-id не смог скопировать ключ. Проверьте пароль и повторите."
 
-    ssh -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1 \
+    ssh -n -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1 \
         || die "Ключ скопирован, но вход не работает. Проверьте: ssh $ROUTER 'cat /etc/dropbear/authorized_keys'"
 
     ok "SSH-ключ установлен — дальше всё пойдёт автоматически"
@@ -272,7 +276,7 @@ printf "\n  ${BOLD}Запускаем установку (~12 минут)...${N}
 
 INSTALL_DIR="/opt/cheburnet"
 info "Копирую репозиторий на роутер в $INSTALL_DIR"
-ssh "$ROUTER" "mkdir -p '$INSTALL_DIR' /etc/amnezia/amneziawg /tmp/cheburnet"
+ssh -n "$ROUTER" "mkdir -p '$INSTALL_DIR' /etc/amnezia/amneziawg /tmp/cheburnet"
 
 # Если rsync/tar/scp оборвётся посреди транзакции (сеть моргнула, Ctrl-C,
 # kill из-за timeout) — /opt/cheburnet останется в half-state. Следующий
@@ -281,7 +285,7 @@ ssh "$ROUTER" "mkdir -p '$INSTALL_DIR' /etc/amnezia/amneziawg /tmp/cheburnet"
 # не стирали install.log — он нужен для пост-мортема.
 # wireless-actual.txt (Wi-Fi пароль в plaintext) убираем локально на любом выходе.
 _cleanup_local() { rm -f "$REPO_ROOT/configs/wireless-actual.txt"; }
-trap '_cleanup_local; ssh -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>/dev/null || true' INT TERM ERR
+trap '_cleanup_local; ssh -n -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>/dev/null || true' INT TERM ERR
 
 # rsync только если он есть С ОБЕИХ СТОРОН. Раньше тут была проверка только
 # на ноуте — но rsync через ssh нуждается в rsync и на удалённой стороне.
@@ -289,7 +293,7 @@ trap '_cleanup_local; ssh -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>
 # tar|ssh работает везде, скорость сопоставимая (gz + одна ssh-сессия).
 # Исключаем .git/, tests/, docs/ — они не нужны на роутере и съедают место.
 if command -v rsync >/dev/null 2>&1 \
-   && ssh "$ROUTER" 'command -v rsync >/dev/null 2>&1'; then
+   && ssh -n "$ROUTER" 'command -v rsync >/dev/null 2>&1'; then
     rsync -a --delete \
         --exclude='.git' --exclude='tests' --exclude='docs' \
         --exclude='backup' --exclude='assets' --exclude='*.md' \
