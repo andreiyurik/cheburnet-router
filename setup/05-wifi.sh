@@ -70,10 +70,6 @@ echo "→ wpad=${WPAD_FLAVOR}, encryption=${ENCRYPTION}"
 # Имена radio/iface-секций нестандартны на разных board.json — итерируем
 # по реально присутствующим, а не хардкодим radio0/radio1/default_radioN.
 echo "→ настраиваем radio + SSID"
-for RADIO in $(uci -q show wireless | awk -F'[.=]' '/=wifi-device$/{print $2}'); do
-
-done
-
 IFACES=$(uci -q show wireless | awk -F'[.=]' '/=wifi-iface$/{print $2}')
 if [ -z "$IFACES" ]; then
     echo "⚠ wifi-device есть, но wifi-iface не сгенерирован — обычно lkm wifi config"
