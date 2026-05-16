@@ -2,9 +2,8 @@
 # 05-wifi.sh — настроить Wi-Fi с WPA2/WPA3-mixed.
 #
 # Параметры задаются через переменные окружения:
-#   WIFI_SSID     — имя сети (обязательно)
-#   WIFI_KEY      — пароль (8+ символов, обязательно)
-#   WIFI_COUNTRY  — код страны (по умолчанию RU)
+#   WIFI_SSID  — имя сети (обязательно)
+#   WIFI_KEY   — пароль (8+ символов, обязательно)
 #
 # Пример вызова:
 #   WIFI_SSID="MyHome" WIFI_KEY="correct-horse-battery-staple" ./05-wifi.sh
@@ -14,7 +13,6 @@ echo "== 05. Wi-Fi =="
 
 SSID="${WIFI_SSID:?need WIFI_SSID env var}"
 KEY="${WIFI_KEY:?need WIFI_KEY env var}"
-COUNTRY="${WIFI_COUNTRY:-RU}"
 
 # Пароль должен быть >= 8 символов
 [ ${#KEY} -ge 8 ] || { echo "ERROR: WIFI_KEY must be >= 8 chars"; exit 1; }
@@ -72,10 +70,6 @@ echo "→ wpad=${WPAD_FLAVOR}, encryption=${ENCRYPTION}"
 # Имена radio/iface-секций нестандартны на разных board.json — итерируем
 # по реально присутствующим, а не хардкодим radio0/radio1/default_radioN.
 echo "→ настраиваем radio + SSID"
-for RADIO in $(uci -q show wireless | awk -F'[.=]' '/=wifi-device$/{print $2}'); do
-    uci set wireless."$RADIO".country="$COUNTRY"
-done
-
 IFACES=$(uci -q show wireless | awk -F'[.=]' '/=wifi-iface$/{print $2}')
 if [ -z "$IFACES" ]; then
     echo "⚠ wifi-device есть, но wifi-iface не сгенерирован — обычно lkm wifi config"

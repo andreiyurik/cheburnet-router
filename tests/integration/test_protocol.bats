@@ -39,7 +39,7 @@ print(" ".join(sorted(json.load(sys.stdin).keys())))
 import json, sys
 print(" ".join(sorted(json.load(sys.stdin)["install_start"].keys())))
 ')"
-    expected="awg_conf country root_pass ssid token wifi_key"
+    expected="awg_conf root_pass ssid token wifi_key"
     [ "$fields" = "$expected" ]
 }
 

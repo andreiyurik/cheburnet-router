@@ -47,9 +47,14 @@ www.yandex.ru,familysearch.yandex.ru
 yandex.com,familysearch.yandex.ru
 "
 
-# Sentinel: по этому одному cname определяем, включён ли SafeSearch.
-# Достаточно одного — мы добавляем и удаляем весь набор атомарно.
-_SAFESEARCH_SENTINEL="www.google.com,forcesafesearch.google.com"
+# Sentinel: source-домен для проверки наличия SafeSearch-секций.
+_SAFESEARCH_SENTINEL="www.google.com"
+
+# Преобразует source-домен в имя UCI-секции (только [a-z0-9_]).
+# Префикс cheburnet_ss_ исключает коллизии с ручными настройками.
+_ss_sect() {
+    printf 'cheburnet_ss_%s' "$(printf '%s' "$1" | tr '.-' '__')"
+}
 
 _family_filter_cfg() {
     printf '%s' "${ETC_ADBLOCK_CFG:-/etc/adblock-lean/config}"
@@ -135,46 +140,72 @@ _family_filter_blocklist_off() {
     _family_filter_rewrite "$new"
 }
 
-# Печатает true / false. Sentinel-проверки достаточно: весь набор cname'ов
-# добавляется и удаляется атомарно через family_safesearch_on / off.
+# Печатает true / false. Проверяем наличие named UCI-секции для sentinel'а.
+# Весь набор cname'ов добавляется/удаляется атомарно — достаточно одной проверки.
 family_safesearch_status() {
-    cur=$(uci -q get dhcp.@dnsmasq[0].cname 2>/dev/null) || cur=""
-    case " $cur " in
-        *" $_SAFESEARCH_SENTINEL "*) echo true ;;
-        *) echo false ;;
-    esac
+    _sent=$(_ss_sect "$_SAFESEARCH_SENTINEL")
+    if uci -q get "dhcp.${_sent}.cname" >/dev/null 2>&1; then
+        echo true
+    else
+        echo false
+    fi
+    unset _sent
 }
 
-# Idempotent: добавляет в dhcp.@dnsmasq[0].cname только те значения, которых
-# ещё нет (точное совпадение). uci commit вызываем один раз в конце, и только
-# если что-то изменилось — лишний commit триггерит ненужный rebuild конфига.
+# Idempotent: создаёт named config cname секции в dhcp UCI.
+# Это единственный формат, который dnsmasq init-скрипт (dhcp_cname_add)
+# реально рендерит в cname= строки конфига; list cname в @dnsmasq[0] —
+# игнорируется init-скриптом и в dnsmasq.conf не попадает.
+# Параллельно удаляет старый неверный list cname из @dnsmasq[0] если остался.
 family_safesearch_on() {
-    changed=0
-    cur=$(uci -q get dhcp.@dnsmasq[0].cname 2>/dev/null) || cur=""
-    for entry in $SAFESEARCH_CNAMES; do
-        case " $cur " in
-            *" $entry "*) ;;
-            *)
-                uci add_list dhcp.@dnsmasq[0].cname="$entry" >/dev/null 2>&1 || return 1
-                cur="$cur $entry"
-                changed=1
-                ;;
-        esac
+    _changed=0
+
+    # Миграция: убираем старый format (list cname в @dnsmasq[0]).
+    _old=0
+    for _e in $SAFESEARCH_CNAMES; do
+        uci -q del_list "dhcp.@dnsmasq[0].cname=${_e}" 2>/dev/null && _old=1
     done
-    [ "$changed" = 1 ] && { uci commit dhcp >/dev/null 2>&1 || return 1; }
+    [ "$_old" = 1 ] && uci commit dhcp >/dev/null 2>&1
+
+    for _e in $SAFESEARCH_CNAMES; do
+        _src="${_e%,*}"
+        _dst="${_e#*,}"
+        [ -n "$_src" ] || continue
+        _sect=$(_ss_sect "$_src")
+        if ! uci -q get "dhcp.${_sect}" >/dev/null 2>&1; then
+            uci set "dhcp.${_sect}=cname"
+            uci set "dhcp.${_sect}.cname=${_src}"
+            uci set "dhcp.${_sect}.target=${_dst}"
+            _changed=1
+        fi
+    done
+    [ "$_changed" = 1 ] && { uci commit dhcp >/dev/null 2>&1 || return 1; }
+    unset _changed _old _e _src _dst _sect
     return 0
 }
 
-# Idempotent: del_list по точному значению — чужие cname (если кто-то их
-# добавил вручную или другой подсистемой) не трогаем.
+# Idempotent: удаляет named config cname секции. Чужие UCI-секции не трогаем.
+# Также чистит старый list cname в @dnsmasq[0] (на случай миграции).
 family_safesearch_off() {
-    changed=0
-    for entry in $SAFESEARCH_CNAMES; do
-        if uci -q del_list dhcp.@dnsmasq[0].cname="$entry" 2>/dev/null; then
-            changed=1
+    _changed=0
+
+    _old=0
+    for _e in $SAFESEARCH_CNAMES; do
+        uci -q del_list "dhcp.@dnsmasq[0].cname=${_e}" 2>/dev/null && _old=1
+    done
+    [ "$_old" = 1 ] && _changed=1
+
+    for _e in $SAFESEARCH_CNAMES; do
+        _src="${_e%,*}"
+        [ -n "$_src" ] || continue
+        _sect=$(_ss_sect "$_src")
+        if uci -q get "dhcp.${_sect}" >/dev/null 2>&1; then
+            uci delete "dhcp.${_sect}" >/dev/null 2>&1
+            _changed=1
         fi
     done
-    [ "$changed" = 1 ] && { uci commit dhcp >/dev/null 2>&1 || return 1; }
+    [ "$_changed" = 1 ] && { uci commit dhcp >/dev/null 2>&1 || return 1; }
+    unset _changed _old _e _src _sect
     return 0
 }
 

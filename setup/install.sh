@@ -125,7 +125,7 @@ if [ ! -f "$INSTALL_DIR/configs/wireless-actual.txt" ]; then
 fi
 # shellcheck disable=SC1091
 . "$INSTALL_DIR/configs/wireless-actual.txt"
-export WIFI_SSID WIFI_KEY WIFI_COUNTRY
+export WIFI_SSID WIFI_KEY
 
 # === Список шагов ===
 # AWG-конфиг должен быть в каноническом месте. Кладёт его либо rpcd-cheburnet
@@ -175,6 +175,12 @@ for STEP in $STEPS; do
         exit 1
     fi
 done
+
+# === Wi-Fi конфиг с plaintext-паролем больше не нужен ===
+# 05-wifi уже прочитал его, дальше шагов он не нужен. Файл лежал в configs/
+# и на rsync ехал с маской 600 (умаска в setup.sh), но смысла держать
+# secret-в-репо на роутере нет — удаляем сразу.
+rm -f "$INSTALL_DIR/configs/wireless-actual.txt"
 
 # === Применяем root-пароль (положен в $STATE_DIR/root_pass либо rpcd-handler'ом, либо setup.sh) ===
 if [ -s "$STATE_DIR/root_pass" ]; then
