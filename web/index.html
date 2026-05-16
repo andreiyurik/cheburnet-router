@@ -273,7 +273,7 @@
     <div id="install-step-friendly" style="margin: 4px 0 8px 0; font-size: 14px;"></div>
     <div class="log-wrap">
       <pre id="install-log" class="log"></pre>
-      <button class="btn-copy-log" id="btn-copy-log" title="Скопировать лог">Скопировать лог</button>
+      <button class="btn-copy-log" id="btn-copy-log">Скопировать лог</button>
     </div>
     <div class="row" style="justify-content: space-between;">
       <span class="muted" id="install-hint">Не закрывайте страницу до окончания.</span>
@@ -790,14 +790,36 @@ document.getElementById("btn-confirm-install").onclick = startInstall;
 document.getElementById("btn-copy-log").onclick = function() {
     const text = document.getElementById("install-log").textContent;
     const btn = this;
-    navigator.clipboard.writeText(text).then(() => {
+    const ok = () => {
         btn.textContent = "✓ Скопировано";
         btn.classList.add("copied");
         setTimeout(() => {
             btn.textContent = "Скопировать лог";
             btn.classList.remove("copied");
         }, 2000);
-    });
+    };
+    const fail = () => showToast("err", "Не удалось скопировать. Выделите текст лога вручную и нажмите Ctrl+C.");
+    // navigator.clipboard работает только в secure context (HTTPS/localhost).
+    // По HTTP на http://192.168.1.1/ его нет — поэтому fallback на execCommand через
+    // временный textarea: единственный кросс-браузерный способ скопировать по HTTP.
+    if (window.isSecureContext && navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(ok).catch(fail);
+        return;
+    }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "0";
+    ta.style.left = "0";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    let copied = false;
+    try { copied = document.execCommand("copy"); } catch (_) {}
+    document.body.removeChild(ta);
+    copied ? ok() : fail();
 };
 
 // =====================================================================

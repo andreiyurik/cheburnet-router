@@ -171,7 +171,9 @@ cp "$SRC/web/rpcd-acl.json" "$RPCD_ACL"
 
 echo "→ Устанавливаю веб-UI в $WEB_DIR"
 mkdir -p "$WEB_DIR"
-cp "$SRC/web/index.html" "$WEB_DIR/index.html"
+cp "$SRC/web/index.html"      "$WEB_DIR/index.html"
+cp "$SRC/web/cheburashka.png" "$WEB_DIR/cheburashka.png"
+cp "$SRC/web/favicon.png"     "$WEB_DIR/favicon.png"
 
 # === 7. Runtime state directory ===
 mkdir -p /tmp/cheburnet
