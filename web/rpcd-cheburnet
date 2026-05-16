@@ -123,7 +123,7 @@ INPUT=$(cat)
 
 # jsonfilter helper — возвращает пустую строку при отсутствии поля
 jf() {
-    echo "$INPUT" | jsonfilter -e "$1" 2>/dev/null || true
+    printf '%s\n' "$INPUT" | jsonfilter -e "$1" 2>/dev/null || true
 }
 
 case "$METHOD" in
