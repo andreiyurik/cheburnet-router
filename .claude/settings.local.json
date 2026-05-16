@@ -41,7 +41,10 @@
       "Bash(ssh-keygen -R 192.168.1.1)",
       "Bash(ssh -i ~/.ssh/beryl -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new root@192.168.1.1 'echo up; df -h /overlay | tail -1; free -m | awk \"/Mem/{print \\\\$2\\\\\" MB total\\\\\"}\"; ping -c1 -W2 8.8.8.8 >/dev/null 2>&1 && echo \"wan-ok\" || echo \"wan-FAIL\"')",
       "Bash(ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new root@192.168.1.1 'cat /etc/openwrt_release | head -3; echo \"---arch---\"; uname -m; echo \"---overlay---\"; df -P /overlay | tail -1; echo \"---mem---\"; awk \"/^MemTotal/\" /proc/meminfo')",
-      "Bash(ssh *)"
+      "Bash(ssh *)",
+      "Bash(mkdir -p /tmp/cheb-test)",
+      "Bash(cat)",
+      "Bash(chmod +x /tmp/cheb-test/askpass)"
     ]
   }
 }
