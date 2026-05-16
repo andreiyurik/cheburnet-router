@@ -192,13 +192,174 @@ ok "интернет есть"
 # таймаут + 3 попытки разрывают повисший сокет и заставляют переподключиться.
 step 2 "Обновляю индекс пакетов (таймаут 120с, до 3 попыток)"
 if ! with_retry 120 3 "apk update" apk update; then
-    fail_msg "apk update не прошёл после 3 попыток по 120с."
-    echo "        Скорее всего провайдер режет канал до downloads.openwrt.org (DPI-шейпинг)."
-    echo "        Проверьте вручную: wget -qO /dev/null https://downloads.openwrt.org/"
-    echo "        Установщик идемпотентен — после восстановления сети можно перезапустить."
+    # Перед вердиктом «провайдер режет» проверяем что именно отвалилось.
+    # Без этой проверки мы могли врать юзеру про DPI, когда у него на самом
+    # деле отвалился WAN-кабель — и он бы возился с переходником USB-Ethernet
+    # вместо того, чтобы воткнуть штекер обратно. Каждый чек печатает ✓/✗,
+    # юзер видит цепочку рассуждения и нашему вердикту можно доверять.
+    echo
+    echo "  ── Диагностика (~20с) ───────────────────────────────────"
+
+    PING_OK=0; DNS_OK=0; GH_OK=0; OPENWRT_BLOCKED=0; OPENWRT_OK=0
+
+    # Тест 1: общий интернет (ICMP без DNS). 8.8.8.8 — Google DNS, доступен
+    # отовсюду где есть IP-связность. -W 2 = timeout 2с на пакет.
+    if ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1; then
+        echo "  ✓ ping 8.8.8.8 — общий интернет работает"
+        PING_OK=1
+    else
+        echo "  ✗ ping 8.8.8.8 — НЕ проходит (WAN отвалился?)"
+    fi
+
+    # Тест 2: DNS — резолвится ли downloads.openwrt.org. nslookup возвращает
+    # 0 при успешном резолве, ненулевой код при таймауте/SERVFAIL.
+    if nslookup downloads.openwrt.org >/dev/null 2>&1; then
+        echo "  ✓ DNS резолвит downloads.openwrt.org"
+        DNS_OK=1
+    else
+        echo "  ✗ DNS не резолвит downloads.openwrt.org"
+    fi
+
+    # Тест 3: контрольная проверка — другие HTTPS-сервисы открываются?
+    # Если raw.githubusercontent.com работает, значит сеть жива и DPI режет
+    # СПЕЦИФИЧНО downloads.openwrt.org, а не всё подряд. Если оба упали —
+    # либо широкий DPI, либо captive portal, либо общая сетевая проблема.
+    if wget -qO /dev/null --timeout=8 \
+        https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh \
+        2>/dev/null; then
+        echo "  ✓ raw.githubusercontent.com доступен"
+        GH_OK=1
+    else
+        echo "  ✗ raw.githubusercontent.com тоже недоступен"
+    fi
+
+    # Тест 4: повторяем wget на downloads.openwrt.org СЕЙЧАС. Если апдейт
+    # упал из-за транзиента (Fastly slow-trickle), но в этот момент зеркало
+    # отвечает — скажем юзеру «попробуй ещё раз», не гоняем за переходник.
+    # Берём SHA256SUMS текущего релиза — короткий файл, гарантированно
+    # существует. DISTRIB_RELEASE уже sourced на старте install.sh.
+    OPENWRT_PROBE_URL="https://downloads.openwrt.org/releases/${DISTRIB_RELEASE:-25.12.2}/SHA256SUMS"
+    OPENWRT_ERR=$(wget -qO /dev/null --timeout=8 "$OPENWRT_PROBE_URL" 2>&1)
+    OPENWRT_RC=$?
+    # Сигнатуры именно SNI/DPI-блока (а не 404, redirect и т.п.): EPERM на
+    # send(), TCP RST от middlebox'а, connection refused, или таймаут на
+    # самом TLS handshake. Эти строки отдаёт BusyBox wget на низкоуровневых
+    # сетевых отказах.
+    if [ "$OPENWRT_RC" = "0" ]; then
+        echo "  ? wget downloads.openwrt.org прошёл СЕЙЧАС (apk упал — транзиент?)"
+        OPENWRT_OK=1
+    elif echo "$OPENWRT_ERR" | grep -qiE "Operation not permitted|Connection refused|Connection reset|Connection timed out|Couldn't resolve"; then
+        echo "  ✗ wget downloads.openwrt.org: $OPENWRT_ERR"
+        OPENWRT_BLOCKED=1
+    else
+        echo "  ✗ wget downloads.openwrt.org: $OPENWRT_ERR"
+    fi
+
+    echo
+    echo "  ── Вердикт ──────────────────────────────────────────────"
+    echo
+
+    # Классификация по результатам диагностики. Порядок важен: ping → DNS →
+    # transient → DPI. Самые «земные» причины (кабель/DNS) исключаем первыми,
+    # рекомендация переключаться на VPN-телефон/ноут — только когда они
+    # действительно показаны.
+    if [ "$PING_OK" = "0" ]; then
+        echo "  ✗ Интернет на роутере отвалился"
+        echo
+        echo "  ping 8.8.8.8 не проходит — это не DPI, а отсутствие интернета."
+        echo "  Проверь:"
+        echo "    • WAN-кабель воткнут в роутер и в провайдера/домашний роутер"
+        echo "    • Другие устройства (телефон, ноут) в этой сети работают?"
+        echo "    • Перезагрузи роутер: reboot"
+        echo
+        echo "  Запусти ту же команду установки снова после починки."
+        echo
+    elif [ "$DNS_OK" = "0" ]; then
+        echo "  ✗ Сломался DNS"
+        echo
+        echo "  Интернет есть (ping проходит), но имена не резолвятся."
+        echo "  Попробуй:"
+        echo "    /etc/init.d/dnsmasq restart"
+        echo "  Если не помогло — указать публичный DNS вручную:"
+        echo "    uci add_list network.wan.dns='8.8.8.8'"
+        echo "    uci commit network && /etc/init.d/network restart"
+        echo
+    elif [ "$OPENWRT_OK" = "1" ]; then
+        echo "  ⚠ Транзиентный сбой — попробуй ещё раз"
+        echo
+        echo "  apk update упал во всех 3 попытках по 120с, но сейчас прямой"
+        echo "  wget на downloads.openwrt.org прошёл. Скорее всего зеркало"
+        echo "  (Fastly) отдавало байты слишком медленно — apk выпал по таймауту,"
+        echo "  но содержимое доступно."
+        echo
+        echo "  Просто запусти ту же команду установки снова."
+        echo
+    else
+        # PING ok, DNS ok, downloads.openwrt.org режется — DPI подтверждён.
+        # Если raw.github тоже упал — у юзера широкий DPI или captive portal,
+        # но решение через VPN одно и то же.
+        echo "════════════════════════════════════════════════════════════"
+        echo "  Загрузка пакетов заблокирована провайдером (подтверждено)"
+        echo "════════════════════════════════════════════════════════════"
+        echo
+        if [ "$GH_OK" = "1" ]; then
+            echo "  Диагностика показывает: общий интернет работает, DNS отвечает,"
+            echo "  raw.githubusercontent.com открывается, но конкретно"
+            echo "  downloads.openwrt.org режется. Это SNI-DPI у твоего провайдера,"
+            echo "  не баг cheburnet'а."
+        else
+            echo "  Диагностика показывает: общий интернет работает, DNS отвечает,"
+            echo "  но и downloads.openwrt.org, и GitHub режутся. Очень агрессивный"
+            echo "  DPI или ты в публичной сети с captive portal. Не баг cheburnet'а."
+        fi
+        echo
+        echo "  После установки cheburnet сам уйдёт под VPN — проблема исчезнет."
+        echo
+        echo "  Два варианта — выбери по своему роутеру:"
+        echo
+        echo "  ─── Вариант A: на роутере ЕСТЬ USB-порт → через смартфон ───"
+        echo
+        echo "    1. На телефоне: AmneziaVPN включён, подключён к серверу,"
+        echo "       USB-tethering включён."
+        echo "       Android: Настройки → Точка доступа → USB-модем"
+        echo "       iOS:     Настройки → Личная точка доступа"
+        echo "    2. Воткни USB-кабель: телефон → USB-порт роутера."
+        echo "       Подожди 15-30 секунд."
+        echo "    3. Запусти ту же команду установки cheburnet снова."
+        echo
+        echo "  ─── Вариант B: USB на роутере НЕТ → через ноутбук ──────────"
+        echo
+        echo "    Может потребоваться переходник USB-Ethernet на ноут (~\$8),"
+        echo "    если на ноуте нет встроенного Ethernet."
+        echo
+        echo "    1. На ноутбуке: AmneziaVPN включён, подключён к серверу."
+        echo "    2. На ноутбуке включи Internet Sharing на Ethernet-порт:"
+        echo "       macOS:   Settings → Sharing → Internet Sharing"
+        echo "       Windows: AmneziaVPN-адаптер → Properties → Sharing"
+        echo "       Linux:   Network → Ethernet → IPv4: Shared"
+        echo "    3. Переткни WAN-кабель cheburnet'а из домашнего роутера"
+        echo "       в ноут. Подожди 15 секунд."
+        echo "    4. Запусти ту же команду установки cheburnet снова."
+        echo "    5. После установки — кабель обратно в домашний роутер."
+        echo
+        echo "  Подробная инструкция (шаги, troubleshooting):"
+        echo "    https://github.com/yurik2718/cheburnet-router/blob/master/docs/install-blocked.md"
+        echo
+        echo "  Помощь: @industrialprofi в Telegram."
+        echo
+    fi
     exit 1
 fi
 ok "индексы обновлены"
+
+# Sentinel для setup/00-prerequisites.sh — чтобы он не делал apk update
+# вторым заходом сразу после нашего. На DPI-плохой сети второй apk update
+# даёт провайдеру повторный шанс сломать установку на том же месте.
+# CLI-путь sentinel не создаёт → 00-prerequisites ведёт себя как раньше.
+# TTL проверяет 00-prerequisites (find -mmin) — если юзер заполнял веб-форму
+# дольше 30 минут, sentinel просрочен и apk update всё-таки запустится.
+mkdir -p /tmp/cheburnet
+touch /tmp/cheburnet/apk-update-fresh
 
 # === [3/8] Базовые пакеты =============================================
 # rpcd обычно предустановлен, jsonfilter — отдельный пакет для парсинга
