@@ -103,18 +103,20 @@ flowchart LR
 
 ### Команда для шага 4
 
-Когда роутер прошит и `.conf` VPN-сервера у тебя в руках — открой терминал и вставь команду. Она скачает установщик и проверит его подпись (защита от подмены).
+Когда роутер прошит и `.conf` VPN-сервера у тебя в руках — открой терминал и вставь команду. Она скачает установщик на роутер и запустит его.
 
 > **Где взять терминал:** **Windows** — правый клик по «Пуск» → **PowerShell**. **macOS** — Spotlight (⌘+Space) → `Terminal`. **Linux** — `Ctrl+Alt+T`.
 
+> **Если терминал попросит пароль** (`root@192.168.1.1's password:`) — нажми **Enter**: на свежем OpenWrt пароль пустой, ты зададёшь его в мастере на шаге 2 из 4.
+
 **Linux / macOS:**
 ```bash
-ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
+ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
 ```
 
 **Windows (PowerShell):**
 ```powershell
-ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
+ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
 ```
 
 <details>
@@ -130,7 +132,13 @@ ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new root@
 
 </details>
 
-После запуска открой в браузере **`http://192.168.1.1/cheburnet/`** — пройдёшь 4 экрана: загрузишь `.conf`, придумаешь пароль администратора, имя и пароль Wi-Fi, нажмёшь «Начать установку». Дальше роутер сделает всё сам — установка идёт ~12 минут, прогресс видно прямо в браузере.
+После запуска скрипт выведет в терминале строку с адресом и одноразовым токеном — скопируй её и открой в браузере:
+
+```
+→  http://192.168.1.1/cheburnet/?token=abc123...
+```
+
+Пройдёшь 4 экрана: загрузишь `.conf`, зададёшь пароль администратора, имя и пароль Wi-Fi, нажмёшь «Начать установку». Дальше роутер сделает всё сам — установка идёт ~12 минут, прогресс виден прямо в браузере.
 
 <div align="center">
 
@@ -146,7 +154,7 @@ ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new root@
 
 ## 💸 Сколько это стоит
 
-**Разово:** ~$45 за роутер (например, Cudy TR3000 на AliExpress).
+**Разово:** ~$35–60 за роутер с OpenWrt 25.12+ и ≥ 256 МБ RAM (совместимые модели — в разделе «Под капотом»).
 **Подписка:** от 325 ₽/мес за VPN-сервер на 7 устройств.
 
 <div align="center">
