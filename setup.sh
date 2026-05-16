@@ -216,10 +216,7 @@ stty echo 2>/dev/null || true
 printf "\n"
 [ ${#WIFI_KEY} -ge 8 ] || die "Пароль должен быть не короче 8 символов"
 
-ask "Страна [RU]"
-read -r _input
-WIFI_COUNTRY="${_input:-RU}"
-ok "Wi-Fi: SSID='$WIFI_SSID', страна=$WIFI_COUNTRY"
+ok "Wi-Fi: SSID='$WIFI_SSID'"
 
 # ══════════════════════════════════════════════════════════════════════
 # ШАГ 5 — Подтверждение и установка
@@ -256,9 +253,8 @@ shq() {
 }
 umask 077
 {
-    printf 'WIFI_SSID=%s\n'    "$(shq "$WIFI_SSID")"
-    printf 'WIFI_KEY=%s\n'     "$(shq "$WIFI_KEY")"
-    printf 'WIFI_COUNTRY=%s\n' "$(shq "$WIFI_COUNTRY")"
+    printf 'WIFI_SSID=%s\n' "$(shq "$WIFI_SSID")"
+    printf 'WIFI_KEY=%s\n'  "$(shq "$WIFI_KEY")"
 } > "$REPO_ROOT/configs/wireless-actual.txt"
 umask 022
 ok "Wi-Fi конфиг сохранён"

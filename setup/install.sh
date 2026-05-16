@@ -125,7 +125,7 @@ if [ ! -f "$INSTALL_DIR/configs/wireless-actual.txt" ]; then
 fi
 # shellcheck disable=SC1091
 . "$INSTALL_DIR/configs/wireless-actual.txt"
-export WIFI_SSID WIFI_KEY WIFI_COUNTRY
+export WIFI_SSID WIFI_KEY
 
 # === Список шагов ===
 # AWG-конфиг должен быть в каноническом месте. Кладёт его либо rpcd-cheburnet
