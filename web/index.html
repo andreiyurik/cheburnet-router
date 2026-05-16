@@ -71,6 +71,18 @@
     overflow: auto; max-height: 400px; white-space: pre-wrap; word-break: break-word;
     border: 1px solid var(--border);
   }
+  .log-wrap { position: relative; margin: 12px 0; }
+  .log-wrap .log { margin: 0; }
+  .btn-copy-log {
+    position: absolute; top: 8px; right: 8px;
+    padding: 4px 10px; font-size: 11px; border-radius: 5px;
+    background: rgba(255,255,255,0.08); color: #c0c8d0;
+    border: 1px solid rgba(255,255,255,0.15);
+    cursor: pointer; transition: background 0.15s, color 0.15s;
+    font-family: inherit; line-height: 1.4;
+  }
+  .btn-copy-log:hover { background: rgba(255,255,255,0.15); }
+  .btn-copy-log.copied { background: rgba(74,222,128,0.15); color: #4ade80; border-color: #4ade80; }
   .progress { height: 8px; background: var(--panel-2); border-radius: 6px; overflow: hidden; margin: 12px 0; }
   .progress .bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.3s; }
   .progress .bar.done { background: var(--ok); }
@@ -177,7 +189,7 @@
       <strong>Нет своего сервера?</strong> Самый простой вариант —
       <a href="https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15"
          target="_blank" style="color:var(--accent)">Amnezia Premium со скидкой 15%</a>
-      (промокод <code>CHEBURNET15</code>, готовая подписка, экспорт <code>.conf</code> в один клик).
+      (промокод <code>CHEBURNET15</code>, годовая подписка и экспорт <code>.conf</code> для роутера и ещё 6 устройств в один клик).
       <span class="muted">Поддерживает развитие проекта.</span>
     </div>
 
@@ -198,8 +210,8 @@
   <!-- Экран 2: пароль администратора -->
   <!-- ============================================================ -->
   <div id="scr-rootpass" class="panel hidden">
-    <h2>Шаг 2 из 4 · Пароль администратора роутера(root пароль)</h2>
-    <p>Сейчас на свежем OpenWrt пароль root пуст — любой в LAN может зайти в LuCI/SSH без пароля. Придумайте пароль администратора: он понадобится для входа в панель управления LuCI и управления режимами роутерам в панели /cheburnet. </p>
+    <h2>Шаг 2 из 4 · Пароль администратора роутера (root пароль)</h2>
+    <p>Сейчас на свежем OpenWrt пароль root пуст — любой в LAN может зайти в LuCI/SSH без пароля. Придумайте пароль администратора (root): он понадобится для входа в панель управления LuCI и управления режимами роутерам в панели /cheburnet. </p>
 
     <label>Пароль root (Сложный 8+ символов и обязательно запишите или запомните его):</label>
     <input type="password" id="inp-rootpass" placeholder="минимум 8 символов">
@@ -223,7 +235,7 @@
     <p>Все устройства, подключённые к этой Wi-Fi-сети, автоматически получат настройки — ничего не нужно настраивать на каждом телефоне/ноутбуке.</p>
 
     <label>Название сети (SSID):</label>
-    <input type="text" id="inp-ssid" maxlength="32" placeholder="MyHome">
+    <input type="text" id="inp-ssid" maxlength="32" placeholder="cheburnet-beta-tester" value="cheburnet-beta-tester">
 
     <label>Пароль WI-FI точки (8+ символов):</label>
     <input type="password" id="inp-pass" placeholder="минимум 8 символов">
@@ -259,7 +271,10 @@
     <div id="install-step" class="muted">подготовка…</div>
     <div class="progress"><div id="install-bar" class="bar" style="width: 5%;"></div></div>
     <div id="install-step-friendly" style="margin: 4px 0 8px 0; font-size: 14px;"></div>
-    <pre id="install-log" class="log"></pre>
+    <div class="log-wrap">
+      <pre id="install-log" class="log"></pre>
+      <button class="btn-copy-log" id="btn-copy-log" title="Скопировать лог">Скопировать лог</button>
+    </div>
     <div class="row" style="justify-content: space-between;">
       <span class="muted" id="install-hint">Не закрывайте страницу до окончания.</span>
       <button class="ghost hidden" id="btn-install-cancel">Отменить</button>
@@ -280,7 +295,7 @@
         Поэтому если установка упала — пожалуйста, не молчите. Я отвечаю всем лично.
       </p>
       <ol class="support-card__steps">
-        <li>Скопируйте полный лог из чёрной рамки выше (кликните в неё → <code>Ctrl+A</code> → <code>Ctrl+C</code>).</li>
+        <li>Нажмите кнопку <strong>«Скопировать лог»</strong> в правом углу чёрной рамки выше.</li>
         <li>Сделайте скриншот этой страницы — по нему видно, на каком шаге упало.</li>
         <li>Пришлите лог и скриншот мне в Telegram — обычно отвечаю в течение дня.</li>
       </ol>
@@ -291,7 +306,7 @@
         </svg>
         Написать мне в Telegram
       </a>
-      <span class="support-card__handle">или вручную: <code>@industrialprofi</code> · спасибо, что помогаете проекту расти</span>
+      <span class="support-card__handle">или вручную: <code>@industrialprofi</code> · спасибо, что помогаете проекту развиваться</span>
     </div>
   </div>
 
@@ -304,7 +319,7 @@
     <h3>Что проверить</h3>
     <ol>
       <li>Подключитесь к Wi-Fi с вашим новым SSID</li>
-      <li>Откройте <a href="https://yandex.ru/internet" target="_blank" style="color:var(--accent)">speedtest.yandex.ru</a> — российский сервис идёт напрямую с полной скоростью</li>
+      <li>Откройте <a href="https://yandex.ru/internet" target="_blank" style="color:var(--accent)">yandex.ru/internet</a> — российский сервис идёт напрямую с полной скоростью</li>
       <li>Откройте <a href="https://speedtest.net" target="_blank" style="color:var(--accent)">speedtest.net</a> — иностранный сервис идёт через VPN-туннель</li>
       <li>Сравните <code>traceroute</code> для обоих — увидите два разных маршрута, это и есть split-routing в работе</li>
     </ol>
@@ -313,7 +328,7 @@
       <strong>🔐 Управление защищено паролем root.</strong>
       Веб-страница <code>/cheburnet/</code> теперь показывает статус без пароля,
       но любое действие (перезапуск VPN, переключение HOME/TRAVEL, смена блок-листа) попросит
-      пароль администратора, который вы задали в шаге 2.
+      пароль администратора (root), который вы задали в шаге 2.
     </div>
 
     <div class="edu" style="margin-top: 12px;">
@@ -419,7 +434,7 @@
 
     <h3>Обновить VPN-конфиг</h3>
     <p class="muted" style="margin-top: 0; margin-bottom: 8px;">
-      Если ваш ключ заблокировали или VPN стал медленным — получите новый
+      Если VPN стал медленным — вставьте новый
       <code>.conf</code>
     </p>
     <input type="file" id="inp-newconf" accept=".conf,text/plain">
@@ -771,6 +786,19 @@ function renderConfirm() {
 
 document.getElementById("btn-confirm-back").onclick = () => goto("wifi");
 document.getElementById("btn-confirm-install").onclick = startInstall;
+
+document.getElementById("btn-copy-log").onclick = function() {
+    const text = document.getElementById("install-log").textContent;
+    const btn = this;
+    navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = "✓ Скопировано";
+        btn.classList.add("copied");
+        setTimeout(() => {
+            btn.textContent = "Скопировать лог";
+            btn.classList.remove("copied");
+        }, 2000);
+    });
+};
 
 // =====================================================================
 // Запуск установки

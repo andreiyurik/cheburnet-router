@@ -333,7 +333,7 @@ hr
 printf "\n"
 printf "${BOLD}Что делать дальше:${N}\n\n"
 printf "  1. Подключитесь к Wi-Fi: ${BOLD}%s${N}\n" "$WIFI_SSID"
-printf "  2. Откройте ${BOLD}speedtest.yandex.ru${N}\n"
+printf "  2. Откройте ${BOLD}yandex.ru/internet${N}\n"
 printf "     Российский сервис — должен работать напрямую\n\n"
 printf "  3. Откройте ${BOLD}speedtest.net${N}\n"
 printf "     Откроется через VPN-туннель\n\n"
