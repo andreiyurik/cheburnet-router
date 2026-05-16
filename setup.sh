@@ -287,9 +287,13 @@ ssh "$ROUTER" "mkdir -p '$INSTALL_DIR' /etc/amnezia/amneziawg /tmp/cheburnet"
 _cleanup_local() { rm -f "$REPO_ROOT/configs/wireless-actual.txt"; }
 trap '_cleanup_local; ssh -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>/dev/null || true' INT TERM ERR
 
-# rsync если есть (быстрее и надёжнее), иначе fallback на tar|ssh.
+# rsync только если он есть С ОБЕИХ СТОРОН. Раньше тут была проверка только
+# на ноуте — но rsync через ssh нуждается в rsync и на удалённой стороне.
+# На дефолтном busybox-OpenWrt rsync нет, ветка падала с «connection unexpectedly closed».
+# tar|ssh работает везде, скорость сопоставимая (gz + одна ssh-сессия).
 # Исключаем .git/, tests/, docs/ — они не нужны на роутере и съедают место.
-if command -v rsync >/dev/null 2>&1; then
+if command -v rsync >/dev/null 2>&1 \
+   && ssh "$ROUTER" 'command -v rsync >/dev/null 2>&1'; then
     rsync -a --delete \
         --exclude='.git' --exclude='tests' --exclude='docs' \
         --exclude='backup' --exclude='assets' --exclude='*.md' \
@@ -301,9 +305,12 @@ else
         . | ssh "$ROUTER" "tar -C '$INSTALL_DIR' -xzf -"
 fi
 
-# AWG-конфиг кладётся в каноническое место (где его ждёт 01-amneziawg.sh)
-scp -q "$REPO_ROOT/configs/awg0.conf" "$ROUTER:/etc/amnezia/amneziawg/awg0.conf"
-ssh "$ROUTER" 'chmod 600 /etc/amnezia/amneziawg/awg0.conf'
+# AWG-конфиг кладётся в каноническое место (где его ждёт 01-amneziawg.sh).
+# Через `ssh ... cat`, не scp: OpenSSH ≥9.0 по умолчанию делает scp поверх
+# sftp-протокола, а на busybox-OpenWrt нет /usr/libexec/sftp-server →
+# падало с «sftp-server: not found». ssh+cat работает на любом sshd.
+ssh "$ROUTER" 'umask 077 && cat > /etc/amnezia/amneziawg/awg0.conf' \
+    < "$REPO_ROOT/configs/awg0.conf"
 
 # Root-пароль передаём через короткоживущий файл (chmod 600), как и веб-мастер.
 # Не светим в args/env — иначе виден в `ps`/`history`. printf | ssh даёт пароль

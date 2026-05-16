@@ -25,3 +25,4 @@ backup/snapshots/
 # Прочее
 *.log
 .env
+/.claude/
