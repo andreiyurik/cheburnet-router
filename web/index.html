@@ -142,10 +142,10 @@
   </div>
 
   <div id="edu" class="edu">
-    <strong>О проекте.</strong> Это демонстрация современных сетевых технологий.
+    <strong>О проекте.</strong> Это демонстрация современных сетевых технологий и открытого ПО.
     VPN-туннели (AmneziaWG/WireGuard) — стандартная индустриальная технология: применяются в
     корпоративных сетях, банкинге, межсерверной связи по всему миру. Здесь мы настраиваем их
-    на домашнем роутере для учебных целей.
+    на домашнем роутере в учебных целях.
   </div>
 
   <!-- ============================================================ -->
@@ -198,10 +198,10 @@
   <!-- Экран 2: пароль администратора -->
   <!-- ============================================================ -->
   <div id="scr-rootpass" class="panel hidden">
-    <h2>Шаг 2 из 4 · Пароль администратора роутера</h2>
-    <p>Сейчас на свежем OpenWrt пароль root пуст — любой в LAN может зайти в LuCI/SSH без пароля. Придумайте пароль администратора: он понадобится для входа в это веб-управление и (опционально) восстановительного SSH-доступа.</p>
+    <h2>Шаг 2 из 4 · Пароль администратора роутера(root пароль)</h2>
+    <p>Сейчас на свежем OpenWrt пароль root пуст — любой в LAN может зайти в LuCI/SSH без пароля. Придумайте пароль администратора: он понадобится для входа в панель управления LuCI и управления режимами роутерам в панели /cheburnet. </p>
 
-    <label>Пароль root (8+ символов):</label>
+    <label>Пароль root (Сложный 8+ символов и обязательно запишите или запомните его):</label>
     <input type="password" id="inp-rootpass" placeholder="минимум 8 символов">
 
     <label>Повторите:</label>
@@ -225,7 +225,7 @@
     <label>Название сети (SSID):</label>
     <input type="text" id="inp-ssid" maxlength="32" placeholder="MyHome">
 
-    <label>Пароль (8+ символов):</label>
+    <label>Пароль WI-FI точки (8+ символов):</label>
     <input type="password" id="inp-pass" placeholder="минимум 8 символов">
 
     <div class="row" style="justify-content: space-between;">
@@ -759,11 +759,11 @@ function renderConfirm() {
     document.getElementById("confirm-title").textContent = "Шаг 4 из 4 · Подтверждение";
     const s = document.getElementById("confirm-summary");
     const rows = [
-        ["Стек",          "AmneziaWG + podkop + split-routing"],
+        ["Технологии",          "AmneziaWG + podkop + split-routing"],
         ["Пароль root",   `задан (${state.rootPass.length} символов)`],
-        ["Wi-Fi",         `${state.ssid} · WPA2/WPA3-mixed`],
+        ["Wi-Fi",         state.ssid],
         ["AWG-конфиг",    `${state.awgConf.split("\n").length} строк, подготовлен`],
-        ["Adblock",       "Hagezi Pro (~200 000 доменов)"],
+        ["Adblock(блок. рекл.)",       "Hagezi Pro (~200 000 доменов)"],
         ["DNS",           "Quad9 DoH"],
     ];
     s.innerHTML = rows.map(([k, v]) => `<dt>${k}:</dt><dd>${escapeHtml(v)}</dd>`).join("");

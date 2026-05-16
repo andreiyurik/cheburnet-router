@@ -150,6 +150,7 @@ cp -r "$SRC/setup"    "$INSTALL_DIR/"
 cp -r "$SRC/scripts"  "$INSTALL_DIR/"
 cp -r "$SRC/configs"  "$INSTALL_DIR/"
 cp -r "$SRC/lib"      "$INSTALL_DIR/"
+cp -r "$SRC/web"      "$INSTALL_DIR/"
 # vendor/ — запасные копии podkop/adblock-lean инсталлеров на случай,
 # если raw.githubusercontent.com заблокирован у пользователя на DPI.
 [ -d "$SRC/vendor" ] && cp -r "$SRC/vendor" "$INSTALL_DIR/"
