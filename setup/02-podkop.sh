@@ -28,7 +28,11 @@ else
        [ -s /tmp/podkop-install.sh ]; then
         echo "  ✓ скачан свежий установщик с upstream"
     elif [ -f "$VENDOR_FILE" ]; then
-        echo "  ⚠ upstream недоступен — использую vendored-копию ($VENDOR_FILE)"
+        # ⚠ → →: для RU-юзера это основной путь (raw.githubusercontent.com
+        # массово закрыт DPI у провайдеров по SNI). Текст «недоступен» юзер
+        # читал как поломку — поэтому переформулировка с «это норма».
+        echo "  → беру установщик podkop из репозитория"
+        echo "    (свежий с github.com не качается — это норма в некоторых странах, не ошибка)"
         cp "$VENDOR_FILE" /tmp/podkop-install.sh
     else
         echo "✗ Не удалось получить podkop installer ни с upstream, ни локально." >&2
@@ -42,6 +46,10 @@ else
     # Вывод сохраняем — нужен для детекции «Insufficient space in flash»
     # и других permanent-ошибок, по которым повторять бессмысленно.
     INSTALLER_LOG=/tmp/podkop-installer.log
+    # Установщик пишет в файл (нужен для grep по Insufficient space ниже),
+    # за ~30-90с apk update + download юзер ничего не видит. В Web-UI это
+    # читается как «зависло» — поэтому head-up строка о том, что идёт работа.
+    echo "  → ставлю пакеты (sing-box + kmod-tproxy + podkop, ~30-90с)..."
     yes n | sh /tmp/podkop-install.sh >"$INSTALLER_LOG" 2>&1
     tail -20 "$INSTALLER_LOG"
 

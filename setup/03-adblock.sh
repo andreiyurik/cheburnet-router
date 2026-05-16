@@ -24,7 +24,8 @@ else
        [ -s /tmp/abl-install.sh ]; then
         echo "  ✓ скачан свежий установщик с upstream"
     elif [ -f "$VENDOR_FILE" ]; then
-        echo "  ⚠ upstream недоступен — использую vendored-копию ($VENDOR_FILE)"
+        echo "  → беру установщик adblock-lean из репозитория"
+        echo "    (свежий с github.com не качается — это норма в некоторых странах, не ошибка)"
         cp "$VENDOR_FILE" /tmp/abl-install.sh
     else
         echo "✗ Не удалось получить adblock-lean installer ни с upstream, ни локально." >&2
