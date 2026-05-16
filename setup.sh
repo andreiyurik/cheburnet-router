@@ -247,11 +247,20 @@ read -r _
 
 # ── Сохраняем конфиги ──────────────────────────────────────────────────
 printf "\n"
-cat > "$REPO_ROOT/configs/wireless-actual.txt" << EOF
-WIFI_SSID="$WIFI_SSID"
-WIFI_KEY="$WIFI_KEY"
-WIFI_COUNTRY="$WIFI_COUNTRY"
-EOF
+
+# Heredoc без quoted-EOF интерполировал бы $ ` \ внутри WIFI_KEY — типичный
+# Wi-Fi пароль вроде `S3$nake!` ехал бы на роутер уже изуродованным.
+# POSIX single-quote escape: ' → '\''. Файл потом source'ится install.sh.
+shq() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+umask 077
+{
+    printf 'WIFI_SSID=%s\n'    "$(shq "$WIFI_SSID")"
+    printf 'WIFI_KEY=%s\n'     "$(shq "$WIFI_KEY")"
+    printf 'WIFI_COUNTRY=%s\n' "$(shq "$WIFI_COUNTRY")"
+} > "$REPO_ROOT/configs/wireless-actual.txt"
+umask 022
 ok "Wi-Fi конфиг сохранён"
 
 cp "$CONF_PATH" "$REPO_ROOT/configs/awg0.conf"
@@ -274,7 +283,9 @@ ssh "$ROUTER" "mkdir -p '$INSTALL_DIR' /etc/amnezia/amneziawg /tmp/cheburnet"
 # install.sh поверх частичных файлов даёт cryptic ошибки. Trap снимает
 # мусор на ошибке; снимаем сам trap после deployment чтобы фейлы install.sh
 # не стирали install.log — он нужен для пост-мортема.
-trap 'ssh -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>/dev/null || true' INT TERM ERR
+# wireless-actual.txt (Wi-Fi пароль в plaintext) убираем локально на любом выходе.
+_cleanup_local() { rm -f "$REPO_ROOT/configs/wireless-actual.txt"; }
+trap '_cleanup_local; ssh -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>/dev/null || true' INT TERM ERR
 
 # rsync если есть (быстрее и надёжнее), иначе fallback на tar|ssh.
 # Исключаем .git/, tests/, docs/ — они не нужны на роутере и съедают место.
@@ -305,6 +316,9 @@ trap - INT TERM ERR
 ok "Файлы скопированы — запускаю установку"
 printf "\n"
 ssh -t "$ROUTER" "$INSTALL_DIR/setup/install.sh"
+
+# Plaintext Wi-Fi пароль на ноуте больше не нужен — на роутер он уехал, дальше держать незачем.
+_cleanup_local
 
 # ══════════════════════════════════════════════════════════════════════
 # Финал

@@ -122,23 +122,70 @@ EOF
     [ "$output" = "192.168.1.0/24" ]
 }
 
-@test "net_lan_cidr: CIDR-форма ipaddr корректно срезается перед ipcalc" {
-    # Если uci отдаёт "192.168.1.1/24" (OpenWrt 25.12+), функция должна
-    # перед передачей в ipcalc.sh срезать "/24". Иначе ipcalc упадёт.
+@test "net_lan_cidr: CIDR-форма ipaddr использует prefix из самого ipaddr" {
+    # На OpenWrt 25.12+ uci отдаёт ipaddr как '192.168.1.1/24'. Раньше функция
+    # стрипала /24 и шла за prefix в network.lan.netmask — на нестандартных
+    # масках (/16, /23) netmask мог отсутствовать или быть неверным, и
+    # fallback на 255.255.255.0 ломал routing/kill-switch. Новый контракт:
+    # если prefix в ipaddr есть — используем его как single source of truth,
+    # netmask не трогаем.
     cat > "$MOCKDIR/ipcalc.sh" <<'EOF'
 #!/bin/sh
-# Этот mock падает если в IP есть слэш — это и есть проверка контракта.
-case "$1" in
-    */*) echo "ERROR: ipaddr with mask passed to ipcalc: $1" >&2; exit 1;;
-    *)   echo "NETWORK=192.168.1.0"; echo "PREFIX=24" ;;
+# Принимаем оба контракта ipcalc.sh: 'ip/prefix' одним аргументом
+# (приоритетный путь для 25.12+) и 'ip mask' двумя (legacy).
+case "$#" in
+    1)
+        case "$1" in
+            *.*.*.*/*)
+                _ip="${1%/*}"; _pfx="${1##*/}"
+                # network = ip с занулённым последним октетом для /16..24;
+                # для теста достаточно сэмулировать /24, /16.
+                case "$_pfx" in
+                    24) echo "NETWORK=${_ip%.*}.0"; echo "PREFIX=24" ;;
+                    16) echo "NETWORK=$(echo "$_ip" | awk -F. '{print $1"."$2".0.0"}')"; echo "PREFIX=16" ;;
+                    *)  echo "NETWORK=${_ip%.*}.0"; echo "PREFIX=$_pfx" ;;
+                esac
+                ;;
+            *) exit 1 ;;
+        esac
+        ;;
+    2)
+        case "$2" in
+            255.255.255.0) echo "NETWORK=${1%.*}.0"; echo "PREFIX=24" ;;
+            *) exit 1 ;;
+        esac
+        ;;
 esac
 EOF
     chmod +x "$MOCKDIR/ipcalc.sh"
 
     uci set network.lan.ipaddr=192.168.1.1/24
-    uci set network.lan.netmask=255.255.255.0
+    # netmask намеренно НЕ выставляем — функция не должна его трогать при наличии prefix в ipaddr.
 
     run net_lan_cidr
     [ "$status" -eq 0 ]
     [ "$output" = "192.168.1.0/24" ]
+}
+
+@test "net_lan_cidr: нестандартный prefix /16 берётся из ipaddr, а не из дефолтной /24-маски" {
+    # Регресс-тест на ранее тихий баг: при ipaddr=10.0.0.1/16 и отсутствующей
+    # network.lan.netmask старый код стрипал /16, шёл к netmask и получал
+    # дефолт 255.255.255.0 → возвращал 10.0.0.0/24. Это ломало fully_routed_ips
+    # в подkop'е (часть LAN-клиентов оставалась вне source-based routing) и
+    # kill-switch (правило не матчило). Проверяем что /16 теперь сохраняется.
+    cat > "$MOCKDIR/ipcalc.sh" <<'EOF'
+#!/bin/sh
+case "$1" in
+    10.0.0.1/16) echo "NETWORK=10.0.0.0"; echo "PREFIX=16" ;;
+    *) exit 1 ;;
+esac
+EOF
+    chmod +x "$MOCKDIR/ipcalc.sh"
+
+    uci set network.lan.ipaddr=10.0.0.1/16
+    # netmask отсутствует — на 25.12+ это норма.
+
+    run net_lan_cidr
+    [ "$status" -eq 0 ]
+    [ "$output" = "10.0.0.0/16" ]
 }
