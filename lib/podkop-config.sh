@@ -30,6 +30,13 @@
 podkop_apply_main_section() {
     _lan_cidr="$1"
 
+    # Upstream-дефолт = br-lan, но при upgrade подkop'а installer перекачивает
+    # /etc/config/podkop через wget — на DPI-сетях он молча падает и settings
+    # приезжает пустым. Без source_network_interfaces подkop не маркирует LAN,
+    # пакеты проваливаются в forward_lan → KillSwitch DROP → нет интернета.
+    uci -q delete podkop.settings.source_network_interfaces 2>/dev/null || true
+    uci add_list podkop.settings.source_network_interfaces='br-lan'
+
     uci set podkop.main.connection_type='vpn'
     uci set podkop.main.interface='awg0'
     uci set podkop.main.user_domain_list_type='dynamic'

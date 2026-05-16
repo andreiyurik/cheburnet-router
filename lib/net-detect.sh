@@ -61,14 +61,32 @@ net_lan_cidr() {
     fi
 
     if [ -z "$_cidr" ]; then
-        _ip=$(uci -q get network.lan.ipaddr 2>/dev/null)
-        _ip=${_ip%%/*}
-        _mask=$(uci -q get network.lan.netmask 2>/dev/null || echo "255.255.255.0")
-        if [ -n "$_ip" ] && command -v ipcalc.sh >/dev/null 2>&1; then
-            _cidr=$(ipcalc.sh "$_ip" "$_mask" 2>/dev/null \
-                | awk -F= '/^NETWORK/{n=$2} /^PREFIX/{p=$2} END{if(n && p) print n"/"p}')
-        fi
-        unset _ip _mask
+        _raw=$(uci -q get network.lan.ipaddr 2>/dev/null)
+        case "$_raw" in
+            */*)
+                # 25.12+ хранит '192.168.1.1/24' — prefix вытаскиваем из самого
+                # ipaddr, БЕЗ обращения к netmask. Раньше код стрипал /NN и шёл
+                # к netmask, которой в этом формате нет → fallback на 255.255.255.0
+                # → на /16-сетях получали неверный CIDR.
+                _ip="${_raw%/*}"
+                _pfx="${_raw##*/}"
+                if [ -n "$_ip" ] && [ -n "$_pfx" ] && command -v ipcalc.sh >/dev/null 2>&1; then
+                    _cidr=$(ipcalc.sh "$_ip/$_pfx" 2>/dev/null \
+                        | awk -F= '/^NETWORK/{n=$2} /^PREFIX/{p=$2} END{if(n && p) print n"/"p}')
+                fi
+                unset _ip _pfx
+                ;;
+            ?*)
+                # Legacy-формат '192.168.1.1' + отдельный netmask.
+                _mask=$(uci -q get network.lan.netmask 2>/dev/null || echo "255.255.255.0")
+                if command -v ipcalc.sh >/dev/null 2>&1; then
+                    _cidr=$(ipcalc.sh "$_raw" "$_mask" 2>/dev/null \
+                        | awk -F= '/^NETWORK/{n=$2} /^PREFIX/{p=$2} END{if(n && p) print n"/"p}')
+                fi
+                unset _mask
+                ;;
+        esac
+        unset _raw
     fi
 
     if [ -z "$_cidr" ]; then
