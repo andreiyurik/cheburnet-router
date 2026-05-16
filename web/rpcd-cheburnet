@@ -4,7 +4,7 @@
 #
 # Методы:
 #   get_status         — состояние системы (режим, установлен ли VPN, handshake AWG, running-сервисы)
-#   install_start      — запустить установку (ssid, wifi_key, country, awg_conf, root_pass)
+#   install_start      — запустить установку (ssid, wifi_key, awg_conf, root_pass)
 #   install_progress   — текущий шаг + последние 5000 байт логов + done-флаг
 #   install_cancel     — пометить установку как отменённую (реально не убивает процесс)
 #   mode_switch        — переключить HOME/TRAVEL
@@ -95,7 +95,6 @@ if [ "$1" = "list" ]; then
     "install_start": {
         "ssid": "str",
         "wifi_key": "str",
-        "country": "str",
         "awg_conf": "str",
         "root_pass": "str",
         "token": "str"
@@ -248,7 +247,6 @@ EOF
 
         SSID=$(jf '@.ssid')
         WIFI_KEY=$(jf '@.wifi_key')
-        COUNTRY=$(jf '@.country')
         AWG_CONF=$(jf '@.awg_conf')
         ROOT_PASS=$(jf '@.root_pass')
 
@@ -256,7 +254,6 @@ EOF
         [ -z "$SSID" ]     && { echo '{"error": "ssid required"}'; exit 0; }
         [ -z "$WIFI_KEY" ] && { echo '{"error": "wifi_key required"}'; exit 0; }
         [ "${#WIFI_KEY}" -lt 8 ] && { echo '{"error": "wifi_key must be >= 8 chars"}'; exit 0; }
-        [ -z "$COUNTRY" ]  && COUNTRY="RU"
         [ -z "$ROOT_PASS" ] && { echo '{"error": "root_pass required"}'; exit 0; }
         [ "${#ROOT_PASS}" -lt 8 ] && { echo '{"error": "root_pass must be >= 8 chars"}'; exit 0; }
 
@@ -278,7 +275,6 @@ EOF
         cat > "$INSTALL_DIR/configs/wireless-actual.txt" <<EOF
 WIFI_SSID="$SSID"
 WIFI_KEY="$WIFI_KEY"
-WIFI_COUNTRY="$COUNTRY"
 EOF
         chmod 600 "$INSTALL_DIR/configs/wireless-actual.txt"
 
