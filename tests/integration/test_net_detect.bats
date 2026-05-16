@@ -167,6 +167,28 @@ EOF
     [ "$output" = "192.168.1.0/24" ]
 }
 
+@test "net_lan_cidr: host-биты в CIDR-форме нормализуются до network-address" {
+    # На OpenWrt 25.12 netifd возвращает '192.168.1.1/24' (IP с маской), не
+    # network-форму. В подkop эта строка уходит в `fully_routed_ips` как есть,
+    # и хотя sing-box CIDR парсит корректно, для дебага хочется видеть
+    # каноническое '192.168.1.0/24'. Регресс на это поведение.
+    cat > "$MOCKDIR/ipcalc.sh" <<'EOF'
+#!/bin/sh
+case "$1" in
+    192.168.1.1/24) echo "NETWORK=192.168.1.0"; echo "PREFIX=24" ;;
+    192.168.1.0/24) echo "NETWORK=192.168.1.0"; echo "PREFIX=24" ;;
+    *) exit 1 ;;
+esac
+EOF
+    chmod +x "$MOCKDIR/ipcalc.sh"
+
+    uci set network.lan.ipaddr=192.168.1.1/24
+
+    run net_lan_cidr
+    [ "$status" -eq 0 ]
+    [ "$output" = "192.168.1.0/24" ]
+}
+
 @test "net_lan_cidr: нестандартный prefix /16 берётся из ipaddr, а не из дефолтной /24-маски" {
     # Регресс-тест на ранее тихий баг: при ipaddr=10.0.0.1/16 и отсутствующей
     # network.lan.netmask старый код стрипал /16, шёл к netmask и получал
