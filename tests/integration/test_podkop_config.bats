@@ -128,13 +128,13 @@ assert_uci_called() {
 
 # ─── podkop_apply_travel ──────────────────────────────────────────────────────
 
-@test "podkop_apply_travel: стирает все исключения exclude_ru" {
-    # TRAVEL = full tunnel. Если RU-исключения остались — это утечка
-    # (часть трафика идёт мимо VPN с не-VPN IP).
+@test "podkop_apply_travel: удаляет секцию exclude_ru целиком" {
+    # TRAVEL = full tunnel. Удаляем всю секцию — только так podkop перестаёт
+    # генерировать direct-out в sing-box. Очистка полей без удаления секции
+    # недостаточна: podkop видит connection_type='exclusion' и вставляет прямой
+    # маршрут. Был incident в проде (HOME и TRAVEL давали идентичный sing-box).
     podkop_apply_travel
-    assert_uci_called "delete podkop.exclude_ru.community_lists"
-    assert_uci_called "delete podkop.exclude_ru.user_domains"
-    assert_uci_called "delete podkop.exclude_ru.user_domain_list_type"
+    assert_uci_called "delete podkop.exclude_ru"
 }
 
 @test "podkop_apply_travel: коммитит podkop" {
@@ -142,14 +142,13 @@ assert_uci_called() {
     assert_uci_called "commit podkop"
 }
 
-@test "podkop_apply_travel: НЕ удаляет саму секцию exclude_ru" {
-    # Чтобы возврат в HOME через podkop_apply_home не требовал add-секции.
+@test "podkop_apply_travel: подkop_apply_home воссоздаёт секцию после travel" {
+    # podkop_apply_home использует `uci set podkop.exclude_ru=section`, что
+    # воссоздаёт секцию если её нет — возврат HOME после TRAVEL корректен.
     podkop_apply_travel
-    if grep -qE "delete podkop\.exclude_ru$" "$CALLS_DIR/uci"; then
-        echo "FAIL: travel не должен удалять секцию exclude_ru целиком" >&2
-        cat "$CALLS_DIR/uci" >&2
-        return 1
-    fi
+    podkop_apply_home
+    assert_uci_called "set podkop.exclude_ru=section"
+    assert_uci_called "add_list podkop.exclude_ru.community_lists=russia_outside"
 }
 
 # ─── HOME ⇄ TRAVEL композиция ────────────────────────────────────────────────
@@ -164,8 +163,8 @@ assert_uci_called() {
     # Последний должен быть стирающим travel; смотрим что хвост журнала
     # содержит delete'ы exclude_ru, а не добавления.
     tail_calls="$(tail -10 "$CALLS_DIR/uci")"
-    if ! echo "$tail_calls" | grep -qF "delete podkop.exclude_ru.community_lists"; then
-        echo "FAIL: финальный travel не очистил community_lists" >&2
+    if ! echo "$tail_calls" | grep -qE "delete podkop\.exclude_ru$"; then
+        echo "FAIL: финальный travel не удалил секцию exclude_ru" >&2
         echo "--- last 10 calls ---" >&2
         echo "$tail_calls" >&2
         return 1
