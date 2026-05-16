@@ -239,8 +239,15 @@ if ! with_retry 120 3 "apk update" apk update; then
     # Берём SHA256SUMS текущего релиза — короткий файл, гарантированно
     # существует. DISTRIB_RELEASE уже sourced на старте install.sh.
     OPENWRT_PROBE_URL="https://downloads.openwrt.org/releases/${DISTRIB_RELEASE:-25.12.2}/SHA256SUMS"
-    OPENWRT_ERR=$(wget -qO /dev/null --timeout=8 "$OPENWRT_PROBE_URL" 2>&1)
-    OPENWRT_RC=$?
+    # КРИТИЧНО: `var=$(cmd)` под `set -e` в busybox ash убивает скрипт,
+    # если cmd возвращает non-zero. А wget тут как раз и должен упасть —
+    # это нормальная ветка (DPI). Оборачиваем в `|| OPENWRT_RC=$?`:
+    # это conditional-context, set -e не применяется, rc корректно ловится.
+    # Без этого скрипт молча умирал прямо на тесте 4 и вердикт не печатался.
+    OPENWRT_ERR=""
+    OPENWRT_RC=0
+    OPENWRT_ERR=$(wget -qO /dev/null --timeout=8 "$OPENWRT_PROBE_URL" 2>&1) \
+        || OPENWRT_RC=$?
     # Сигнатуры именно SNI/DPI-блока (а не 404, redirect и т.п.): EPERM на
     # send(), TCP RST от middlebox'а, connection refused, или таймаут на
     # самом TLS handshake. Эти строки отдаёт BusyBox wget на низкоуровневых
