@@ -44,12 +44,12 @@ LAN_CIDR=$(net_lan_cidr) || {
 . /lib/functions/network.sh
 network_flush_cache
 
-# WAN-устройство для oifname в nft. На разных платформах имя различается:
-# wan, eth1, wan@eth0 — резолвим через netifd, не угадываем.
-# Цепочка источников: netifd runtime → UCI config → fail.
-# UCI-fallback нужен потому, что netifd на свежем boot мог ещё не успеть
-# поднять линк и резолвинг через network_get_device возвращает пусто; имя
-# L2-устройства из конфига при этом уже доступно.
+# WAN- и LAN-устройства для nft-фильтров. На разных платформах имена различаются
+# (wan, eth1, wan@eth0; br-lan, br0) — резолвим через netifd, не угадываем.
+# Цепочка: netifd runtime → UCI config → fail. UCI-fallback нужен потому,
+# что netifd на свежем boot мог ещё не успеть поднять линк, и резолвинг
+# через network_get_device возвращает пусто; имя L2-устройства из конфига
+# при этом уже доступно.
 WAN_DEV=""
 network_get_device WAN_DEV wan 2>/dev/null || true
 if [ -z "$WAN_DEV" ]; then
@@ -61,7 +61,18 @@ if [ -z "$WAN_DEV" ]; then
     exit 1
 fi
 
-echo "→ LAN=$LAN_CIDR, WAN-dev=$WAN_DEV"
+LAN_DEV=""
+network_get_device LAN_DEV lan 2>/dev/null || true
+if [ -z "$LAN_DEV" ]; then
+    LAN_DEV=$(uci -q get network.lan.device || true)
+fi
+if [ -z "$LAN_DEV" ]; then
+    echo "✗ Не удалось определить LAN-устройство (ни через netifd, ни через uci network.lan.device)." >&2
+    cheburnet_diag_network
+    exit 1
+fi
+
+echo "→ LAN=$LAN_CIDR (dev=$LAN_DEV), WAN-dev=$WAN_DEV"
 
 # === 2. UCI: пишем правила в /etc/config/firewall для персистентности.
 # При reboot fw4 регенерирует весь ruleset из UCI и наши правила вернутся
@@ -96,9 +107,13 @@ cheburnet_fw4_apply_rule forward_lan \
     "KillSwitch-IPv4-LAN-direct-egress" \
     "ip saddr $LAN_CIDR oifname \"$WAN_DEV\" counter drop"
 
+# Без iifname-фильтра правило дропало бы ВЕСЬ IPv6, выходящий через WAN-dev —
+# в т.ч. трафик роутера-самого-себя (apk update по AAAA, NTPv6). Ограничиваем
+# его пакетами, пришедшими с LAN-bridge: ровно то, что в UCI-аналоге задано
+# как src='lan' dest='wan' family='ipv6'.
 cheburnet_fw4_apply_rule forward_lan \
     "KillSwitch-IPv6-LAN-direct-egress" \
-    "meta nfproto ipv6 oifname \"$WAN_DEV\" counter drop"
+    "meta nfproto ipv6 iifname \"$LAN_DEV\" oifname \"$WAN_DEV\" counter drop"
 
 # === 4. Проверка ===
 if nft list chain inet fw4 forward_lan 2>/dev/null | grep -q KillSwitch; then

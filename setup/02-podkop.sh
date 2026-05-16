@@ -133,25 +133,39 @@ podkop_apply_home
 uci set podkop.settings.log_level='warn'
 uci commit podkop
 
-# === 3. Enable + start ===
-echo "→ enable + start podkop"
+# === 3. Enable + start + ожидание готовности ===
+# Раньше тут было `restart &` + `sleep 10`: на медленной железке sing-box не
+# успевал стартовать, проверки ниже печатали ⚠ — а 07-killswitch потом
+# активировал KillSwitch поверх неработающего sing-box. Юзер получал
+# «нет интернета» при `done=ok` в логе. Теперь — синхронный restart и
+# блокирующий poll до двух условий: процесс sing-box жив И nft-таблица
+# PodkopTable создана. Без обоих идти в KillSwitch нельзя.
+echo "→ enable + start podkop, жду готовности sing-box и PodkopTable..."
 /etc/init.d/podkop enable
-/etc/init.d/podkop restart >/dev/null 2>&1 &
-sleep 10
+/etc/init.d/podkop restart >/dev/null 2>&1
+_r=0
+while [ "$_r" -lt 30 ]; do
+    if pidof sing-box >/dev/null 2>&1 \
+       && nft list table inet PodkopTable >/dev/null 2>&1; then
+        break
+    fi
+    _r=$((_r + 1))
+    sleep 1
+done
 
-# === 4. Проверка ===
-echo "→ проверяем"
-if /etc/init.d/sing-box status | grep -q running 2>/dev/null; then
-    echo "✓ sing-box running"
-else
-    echo "⚠ sing-box не работает — см. logread | grep sing-box"
+if ! pidof sing-box >/dev/null 2>&1; then
+    echo "✗ sing-box не запустился за 30 секунд." >&2
+    echo "  Диагностика (последние 20 строк logread):" >&2
+    logread -e sing-box 2>/dev/null | tail -20 >&2 || true
+    echo "  Полный лог:  logread -e sing-box | tail -100" >&2
+    exit 1
 fi
-
-# Проверка nft правил
-if nft list table inet PodkopTable >/dev/null 2>&1; then
-    echo "✓ nft PodkopTable установлен"
-else
-    echo "⚠ nft-правила подkop'а отсутствуют"
+if ! nft list table inet PodkopTable >/dev/null 2>&1; then
+    echo "✗ Подkop не создал nft-таблицу PodkopTable за 30 секунд." >&2
+    echo "  Без неё split-routing не работает — kill-switch заблокирует весь LAN." >&2
+    echo "  Диагностика:  podkop check_nft_rules ; logread -e podkop | tail -40" >&2
+    exit 1
 fi
+echo "✓ sing-box запущен, PodkopTable активна"
 
 echo "✓ podkop OK"

@@ -30,6 +30,13 @@
 podkop_apply_main_section() {
     _lan_cidr="$1"
 
+    # Upstream-дефолт = br-lan, но при upgrade подkop'а installer перекачивает
+    # /etc/config/podkop через wget — на DPI-сетях он молча падает и settings
+    # приезжает пустым. Без source_network_interfaces подkop не маркирует LAN,
+    # пакеты проваливаются в forward_lan → KillSwitch DROP → нет интернета.
+    uci -q delete podkop.settings.source_network_interfaces 2>/dev/null || true
+    uci add_list podkop.settings.source_network_interfaces='br-lan'
+
     uci set podkop.main.connection_type='vpn'
     uci set podkop.main.interface='awg0'
     uci set podkop.main.user_domain_list_type='dynamic'
@@ -69,13 +76,12 @@ podkop_apply_home() {
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # TRAVEL-режим: full tunnel — весь трафик через VPN, без исключений.
-# Чистит exclude_ru (user_domains, community_lists, user_domain_list_type).
-# Саму секцию не удаляем, чтобы при возврате в HOME её можно было заново
-# наполнить через podkop_apply_home без add_section.
+# Удаляем секцию exclude_ru целиком — только так podkop перестаёт генерировать
+# правило direct-out в sing-box. Очистка полей секции без её удаления недостаточна:
+# podkop видит connection_type='exclusion' и всё равно вставляет прямой маршрут.
+# podkop_apply_home воссоздаёт секцию через `uci set podkop.exclude_ru=section`.
 podkop_apply_travel() {
-    uci -q delete podkop.exclude_ru.community_lists 2>/dev/null || true
-    uci -q delete podkop.exclude_ru.user_domains 2>/dev/null || true
-    uci -q delete podkop.exclude_ru.user_domain_list_type 2>/dev/null || true
+    uci -q delete podkop.exclude_ru 2>/dev/null || true
     uci commit podkop
 }
 

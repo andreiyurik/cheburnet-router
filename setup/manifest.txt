@@ -23,6 +23,12 @@ scripts/sqm-tune                       /usr/bin/sqm-tune                       7
 # === Hotplug (kernel-вызовы, не пользовательские) ===
 scripts/hotplug/iface/30-adblock       /etc/hotplug.d/iface/30-adblock         755
 
+# === Веб-мастер ===
+web/rpcd-cheburnet                     /usr/libexec/rpcd/cheburnet             755
+web/index.html                         /www/cheburnet/index.html               644
+web/favicon.png                        /www/cheburnet/favicon.png              644
+web/cheburashka.png                    /www/cheburnet/cheburashka.png          644
+
 # === Системные конфиги ===
 configs/sysupgrade.conf                /etc/sysupgrade.conf                    644
 configs/adblock-lean.config.txt        /etc/adblock-lean/config                644

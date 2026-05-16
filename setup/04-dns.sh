@@ -15,8 +15,26 @@ uci commit podkop
 [ -x /usr/bin/dns-provider ] || echo "⚠ /usr/bin/dns-provider отсутствует — статус через vpn-mode не будет показывать DNS"
 
 # === 3. Reload podkop для применения нового DNS ===
-/etc/init.d/podkop reload >/dev/null 2>&1 &
-sleep 8
+# Синхронно, плюс короткий poll: ждём пока sing-box перепрочитает конфиг
+# и снова откроет listener на 127.0.0.42:53. Без verify предыдущая версия
+# делала reload в фон, спала 8 сек и проверяла резолв — на медленной железке
+# sing-box ещё доходил, тест падал, а установка катилась дальше с broken DNS.
+/etc/init.d/podkop reload >/dev/null 2>&1
+_r=0
+while [ "$_r" -lt 20 ]; do
+    pidof sing-box >/dev/null 2>&1 \
+        && nft list table inet PodkopTable >/dev/null 2>&1 \
+        && break
+    _r=$((_r + 1))
+    sleep 1
+done
+
+if ! pidof sing-box >/dev/null 2>&1; then
+    echo "✗ sing-box упал после reload с новым DNS-конфигом." >&2
+    echo "  Часто это значит, что bootstrap_dns_server (1.1.1.1) недоступен" >&2
+    echo "  у вашего провайдера. Диагностика:  logread -e sing-box | tail -30" >&2
+    exit 1
+fi
 
 # === 4. Проверка ===
 if /usr/bin/dns-provider status 2>/dev/null | grep -q Quad9; then

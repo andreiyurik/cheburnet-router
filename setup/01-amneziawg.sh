@@ -298,6 +298,10 @@ if [ -n "$I1" ] || [ -n "$S3" ] || [ -n "$S4" ] || [ "$_h_has_ranges" = "1" ]; t
         [ -n "$H4" ] && uci set network.awg0.awg_h4="$H4"
     fi
     uci commit network
+    # Без ifdown/ifup runtime awg0 остаётся с конфигом ПОСЛЕДНЕГО fallback'а,
+    # а UCI расходится — на повторном запуске установщика юзер бы каждый раз
+    # терял те же ~3 минуты на одну и ту же серию fallback'ов.
+    ifdown awg0 2>/dev/null; sleep 2; ifup awg0 2>/dev/null || true
 fi
 unset _h_has_ranges
 echo "Диагностика:"

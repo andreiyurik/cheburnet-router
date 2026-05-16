@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>cheburnet-router · образовательный OpenWrt-стенд</title>
+<link rel="icon" type="image/png" href="favicon.png">
 <style>
   :root {
     --bg: #0e1013;
@@ -110,6 +111,13 @@
   .donate-footer .donate-body a { color: var(--accent); text-decoration: none; }
   .donate-footer .donate-body a:hover { text-decoration: underline; }
   .ok-msg  { color: var(--ok);  background: rgba(59, 194, 114, 0.08); border: 1px solid rgba(59, 194, 114, 0.3);  padding: 10px 14px; border-radius: 8px; margin: 8px 0; font-size: 14px; }
+  #toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; max-width: 320px; pointer-events: none; }
+  .toast { padding: 11px 14px; border-radius: 8px; font-size: 14px; line-height: 1.4; pointer-events: auto; cursor: default; animation: toast-in 0.18s ease; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+  .toast-ok   { background: #152b1e; border: 1px solid var(--ok);   color: #6ddfa0; }
+  .toast-err  { background: #2b1515; border: 1px solid var(--err);  color: #ff8f8f; cursor: pointer; }
+  .toast-info { background: var(--panel); border: 1px solid var(--border); color: var(--muted); }
+  @keyframes toast-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+  @media (max-width: 400px) { #toast-container { left: 12px; right: 12px; max-width: none; } }
   .toggle { position: relative; display: inline-block; width: 48px; height: 26px; flex: 0 0 auto; }
   .toggle input { opacity: 0; width: 0; height: 0; margin: 0; }
   .toggle .slider { position: absolute; inset: 0; cursor: pointer; background: var(--panel-2); border: 1px solid var(--border); border-radius: 26px; transition: background 0.15s, border-color 0.15s; }
@@ -123,9 +131,15 @@
 </style>
 </head>
 <body>
+<div id="toast-container"></div>
 <div class="wrap">
-  <h1>cheburnet-router</h1>
-  <div class="tagline">Образовательный OpenWrt-стенд — AmneziaWG, split-routing, DoH, kill switch.</div>
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;">
+    <img src="cheburashka.png" width="72" height="72" alt="" style="flex:0 0 auto;">
+    <div>
+      <h1 style="margin:0;">cheburnet-router</h1>
+      <div class="tagline" style="margin:2px 0 0;">Образовательный OpenWrt-стенд — AmneziaWG, split-routing, DoH, kill switch. <a href="https://github.com/yurik2718/cheburnet-router/tree/master/docs" target="_blank" rel="noopener" style="color:var(--accent);font-size:13px;white-space:nowrap;">Документация →</a></div>
+    </div>
+  </div>
 
   <div id="edu" class="edu">
     <strong>О проекте.</strong> Это демонстрация современных сетевых технологий.
@@ -157,7 +171,7 @@
       </p>
     </div>
 
-    <p>Загрузите <code>.conf</code>-файл от вашего AmneziaWG-сервера. В приложении Amnezia: Настройки → Сервер → Поделиться → Экспорт конфигурации.</p>
+    <p>Загрузите <code>.conf</code>-файл от вашего AmneziaWG-сервера. В личном кабинете Amnezia Premium -> Файлы конфигурации -> Открыть</p>
 
     <div class="edu" style="margin: 12px 0;">
       <strong>Нет своего сервера?</strong> Самый простой вариант —
@@ -213,18 +227,6 @@
 
     <label>Пароль (8+ символов):</label>
     <input type="password" id="inp-pass" placeholder="минимум 8 символов">
-
-    <label>Код страны:</label>
-    <select id="inp-country">
-      <option value="RU" selected>RU — Россия</option>
-      <option value="BY">BY — Беларусь</option>
-      <option value="KZ">KZ — Казахстан</option>
-      <option value="AM">AM — Армения</option>
-      <option value="GE">GE — Грузия</option>
-      <option value="US">US — США</option>
-      <option value="DE">DE — Германия</option>
-      <option value="TR">TR — Турция</option>
-    </select>
 
     <div class="row" style="justify-content: space-between;">
       <button class="ghost" id="btn-wifi-back">← Назад</button>
@@ -330,7 +332,7 @@
     <details class="donate-footer">
       <summary>❤ Поддержать проект</summary>
       <div class="donate-body">
-        <p>Я веду проект сам. Если cheburnet-router сэкономил вам время — донат поможет проекту жить дальше.</p>
+        <p>Я веду проект сам. Если cheburnet-router сэкономил вам время — донат поможет проекту жить дальше и развиваться.</p>
         <dl>
           <dt>💳 Карта / СБП</dt><dd><a href="https://pay.cloudtips.ru/p/61fe8ef3" target="_blank" rel="noopener">pay.cloudtips.ru/p/61fe8ef3</a></dd>
           <dt>💎 TON</dt><dd><code>UQC2KsPX-Ad9P8x_VbN3GHbpacOMvYPIbZvLppb-sxJ88KfV</code></dd>
@@ -418,8 +420,7 @@
     <h3>Обновить VPN-конфиг</h3>
     <p class="muted" style="margin-top: 0; margin-bottom: 8px;">
       Если ваш ключ заблокировали или VPN стал медленным — получите новый
-      <code>.conf</code> в Amnezia (Настройки → Сервер → Поделиться → Экспорт)
-      и загрузите его сюда. Старый конфиг сохранится на случай отката.
+      <code>.conf</code>
     </p>
     <input type="file" id="inp-newconf" accept=".conf,text/plain">
     <textarea id="ta-newconf" rows="4" placeholder="...или вставьте текст конфига"></textarea>
@@ -441,8 +442,6 @@
       <button id="btn-factory-reset" class="ghost" style="border-color: var(--err); color: var(--err);">⚠ Сбросить до заводских</button>
     </div>
 
-    <div id="mgmt-msg" class="hidden"></div>
-
     <p class="muted" style="margin-top: 24px;">
       Статус обновляется каждые 15 секунд. Полные логи через SSH: <code>ssh root@<span class="js-router-host">192.168.1.1</span> logread</code>
     </p>
@@ -450,7 +449,7 @@
     <details class="donate-footer">
       <summary>❤ Поддержать проект</summary>
       <div class="donate-body">
-        <p>Я веду проект сам. Если cheburnet-router сэкономил вам время — донат поможет проекту жить дальше.</p>
+        <p>Я веду проект сам. Если cheburnet-router сэкономил вам время — донат поможет проекту жить дальше и развиваться.</p>
         <dl>
           <dt>💳 Карта / СБП</dt><dd><a href="https://pay.cloudtips.ru/p/61fe8ef3" target="_blank" rel="noopener">pay.cloudtips.ru/p/61fe8ef3</a></dd>
           <dt>💎 TON</dt><dd><code>UQC2KsPX-Ad9P8x_VbN3GHbpacOMvYPIbZvLppb-sxJ88KfV</code></dd>
@@ -606,7 +605,6 @@ const state = {
     rootPass: "",
     ssid: "",
     wifiKey: "",
-    country: "RU",
     token: ""
 };
 
@@ -738,7 +736,6 @@ document.getElementById("btn-rootpass-next").onclick = () => {
 // =====================================================================
 const inpSsid = document.getElementById("inp-ssid");
 const inpPass = document.getElementById("inp-pass");
-const inpCountry = document.getElementById("inp-country");
 
 function refreshWifiValidation() {
     const ok = inpSsid.value.trim().length >= 1 && inpSsid.value.length <= 32 && inpPass.value.length >= 8;
@@ -751,7 +748,6 @@ document.getElementById("btn-wifi-back").onclick = () => goto("rootpass");
 document.getElementById("btn-wifi-next").onclick = () => {
     state.ssid    = inpSsid.value.trim();
     state.wifiKey = inpPass.value;
-    state.country = inpCountry.value;
     renderConfirm();
     goto("confirm");
 };
@@ -765,7 +761,7 @@ function renderConfirm() {
     const rows = [
         ["Стек",          "AmneziaWG + podkop + split-routing"],
         ["Пароль root",   `задан (${state.rootPass.length} символов)`],
-        ["Wi-Fi",         `${state.ssid} · WPA2/WPA3-mixed · страна ${state.country}`],
+        ["Wi-Fi",         `${state.ssid} · WPA2/WPA3-mixed`],
         ["AWG-конфиг",    `${state.awgConf.split("\n").length} строк, подготовлен`],
         ["Adblock",       "Hagezi Pro (~200 000 доменов)"],
         ["DNS",           "Quad9 DoH"],
@@ -789,7 +785,6 @@ async function startInstall() {
         await rpc("cheburnet", "install_start", {
             ssid:      state.ssid,
             wifi_key:  state.wifiKey,
-            country:   state.country,
             awg_conf:  state.awgConf,
             root_pass: state.rootPass,
             token:     state.token
@@ -980,15 +975,29 @@ function stopMgmtAutoRefresh() {
     if (mgmtRefreshTimer) { clearInterval(mgmtRefreshTimer); mgmtRefreshTimer = null; }
 }
 
-// Единая точка показа сообщений в management-экране. Используем textContent
-// (не innerHTML) — безопасно для произвольного текста; html-вариант оставлен
-// только для factory-reset, где нам нужен <code>-блок.
+// Toast-уведомления: появляются в правом верхнем углу, не требуют скролла.
+// kind: "ok" | "err" | "info". Успех исчезает через 3 с, ошибка — по клику.
+function showToast(kind, text, html) {
+    const container = document.getElementById("toast-container");
+    const t = document.createElement("div");
+    t.className = `toast toast-${kind}`;
+    if (html) t.innerHTML = html;
+    else t.textContent = text;
+    if (kind === "err") t.title = "Нажмите чтобы закрыть";
+    container.appendChild(t);
+    const dismiss = () => {
+        t.style.transition = "opacity 0.2s, transform 0.2s";
+        t.style.opacity = "0";
+        t.style.transform = "translateX(12px)";
+        setTimeout(() => t.remove(), 200);
+    };
+    if (kind === "err") t.addEventListener("click", dismiss);
+    else setTimeout(dismiss, 3000);
+}
+
 function setMgmtMsg(kind, text, html) {
-    const msg = document.getElementById("mgmt-msg");
-    msg.className = kind; // "muted" | "ok-msg" | "err-msg"
-    msg.classList.remove("hidden");
-    if (html) msg.innerHTML = html;
-    else msg.textContent = text;
+    const toastKind = kind === "ok-msg" ? "ok" : kind === "err-msg" ? "err" : "info";
+    showToast(toastKind, text, html);
 }
 
 async function mgmtCall(object, method, args, label) {

@@ -216,10 +216,7 @@ stty echo 2>/dev/null || true
 printf "\n"
 [ ${#WIFI_KEY} -ge 8 ] || die "Пароль должен быть не короче 8 символов"
 
-ask "Страна [RU]"
-read -r _input
-WIFI_COUNTRY="${_input:-RU}"
-ok "Wi-Fi: SSID='$WIFI_SSID', страна=$WIFI_COUNTRY"
+ok "Wi-Fi: SSID='$WIFI_SSID'"
 
 # ══════════════════════════════════════════════════════════════════════
 # ШАГ 5 — Подтверждение и установка
@@ -247,11 +244,19 @@ read -r _
 
 # ── Сохраняем конфиги ──────────────────────────────────────────────────
 printf "\n"
-cat > "$REPO_ROOT/configs/wireless-actual.txt" << EOF
-WIFI_SSID="$WIFI_SSID"
-WIFI_KEY="$WIFI_KEY"
-WIFI_COUNTRY="$WIFI_COUNTRY"
-EOF
+
+# Heredoc без quoted-EOF интерполировал бы $ ` \ внутри WIFI_KEY — типичный
+# Wi-Fi пароль вроде `S3$nake!` ехал бы на роутер уже изуродованным.
+# POSIX single-quote escape: ' → '\''. Файл потом source'ится install.sh.
+shq() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+umask 077
+{
+    printf 'WIFI_SSID=%s\n' "$(shq "$WIFI_SSID")"
+    printf 'WIFI_KEY=%s\n'  "$(shq "$WIFI_KEY")"
+} > "$REPO_ROOT/configs/wireless-actual.txt"
+umask 022
 ok "Wi-Fi конфиг сохранён"
 
 cp "$CONF_PATH" "$REPO_ROOT/configs/awg0.conf"
@@ -274,11 +279,17 @@ ssh "$ROUTER" "mkdir -p '$INSTALL_DIR' /etc/amnezia/amneziawg /tmp/cheburnet"
 # install.sh поверх частичных файлов даёт cryptic ошибки. Trap снимает
 # мусор на ошибке; снимаем сам trap после deployment чтобы фейлы install.sh
 # не стирали install.log — он нужен для пост-мортема.
-trap 'ssh -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>/dev/null || true' INT TERM ERR
+# wireless-actual.txt (Wi-Fi пароль в plaintext) убираем локально на любом выходе.
+_cleanup_local() { rm -f "$REPO_ROOT/configs/wireless-actual.txt"; }
+trap '_cleanup_local; ssh -o ConnectTimeout=5 "$ROUTER" "rm -rf $INSTALL_DIR" 2>/dev/null || true' INT TERM ERR
 
-# rsync если есть (быстрее и надёжнее), иначе fallback на tar|ssh.
+# rsync только если он есть С ОБЕИХ СТОРОН. Раньше тут была проверка только
+# на ноуте — но rsync через ssh нуждается в rsync и на удалённой стороне.
+# На дефолтном busybox-OpenWrt rsync нет, ветка падала с «connection unexpectedly closed».
+# tar|ssh работает везде, скорость сопоставимая (gz + одна ssh-сессия).
 # Исключаем .git/, tests/, docs/ — они не нужны на роутере и съедают место.
-if command -v rsync >/dev/null 2>&1; then
+if command -v rsync >/dev/null 2>&1 \
+   && ssh "$ROUTER" 'command -v rsync >/dev/null 2>&1'; then
     rsync -a --delete \
         --exclude='.git' --exclude='tests' --exclude='docs' \
         --exclude='backup' --exclude='assets' --exclude='*.md' \
@@ -290,9 +301,12 @@ else
         . | ssh "$ROUTER" "tar -C '$INSTALL_DIR' -xzf -"
 fi
 
-# AWG-конфиг кладётся в каноническое место (где его ждёт 01-amneziawg.sh)
-scp -q "$REPO_ROOT/configs/awg0.conf" "$ROUTER:/etc/amnezia/amneziawg/awg0.conf"
-ssh "$ROUTER" 'chmod 600 /etc/amnezia/amneziawg/awg0.conf'
+# AWG-конфиг кладётся в каноническое место (где его ждёт 01-amneziawg.sh).
+# Через `ssh ... cat`, не scp: OpenSSH ≥9.0 по умолчанию делает scp поверх
+# sftp-протокола, а на busybox-OpenWrt нет /usr/libexec/sftp-server →
+# падало с «sftp-server: not found». ssh+cat работает на любом sshd.
+ssh "$ROUTER" 'umask 077 && cat > /etc/amnezia/amneziawg/awg0.conf' \
+    < "$REPO_ROOT/configs/awg0.conf"
 
 # Root-пароль передаём через короткоживущий файл (chmod 600), как и веб-мастер.
 # Не светим в args/env — иначе виден в `ps`/`history`. printf | ssh даёт пароль
@@ -305,6 +319,9 @@ trap - INT TERM ERR
 ok "Файлы скопированы — запускаю установку"
 printf "\n"
 ssh -t "$ROUTER" "$INSTALL_DIR/setup/install.sh"
+
+# Plaintext Wi-Fi пароль на ноуте больше не нужен — на роутер он уехал, дальше держать незачем.
+_cleanup_local
 
 # ══════════════════════════════════════════════════════════════════════
 # Финал
