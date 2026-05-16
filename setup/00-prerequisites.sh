@@ -86,8 +86,15 @@ if [ -z "${APK_UPDATE_SKIPPED:-}" ]; then
             DISTRIB_RELEASE=""
             . /etc/openwrt_release 2>/dev/null || true
             OPENWRT_PROBE_URL="https://downloads.openwrt.org/releases/${DISTRIB_RELEASE:-25.12.2}/SHA256SUMS"
-            OPENWRT_ERR=$(wget -qO /dev/null --timeout=8 "$OPENWRT_PROBE_URL" 2>&1)
-            OPENWRT_RC=$?
+            # КРИТИЧНО: `var=$(cmd)` под `set -e` в busybox ash убивает скрипт,
+            # если cmd возвращает non-zero. А wget тут как раз и должен упасть —
+            # это нормальная ветка (DPI). Оборачиваем в `|| OPENWRT_RC=$?`:
+            # это conditional-context, set -e не применяется, rc корректно ловится.
+            # Без этого скрипт молча умирал прямо на тесте 4 и вердикт не печатался.
+            OPENWRT_ERR=""
+            OPENWRT_RC=0
+            OPENWRT_ERR=$(wget -qO /dev/null --timeout=8 "$OPENWRT_PROBE_URL" 2>&1) \
+                || OPENWRT_RC=$?
             if [ "$OPENWRT_RC" = "0" ]; then
                 echo "  ? wget downloads.openwrt.org прошёл СЕЙЧАС (apk упал — транзиент?)"
                 OPENWRT_OK=1
