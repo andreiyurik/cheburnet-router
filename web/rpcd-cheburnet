@@ -7,6 +7,8 @@
 #   install_start      — запустить установку (ssid, wifi_key, awg_conf, root_pass)
 #   install_progress   — текущий шаг + последние 5000 байт логов + done-флаг
 #   install_cancel     — пометить установку как отменённую (реально не убивает процесс)
+#   check_lan_conflict — детект конфликта LAN/WAN-подсетей (без мутаций, read-only)
+#   apply_lan_ip       — сменить LAN-IP роутера (отложенный network restart, install-token-gated)
 #   mode_switch        — переключить HOME/TRAVEL
 #   service_restart    — перезапустить сервис (vpn | dns | adblock)
 #   replace_awg_conf   — заменить awg0.conf после установки (с auto-rollback при сбое)
@@ -101,6 +103,11 @@ if [ "$1" = "list" ]; then
     },
     "install_progress": {},
     "install_cancel": {},
+    "check_lan_conflict": {},
+    "apply_lan_ip": {
+        "ip": "str",
+        "token": "str"
+    },
     "mode_switch": { "mode": "str" },
     "service_restart": { "service": "str" },
     "set_blocklist_tier": { "tier": "str" },
@@ -338,6 +345,81 @@ EOF
     "log": "$LOG"
 }
 EOF
+        ;;
+
+    # ------------------------------------------------------------------
+    check_lan_conflict)
+        # Read-only детект конфликта подсетей LAN/WAN. Юзер вызывает на
+        # welcome-экране ДО ввода каких-либо данных. Если конфликт есть,
+        # wizard покажет специальный экран с предложением сменить LAN-IP
+        # (через apply_lan_ip ниже). Если нет — обычный flow установки.
+        #
+        # Возвращает либо {conflict:false}, либо
+        # {conflict:true, wan_ip, lan_ip, suggest_ip}.
+        if _info=$(net_detect_lan_conflict); then
+            echo '{"conflict": false}'
+        else
+            # shellcheck disable=SC2086  # сознательный split на 3 токена
+            set -- $_info
+            _wan_esc=$(json_escape "$1")
+            _lan_esc=$(json_escape "$2")
+            _sug_esc=$(json_escape "$3")
+            printf '{"conflict": true, "wan_ip": "%s", "lan_ip": "%s", "suggest_ip": "%s"}\n' \
+                "$_wan_esc" "$_lan_esc" "$_sug_esc"
+            unset _wan_esc _lan_esc _sug_esc
+        fi
+        unset _info
+        ;;
+
+    # ------------------------------------------------------------------
+    apply_lan_ip)
+        # Меняет LAN-IP роутера. Гейтим install-токеном (как install_start) —
+        # это destructive-операция, рвёт сетевое соединение всех LAN-клиентов.
+        # Доступ unauth-but-token: до завершения установки у юзера ещё нет
+        # пароля root, авторизоваться нечем; токен из install.sh — единственный
+        # рабочий идентификатор «это я ставлю роутер, а не сосед в LAN».
+        TOKEN_FILE="$ETC_CHEBURNET/install-token"
+        if [ ! -s "$TOKEN_FILE" ]; then
+            echo '{"error": "install token not found — apply_lan_ip недоступен после завершения установки. Используйте LuCI → Network → Interfaces → LAN."}'
+            exit 0
+        fi
+        EXPECTED_TOKEN=$(cat "$TOKEN_FILE")
+        GIVEN_TOKEN=$(jf '@.token')
+        if [ -z "$GIVEN_TOKEN" ] || [ "$GIVEN_TOKEN" != "$EXPECTED_TOKEN" ]; then
+            echo '{"error": "invalid install token"}'
+            exit 0
+        fi
+
+        NEW_IP=$(jf '@.ip')
+        # Жёсткая валидация формата. Принимаем ТОЛЬКО 192.168.x.y — это
+        # safety guard: webwizard всегда передаёт suggest_ip из check_lan_conflict
+        # (тот ограничен 192.168.{2,3,4,8,9,10,11}.1), но если юзер подделает
+        # запрос, нельзя позволить ему уронить роутер в 0.0.0.0 или 255.255.255.255.
+        case "$NEW_IP" in
+            192.168.[0-9].[0-9]|\
+            192.168.[0-9].[0-9][0-9]|\
+            192.168.[0-9].[0-9][0-9][0-9]|\
+            192.168.[0-9][0-9].[0-9]|\
+            192.168.[0-9][0-9].[0-9][0-9]|\
+            192.168.[0-9][0-9].[0-9][0-9][0-9])
+                ;;
+            *)
+                echo '{"error": "ip must be 192.168.X.Y (X,Y = 0..999 digits)"}'
+                exit 0
+                ;;
+        esac
+
+        # Применяем через общую функцию (uci set + commit + setsid sleep 3
+        # + /etc/init.d/network restart). setsid отвязывает рестарт от rpcd-
+        # сессии, чтобы SIGHUP при выходе нас не убил до того, как новая сеть
+        # поднимется.
+        if ! net_apply_new_lan_ip "$NEW_IP"; then
+            echo '{"error": "failed to apply new LAN IP — check logread"}'
+            exit 0
+        fi
+
+        NEW_IP_ESC=$(json_escape "$NEW_IP")
+        echo "{\"status\": \"applied\", \"new_ip\": \"$NEW_IP_ESC\", \"restart_in\": 3}"
         ;;
 
     # ------------------------------------------------------------------

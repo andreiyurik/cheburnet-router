@@ -175,6 +175,70 @@ cheburnet_preflight_internet() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# cheburnet_preflight_lan_conflict — safety net против конфликта LAN/WAN
+# подсетей (типичный сценарий каскада: главный роутер 192.168.1.X выдаёт нам
+# WAN в той же подсети, где у нас LAN).
+#
+# ВАЖНО про роль этой проверки:
+#   Реальный фикс конфликта делается ДО запуска install.sh — в setup.sh (CLI)
+#   и в web wizard (welcome-экран → check_lan_conflict RPC). Там мы можем
+#   корректно прервать сетевое соединение, проинструктировать пользователя
+#   переподключить кабель/Wi-Fi, и продолжить по новому адресу.
+#
+#   А здесь, посреди install.sh, чинить конфликт НЕЛЬЗЯ: rrwrap network restart
+#   мид-install оборвёт ssh-сессию пользователя и/или браузер-страницу веб-
+#   мастера, и оба клиента окажутся в неопределённом состоянии (страница на
+#   старом IP, маршрута на новый нет, ничего не понятно).
+#
+# Поэтому здесь — только ДЕТЕКТ + ПОНЯТНАЯ ОШИБКА с инструкцией ручного фикса.
+# Срабатывает в редком случае: WAN получил DHCP-аренду уже ПОСЛЕ старта
+# install.sh (на момент pre-check WAN ещё не был готов). Это бывает на
+# медленных uplink-провайдерах или сразу после reboot.
+#
+# Требует net_detect_lan_conflict из lib/net-detect.sh (caller обязан
+# подсорсить его до preflight-цепочки).
+# ─────────────────────────────────────────────────────────────────────────────
+cheburnet_preflight_lan_conflict() {
+    if ! command -v net_detect_lan_conflict >/dev/null 2>&1; then
+        echo "⚠ net_detect_lan_conflict недоступна — пропускаю проверку LAN/WAN-конфликта"
+        return 0
+    fi
+
+    if _info=$(net_detect_lan_conflict); then
+        # net_detect_lan_conflict возвращает 0 = «нет конфликта или нельзя определить»
+        return 0
+    fi
+
+    # Конфликт. _info = "WAN_IP LAN_IP SUGGEST_IP"
+    # shellcheck disable=SC2086  # сознательная word-split для разбора 3 токенов
+    set -- $_info
+    _wan_ip="$1"
+    _lan_ip="$2"
+    _suggest_ip="$3"
+    {
+        echo "WAN-интерфейс роутера получил IP ${_wan_ip},"
+        echo "а LAN — ${_lan_ip}. Они в одной /24-подсети,"
+        echo "роутер не сможет корректно маршрутизировать трафик:"
+        echo "ядро не знает, через какой интерфейс слать пакеты."
+        echo ""
+        echo "Обычно мастер ловит этот конфликт ДО запуска установки —"
+        echo "значит WAN получил адрес уже после старта install.sh."
+        echo ""
+        echo "ЧТО ДЕЛАТЬ ВРУЧНУЮ:"
+        echo "  1. На роутере (через SSH):"
+        echo "       uci set network.lan.ipaddr=${_suggest_ip}"
+        echo "       uci commit network"
+        echo "       /etc/init.d/network restart"
+        echo "  2. Переподключить кабель/Wi-Fi на компьютере (для нового IP)."
+        echo "  3. Запустить установку повторно — теперь по адресу:"
+        echo "       http://${_suggest_ip}/cheburnet/   (веб)"
+        echo "       ./setup.sh                          (CLI, ответьте ${_suggest_ip} на «Адрес роутера»)"
+    } | _preflight_banner_unsupported "КОНФЛИКТ ПОДСЕТЕЙ LAN И WAN"
+    unset _info _wan_ip _lan_ip _suggest_ip
+    return 1
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # cheburnet_preflight_arch — проверяет, что есть совместимый релиз
 # awg-openwrt для этой архитектуры/версии OpenWrt. Делает это раз в самом
 # начале (а не в шаге 01), чтобы юзер с экзотической архитектурой получил

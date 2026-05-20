@@ -235,13 +235,18 @@ vm_deploy_handler() {
             /usr/libexec/rpcd /usr/share/rpcd/acl.d"
     vm_scp "$REPO_ROOT/web/rpcd-cheburnet"     "/usr/libexec/rpcd/cheburnet"
     vm_scp "$REPO_ROOT/web/rpcd-acl.json"      "/usr/share/rpcd/acl.d/cheburnet.json"
-    # rpcd-cheburnet source'ит cheburnet-utils.sh и net-detect.sh из lib/.
-    # Список держим в синхроне с тем, что rpcd-cheburnet реально подключает —
-    # иначе rpcd при старте падает «Not found», ubus list cheburnet пуст,
-    # и smoke-test диагностирует это как «handler не зарегистрирован».
+    # rpcd-cheburnet source'ит lib-файлы БЕЗУСЛОВНО (`.` без `[ -f ]` гарда).
+    # На busybox-ash если хоть один источник отсутствует — весь скрипт падает,
+    # rpcd считает handler сломанным, ubus list cheburnet возвращает пусто.
+    # Поэтому список ОБЯЗАТЕЛЬНО держать в синхроне с .-цепочкой в начале
+    # web/rpcd-cheburnet — каждая правка source'ов там → правка здесь.
+    # Forgetting podkop-config.sh здесь приводило к падению make qemu на
+    # `ubus list cheburnet` с error «Not found», полностью маскируя любые
+    # реальные регрессии в нашем коде.
     vm_scp "$REPO_ROOT/lib/cheburnet-utils.sh" "/opt/cheburnet/lib/cheburnet-utils.sh"
     vm_scp "$REPO_ROOT/lib/net-detect.sh"      "/opt/cheburnet/lib/net-detect.sh"
     vm_scp "$REPO_ROOT/lib/family-filter.sh"   "/opt/cheburnet/lib/family-filter.sh"
+    vm_scp "$REPO_ROOT/lib/podkop-config.sh"   "/opt/cheburnet/lib/podkop-config.sh"
     vm_ssh "chmod +x /usr/libexec/rpcd/cheburnet"
     vm_ssh "/etc/init.d/rpcd restart"
     sleep 2
