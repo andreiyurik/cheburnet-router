@@ -146,6 +146,134 @@ ssh -n -o ConnectTimeout=5 -o BatchMode=yes "$ROUTER" 'true' >/dev/null 2>&1 \
 ok "SSH-ключ на роутере — дальше всё пойдёт автоматически"
 
 # ══════════════════════════════════════════════════════════════════════
+# Пре-чек: LAN/WAN-конфликт подсетей
+# ══════════════════════════════════════════════════════════════════════
+# Типичный сценарий — каскад: главный роутер (Keenetic, Mi Router и т.п.)
+# выдаёт нашему OpenWrt-роутеру WAN-IP 192.168.1.X через DHCP, а LAN
+# OpenWrt по умолчанию тоже на 192.168.1.1. Ядро не может маршрутизировать,
+# клиенты не выходят в инет. Если не починить ДО запуска install.sh —
+# user введёт VPN-конфиг, пароль, Wi-Fi-настройки, дойдёт до preflight,
+# получит фейл и потеряет все введённые данные.
+#
+# Здесь чиним заранее: detect → prompt → apply → wait reconnect. Если
+# конфликта нет — блок проходится молча.
+#
+# Алгоритм детекта inline (не через ssh source, потому что net-detect.sh
+# ещё не на роутере — rsync будет дальше). Идентичен net_detect_lan_conflict
+# из lib/net-detect.sh.
+info "Проверяю, не конфликтуют ли подсети LAN и WAN роутера..."
+# heredoc БЕЗ кавычек у EOF — а тут наоборот, кавычки ставим, чтобы $ и
+# подстановки не интерпретировались локально. Все переменные внутри
+# вычисляются на роутере. Вывод: пусто (нет конфликта) или
+# "WAN_IP LAN_IP SUGGEST_IP".
+_conflict_info=$(ssh -n "$ROUTER" 'sh -s' <<'REMOTE'
+_wan_ip=$(ubus call network.interface.wan status 2>/dev/null \
+          | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+[ -n "$_wan_ip" ] || exit 0
+_lan_ip=$(uci -q get network.lan.ipaddr 2>/dev/null)
+_lan_ip=${_lan_ip%%/*}
+[ -n "$_lan_ip" ] || exit 0
+_wan_pfx=$(echo "$_wan_ip" | cut -d. -f1-3)
+_lan_pfx=$(echo "$_lan_ip" | cut -d. -f1-3)
+[ "$_wan_pfx" = "$_lan_pfx" ] || exit 0
+for _try in 2 3 4 8 9 10 11; do
+    if [ "192.168.${_try}" != "$_wan_pfx" ]; then
+        echo "$_wan_ip $_lan_ip 192.168.${_try}.1"
+        exit 0
+    fi
+done
+REMOTE
+)
+
+if [ -n "$_conflict_info" ]; then
+    # shellcheck disable=SC2086  # сознательный word-split для разбора 3 токенов
+    set -- $_conflict_info
+    _wan_ip="$1"; _lan_ip="$2"; _new_ip="$3"
+    _shared_octet=$(echo "$_wan_ip" | cut -d. -f3)
+    _new_octet=$(echo "$_new_ip" | cut -d. -f3)
+
+    printf "\n"
+    warn "Найден конфликт подсетей роутера:"
+    printf "    • WAN роутера: %s   (получен от главного роутера)\n" "$_wan_ip"
+    printf "    • LAN роутера: %s   (по умолчанию OpenWrt)\n" "$_lan_ip"
+    printf "    • Оба в подсети 192.168.%s.x — в этой конфигурации\n" "$_shared_octet"
+    printf "      роутер не сможет маршрутизировать трафик из LAN в инет.\n\n"
+    printf "  Это нормально для каскада «главный роутер → OpenWrt-роутер».\n"
+    printf "  Чиним заменой LAN-адреса OpenWrt-роутера.\n\n"
+    printf "  ${BOLD}Что произойдёт:${N}\n"
+    printf "    1. Поменяю LAN-IP роутера: %s → ${BOLD}%s${N}\n" "$_lan_ip" "$_new_ip"
+    printf "    2. Роутер перезапустит сеть (~10 секунд) —\n"
+    printf "       ssh-соединение временно прервётся, это нормально.\n"
+    printf "    3. Вы отсоедините и подсоедините кабель к ноутбуку,\n"
+    printf "       чтобы он получил новый IP в подсети 192.168.%s.x.\n" "$_new_octet"
+    printf "    4. Скрипт продолжит установку по новому адресу.\n\n"
+    printf "  Продолжить? [Enter = да, Ctrl+C = отмена]: "
+    read -r _ || _eof_die
+
+    info "Меняю LAN-IP роутера на $_new_ip..."
+    # Apply через ssh. Тот же setsid-приём, что в net_apply_new_lan_ip
+    # (на этом этапе lib/net-detect.sh ещё не на роутере, делаем inline).
+    # &&-цепочка → setsid: ssh-команда возвращается до того, как network
+    # restart порвёт соединение, поэтому потери rc не страшно.
+    ssh -n "$ROUTER" "
+        uci set network.lan.ipaddr=$_new_ip
+        uci commit network
+        setsid sh -c 'sleep 3; /etc/init.d/network restart' \
+            </dev/null >/dev/null 2>&1 &
+    " || warn "ssh вернул не-ноль — возможно соединение уже оборвано рестартом сети, это ОК"
+
+    ROUTER_IP="$_new_ip"
+    ROUTER="root@${ROUTER_IP}"
+
+    printf "\n"
+    printf "  ${BOLD}Сейчас сделайте на ноутбуке (один из вариантов):${N}\n"
+    printf "    • Кабель: отсоедините от ноутбука и подсоедините снова\n"
+    printf "    • Wi-Fi:  отключитесь от сети роутера и подключитесь снова\n"
+    printf "    (NetworkManager / Windows / macOS получат новый IP\n"
+    printf "    в подсети 192.168.%s.x автоматически после переподключения)\n\n" "$_new_octet"
+    printf "  Нажмите Enter когда переподключились: "
+    read -r _ || _eof_die
+
+    # Retry-loop. 30 × 2 сек = 60 сек на восстановление связи.
+    # Покрывает медленный NetworkManager renew (типично 5-15 сек),
+    # Windows-style ленивый DHCP (до 30 сек), повторное согласование Wi-Fi.
+    info "Жду доступности роутера на новом адресе $ROUTER_IP..."
+    _ok=0
+    _i=0
+    while [ "$_i" -lt 30 ]; do
+        if ssh -n -o ConnectTimeout=3 -o BatchMode=yes \
+                -o StrictHostKeyChecking=accept-new \
+                "$ROUTER" 'true' 2>/dev/null; then
+            _ok=1; break
+        fi
+        sleep 2
+        _i=$((_i + 1))
+    done
+
+    if [ "$_ok" -ne 1 ]; then
+        printf "\n"
+        printf "  ${R}Не удалось подключиться к роутеру на новом адресе.${N}\n\n"
+        printf "  Что проверить:\n"
+        printf "    • Кабель воткнут (или Wi-Fi подключён) — линк горит на роутере?\n"
+        printf "    • Ноутбук получил IP в подсети 192.168.%s.x:\n" "$_new_octet"
+        printf "        Linux:   ${BOLD}ip addr | grep inet${N}\n"
+        printf "        macOS:   ${BOLD}ifconfig | grep inet${N}\n"
+        printf "        Windows: ${BOLD}ipconfig${N}\n"
+        printf "    • Если IP старый (192.168.%s.x) — release/renew DHCP вручную:\n" "$_shared_octet"
+        printf "        Linux:   ${BOLD}sudo nmcli con down <name> && sudo nmcli con up <name>${N}\n"
+        printf "        macOS:   System Settings → Network → ваш интерфейс → Renew DHCP Lease\n"
+        printf "        Windows: ${BOLD}ipconfig /release && ipconfig /renew${N}\n"
+        printf "    • Когда подключитесь — запустите setup.sh снова,\n"
+        printf "      ответьте ${BOLD}%s${N} на «Адрес роутера».\n" "$_new_ip"
+        die "Роутер недоступен на $_new_ip"
+    fi
+
+    ok "Роутер отвечает по новому адресу $ROUTER_IP — конфликт устранён"
+    unset _conflict_info _wan_ip _lan_ip _new_ip _shared_octet _new_octet _ok _i
+fi
+unset _conflict_info
+
+# ══════════════════════════════════════════════════════════════════════
 # ШАГ 2 — VPN-конфиг
 # ══════════════════════════════════════════════════════════════════════
 step "2/5" "Файл AmneziaWG-конфигурации (.conf)"

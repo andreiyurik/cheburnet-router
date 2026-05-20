@@ -3,12 +3,12 @@
         "description": "cheburnet-router web wizard — первичная установка (LAN-only). Мутации защищены install-токеном, выданным install.sh.",
         "read": {
             "ubus": {
-                "cheburnet": ["get_status", "install_progress"]
+                "cheburnet": ["get_status", "install_progress", "check_lan_conflict"]
             }
         },
         "write": {
             "ubus": {
-                "cheburnet": ["install_start", "install_cancel"]
+                "cheburnet": ["install_start", "install_cancel", "apply_lan_ip"]
             }
         }
     }

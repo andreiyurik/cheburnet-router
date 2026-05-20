@@ -97,8 +97,12 @@ install_awg_packages() {
         if ! _apk_err=$(_awg_apk_add); then
             echo "✗ apk add не удался после повтора. Вывод apk:" >&2
             printf '%s\n' "$_apk_err" | grep -v '^$' >&2
+            # Передаём $_apk_err во 2-й аргумент — advice сначала проверит,
+            # не kernel-mismatch ли это (типовая причина для kmod-пакетов
+            # с rolling-ядром). Если да — даст честный вердикт «несовместимое
+            # ядро» вместо ложного «mirror lag, подожди минуту».
             command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
-                && cheburnet_apk_fail_advice amneziawg
+                && cheburnet_apk_fail_advice amneziawg "$_apk_err"
             return 1
         fi
     fi

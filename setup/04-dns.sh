@@ -50,10 +50,32 @@ NET_LIB="${CHEBURNET_NET_LIB:-/opt/cheburnet/lib/net-detect.sh}"
 # shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
 . "$NET_LIB"
 LAN_IP=$(net_lan_ip 127.0.0.1)
-if nslookup cloudflare.com "$LAN_IP" 2>/dev/null | grep -q Address; then
-    echo "✓ резолвинг работает (через $LAN_IP)"
-else
-    echo "⚠ DNS не резолвит — проверьте logread | grep sing-box | grep dns"
-fi
 
-echo "✓ DNS OK"
+# Retry 5×2c: после reload сервиса sing-box нужно ~5-15 сек чтобы он
+# перепрочитал конфиг и снова начал отвечать на DNS-запросы. Один-shot
+# проверка раньше промахивалась и печатала ⚠ в логе — после чего скрипт
+# ВСЁ РАВНО писал «✓ DNS OK» и установка шла дальше с поломанным DNS.
+# Теперь: либо одна из попыток успешна → один честный ✓, либо все упали
+# → ✗ и exit 1 (нет смысла продолжать установку с нерабочим DNS — kill-switch
+# на следующем шаге заблокирует весь LAN-трафик и юзер останется без интернета).
+_dns_ok=0
+_i=0
+while [ "$_i" -lt 5 ]; do
+    if nslookup cloudflare.com "$LAN_IP" 2>/dev/null | grep -q Address; then
+        _dns_ok=1
+        break
+    fi
+    _i=$((_i + 1))
+    sleep 2
+done
+
+if [ "$_dns_ok" = "1" ]; then
+    echo "✓ резолвинг работает (через $LAN_IP)"
+    echo "✓ DNS OK"
+else
+    echo "✗ DNS не резолвит cloudflare.com через $LAN_IP после 5 попыток (~10 сек)." >&2
+    echo "  Это критично — продолжать установку с неработающим DNS нельзя." >&2
+    echo "  Диагностика:  logread | grep sing-box | grep dns" >&2
+    exit 1
+fi
+unset _i _dns_ok

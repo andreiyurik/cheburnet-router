@@ -104,7 +104,7 @@ flowchart LR
 
 Когда роутер прошит и `.conf` VPN-сервера у тебя в руках — открой терминал и вставь команду. Она скачает установщик на роутер и запустит его.
 
-> **Где взять терминал:** **Windows** — правый клик по «Пуск» → **PowerShell**. **macOS** — Spotlight (⌘+Space) → `Terminal`. **Linux** — `Ctrl+Alt+T`.
+> **Где взять терминал:** **Windows** — правый клик по «Пуск» → **Терминал** (Windows 11) или **PowerShell** (Windows 10). Не CMD — в нём команда требует другого синтаксиса (см. блок CMD ниже). **macOS** — Spotlight (⌘+Space) → `Terminal`. **Linux** — `Ctrl+Alt+T`.
 
 > **Если терминал попросит пароль** (`root@192.168.1.1's password:`) — нажми **Enter**: на свежем OpenWrt пароль пустой, ты зададёшь его в мастере на шаге 2 из 4.
 
@@ -113,10 +113,16 @@ flowchart LR
 ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
 ```
 
-**Windows (PowerShell):**
+**Windows (PowerShell или Терминал Windows):**
 ```powershell
 ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
 ```
+
+**Windows (CMD / `cmd.exe` / «Командная строка»):**
+```cmd
+ssh-keygen -R 192.168.1.1 2>nul & ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
+```
+> Если в CMD выскочило `Системе не удается найти указанный путь` — это значит, ты случайно вставил Linux-вариант (с `2>/dev/null`). Вернись и скопируй именно CMD-блок выше (с `2>nul` и `&`).
 
 > **⚠ Падает с `Failed to send request: Operation not permitted` или `apk update не прошёл`?**
 > Это блокировка загрузки пакетов твоим интернет-провайдером (DPI на `downloads.openwrt.org`). Cheburnet не может обойти её, пока он не установлен — нужен интернет с обходом, поднятый снаружи роутера. Готовая инструкция (5 минут, два варианта — через смартфон по USB или через ноутбук с AmneziaVPN):
@@ -130,7 +136,15 @@ ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o Co
 
 `ssh-keygen -R` нужен тем, кто уже ставил роутер раньше: после прошивки или factory reset роутер генерирует новый SSH host key, а ноутбук помнит старый и ругается `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!` При первой установке этот префикс молча ничего не делает.
 
-Команда **разная** для Linux/macOS и Windows: (1) `2>/dev/null` в PowerShell пишет в файл `C:\dev\null` — нужно `2>$null`; (2) одинарные кавычки `'...'` PowerShell передаёт в ssh иначе, чем bash, из-за чего `| sh` может перехватиться как оператор пайпа — используем двойные кавычки.
+Команда **разная** в каждой оболочке — синтаксис перенаправления stderr, разделителя команд и кавычек у них отличается:
+
+| | Linux / macOS (bash/zsh) | PowerShell | CMD (`cmd.exe`) |
+|---|---|---|---|
+| stderr → /dev/null | `2>/dev/null` | `2>$null` | `2>nul` |
+| разделитель команд | `;` | `;` | `&` |
+| кавычки для ssh-команды | `'...'` | `"..."` | `"..."` |
+
+Если перепутать (вставить bash-команду в CMD) — увидишь `Системе не удается найти указанный путь` (CMD пытается создать файл `\dev\null`, не находит директорию) и команда не выполняется.
 
 **Не работает?** Убедись, что запущен **PowerShell**, а не cmd (в заголовке окна должно быть «PowerShell»). Если `ssh` не найден — обнови Windows до 1809+.
 

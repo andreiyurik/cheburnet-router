@@ -56,10 +56,21 @@ ssh root@192.168.1.1 /opt/cheburnet/scripts/install-via-tether.sh
 
 Скрипт сам переключит WAN на телефон, запустит установку, и вернёт WAN обратно после завершения.
 
-Если репо ещё не на роутере — сначала запусти bootstrap (он скачивается с GitHub, который DPI не режет):
+Если репо ещё не на роутере — сначала запусти bootstrap (он скачивается с GitHub, который DPI не режет).
 
-```sh
+**Linux / macOS:**
+```bash
 ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
+```
+
+**Windows (PowerShell или Терминал Windows):**
+```powershell
+ssh root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
+```
+
+**Windows (CMD / Командная строка):**
+```cmd
+ssh root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
 ```
 
 Bootstrap скачает репо и упадёт на `apk update` — после этого запусти `install-via-tether.sh` (см. выше).
@@ -93,11 +104,21 @@ Bootstrap скачает репо и упадёт на `apk update` — посл
 
 ### Шаг 4. Запусти установку
 
-Открой терминал ноута и запусти ту же команду установки, что и в первый раз:
+Открой терминал ноута и запусти ту же команду установки, что и в первый раз.
 
-```sh
-ssh-keygen -R 192.168.1.1 2>/dev/null
-ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
+**Linux / macOS:**
+```bash
+ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
+```
+
+**Windows (PowerShell или Терминал Windows):**
+```powershell
+ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
+```
+
+**Windows (CMD / Командная строка):**
+```cmd
+ssh-keygen -R 192.168.1.1 2>nul & ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
 ```
 
 Установка пройдёт через VPN на ноуте — DPI больше не помешает.

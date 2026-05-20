@@ -44,7 +44,8 @@
       "Bash(ssh *)",
       "Bash(mkdir -p /tmp/cheb-test)",
       "Bash(cat)",
-      "Bash(chmod +x /tmp/cheb-test/askpass)"
+      "Bash(chmod +x /tmp/cheb-test/askpass)",
+      "Bash(git stash *)"
     ]
   }
 }

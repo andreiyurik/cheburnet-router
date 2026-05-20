@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# mock ubus — минимальная реализация для нужд rpcd-cheburnet (только метод
+# `ubus call network.interface.wan status`, который читает net_detect_lan_conflict).
+#
+# Поведение управляется через файлы в $FAKE_ROOT/ubus-state/:
+#   wan-ipv4-address   — IPv4 WAN-адрес для подмены (один на тест)
+#                        Если файл отсутствует → возвращаем JSON без ipv4-address,
+#                        имитируя «WAN ещё не получил аренду» (DHCP не ответил).
+#
+# Журнал вызовов — в $CALLS_DIR/ubus (как у других моков).
+
+echo "$@" >> "${CALLS_DIR:-/tmp}/ubus"
+
+STATE_DIR="${FAKE_ROOT:?FAKE_ROOT not set}/ubus-state"
+
+# Все вызовы кроме `call network.interface.wan status` — no-op, печатаем
+# пустой JSON. rpcd-cheburnet больше нигде ubus не дёргает, но safer to be
+# permissive — чтобы новые случайные вызовы в тестах не падали с exit 1.
+if [ "$1" != "call" ] || [ "$2" != "network.interface.wan" ] || [ "$3" != "status" ]; then
+    echo "{}"
+    exit 0
+fi
+
+WAN_IP_FILE="$STATE_DIR/wan-ipv4-address"
+if [ -f "$WAN_IP_FILE" ]; then
+    # Имитируем реальный формат ответа OpenWrt:
+    # {"ipv4-address": [{"address": "192.168.1.42", "mask": 24}], ...}
+    addr="$(cat "$WAN_IP_FILE")"
+    printf '{"ipv4-address":[{"address":"%s","mask":24}],"up":true}\n' "$addr"
+else
+    # WAN не поднят → пустой массив адресов (как реальный ubus при down-link).
+    echo '{"ipv4-address":[],"up":false}'
+fi
+exit 0

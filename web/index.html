@@ -169,6 +169,93 @@
   </div>
 
   <!-- ============================================================ -->
+  <!-- Экран: конфликт LAN/WAN-подсетей (показывается ДО установки) -->
+  <!--                                                              -->
+  <!-- Типичный сценарий: главный роутер (Keenetic, Mi Router и т.п.) -->
+  <!-- выдаёт нашему OpenWrt-роутеру WAN-IP в 192.168.1.X, а LAN     -->
+  <!-- OpenWrt тоже на 192.168.1.1 — две сети в одной подсети,       -->
+  <!-- роутер не маршрутизирует, клиенты в LAN не выходят в инет.    -->
+  <!--                                                                -->
+  <!-- Решение: сменить LAN-IP роутера на 192.168.X.1 ДО запуска     -->
+  <!-- установки. Юзер ничего ещё не вводил → state не теряется,     -->
+  <!-- просто откроет новый адрес и продолжит мастер с самого начала. -->
+  <!-- ============================================================ -->
+  <div id="scr-lan-conflict" class="panel hidden">
+    <h2>⚠ Перед установкой нужно сменить адрес роутера</h2>
+
+    <p>
+      Ваш главный роутер и этот OpenWrt-роутер сейчас используют одну
+      и ту же подсеть. В такой конфигурации роутер не сможет
+      маршрутизировать трафик из LAN в интернет.
+    </p>
+
+    <dl class="kv" style="margin: 12px 0;">
+      <dt>WAN-IP роутера:</dt><dd><code id="lan-conflict-wan">—</code> <span class="muted">(получен от главного роутера)</span></dd>
+      <dt>LAN-IP роутера:</dt><dd><code id="lan-conflict-lan">—</code> <span class="muted">(по умолчанию OpenWrt)</span></dd>
+    </dl>
+
+    <div class="edu" style="margin: 12px 0;">
+      <strong>Это нормальная ситуация для каскада «главный роутер → OpenWrt-роутер».</strong>
+      Чиним заменой LAN-адреса OpenWrt-роутера на свободный — после этого
+      обе сети будут в разных подсетях, и всё заработает.
+    </div>
+
+    <p>Поменяем LAN-адрес этого роутера на <strong><code id="lan-conflict-suggest">—</code></strong>.</p>
+
+    <div id="lan-conflict-token-block" class="hidden">
+      <label>Install-токен (из вывода <code>install.sh</code> по SSH):</label>
+      <input type="text" id="lan-conflict-token" placeholder="32 hex-символа">
+      <p class="muted" style="margin-top: 4px;">
+        Если перешли по ссылке вида <code>?token=...</code> — поле уже заполнено.
+        Иначе скопируйте токен из терминала, где запускали <code>install.sh</code>.
+      </p>
+    </div>
+
+    <div id="lan-conflict-status" class="muted" style="margin-top: 10px;"></div>
+
+    <div class="row" style="justify-content: flex-end;">
+      <button id="btn-lan-conflict-apply">Сменить адрес роутера</button>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- Экран: применение нового LAN-IP (после клика на «Сменить»)   -->
+  <!-- Объясняет ЧТО ДЕЛАТЬ юзеру (переподключить кабель/Wi-Fi)     -->
+  <!-- и даёт ссылку на новый адрес. После применения текущая       -->
+  <!-- страница «зависает» — браузер на старом IP, ssh-сессии тоже. -->
+  <!-- Никакого автоматического редиректа: браузер всё равно не     -->
+  <!-- сможет открыть новый IP пока ноут не получит новую DHCP-     -->
+  <!-- аренду; пусть юзер тыкнет ссылку САМ когда готов.            -->
+  <!-- ============================================================ -->
+  <div id="scr-lan-applying" class="panel hidden">
+    <h2>Меняю адрес роутера на <code id="lan-applying-new">—</code>…</h2>
+
+    <div class="edu" style="margin: 12px 0;">
+      <strong>Что делать вам — в следующие 30 секунд:</strong>
+      <ol style="margin: 8px 0 0 20px; padding-left: 0; color: var(--text);">
+        <li style="margin: 6px 0;">Подождите ~10 секунд — роутер перезапускает сеть.</li>
+        <li style="margin: 6px 0;"><strong>Если вы по Wi-Fi:</strong> отключитесь от сети роутера и подключитесь снова — телефон/ноутбук получит новый IP-адрес автоматически.</li>
+        <li style="margin: 6px 0;"><strong>Если вы по кабелю:</strong> отсоедините кабель от ноутбука и подсоедините снова.</li>
+        <li style="margin: 6px 0;">Откройте новую ссылку — кнопка ниже.</li>
+      </ol>
+    </div>
+
+    <div class="row" style="justify-content: center; margin: 20px 0;">
+      <a id="lan-applying-link" href="#" class="support-cta" style="text-align: center;">
+        → Открыть новый адрес
+      </a>
+    </div>
+
+    <p class="muted" style="font-size: 13px;">
+      Если кнопка не открывается — наберите в браузере вручную:
+      <code id="lan-applying-url">—</code>.
+      Если адрес недоступен — значит ноутбук ещё не получил новый IP в
+      подсети. Дождитесь обновления (обычно 10–30 секунд после
+      переподключения) или вручную сделайте release/renew DHCP.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
   <!-- Экран 1: AWG .conf -->
   <!-- ============================================================ -->
   <div id="scr-conf" class="panel hidden">
@@ -605,7 +692,7 @@ function loginPrompt(errorMsg) {
 // =====================================================================
 // Навигация между экранами
 // =====================================================================
-const SCREENS = ["loading", "conf", "rootpass", "wifi", "confirm", "install", "success", "mgmt"];
+const SCREENS = ["loading", "lan-conflict", "lan-applying", "conf", "rootpass", "wifi", "confirm", "install", "success", "mgmt"];
 function goto(name) {
     SCREENS.forEach(s => document.getElementById("scr-" + s).classList.toggle("hidden", s !== name));
     document.getElementById("edu").classList.toggle("hidden", name === "mgmt");
@@ -620,7 +707,11 @@ const state = {
     rootPass: "",
     ssid: "",
     wifiKey: "",
-    token: ""
+    token: "",
+    // Сохраняем результат check_lan_conflict между init() и кликом на «Сменить» —
+    // чтобы не делать второй RPC-запрос (особенно после того как пользователь
+    // мог вернуться на этот экран при ошибке apply_lan_ip).
+    lanConflict: null
 };
 
 // Подхватить токен из URL ?token=... (выдаётся install.sh)
@@ -632,6 +723,26 @@ const state = {
 })();
 
 // =====================================================================
+// Проверка LAN/WAN-конфликта подсетей.
+// Вызывается из init() перед показом экрана установки. Если RPC недоступен
+// (старая сборка без check_lan_conflict в ACL/handler'е) — молча возвращаем
+// false: «нет данных» лучше чем «крашим инициализацию».
+// =====================================================================
+async function checkLanConflict() {
+    try {
+        const c = await rpc("cheburnet", "check_lan_conflict");
+        if (!c || !c.conflict) return false;
+        state.lanConflict = c;
+        document.getElementById("lan-conflict-wan").textContent = c.wan_ip;
+        document.getElementById("lan-conflict-lan").textContent = c.lan_ip;
+        document.getElementById("lan-conflict-suggest").textContent = c.suggest_ip;
+        return true;
+    } catch (_e) {
+        return false;
+    }
+}
+
+// =====================================================================
 // Инициализация — проверить, настроен ли уже роутер
 // =====================================================================
 async function init() {
@@ -641,6 +752,23 @@ async function init() {
         if (st.installing) { goto("install"); pollProgress(); return; }
         // Если уже установлено — на management
         if (st.install_type !== "none") { goto("mgmt"); renderMgmt(st); startMgmtAutoRefresh(); return; }
+
+        // Pre-install: ДО показа форм проверяем конфликт LAN/WAN.
+        // Если есть — отправляем юзера на отдельный экран «сменить IP».
+        // Делать это здесь (а не внутри install.sh) важно потому, что
+        // браузер физически не сможет переключиться на новый IP «на ходу»:
+        // network restart мид-install убил бы и TCP-сессию RPC, и маршрут
+        // на новый адрес (ноут ещё в старой подсети). А тут юзер ничего
+        // не ввёл — переподключение к новому Wi-Fi/IP естественный шаг.
+        if (await checkLanConflict()) {
+            // Токен нужен для apply_lan_ip. Если в URL не был — показываем
+            // поле ввода прямо на этом экране (юзер скопирует из SSH-консоли).
+            if (st.install_token_required && !state.token) {
+                document.getElementById("lan-conflict-token-block").classList.remove("hidden");
+            }
+            goto("lan-conflict");
+            return;
+        }
 
         // Pre-install режим — показываем блок токена и подставляем значение из URL, если есть
         if (st.install_token_required) {
@@ -665,6 +793,77 @@ async function init() {
              <p>Запустите в SSH на роутере: <code>ubus list cheburnet</code>. Если ничего не возвращает — повторите install.sh.</p>`;
     }
 }
+
+// =====================================================================
+// Обработчик кнопки «Сменить адрес» на экране конфликта LAN/WAN.
+// Валидирует токен → POST apply_lan_ip → переходит на scr-lan-applying
+// с настроенной ссылкой на новый адрес. Новый URL сохраняет токен
+// в query-string, чтобы юзер не вводил его второй раз.
+// =====================================================================
+async function applyLanIp() {
+    const c = state.lanConflict;
+    if (!c) return;  // не должно случиться, но guard на всякий случай
+
+    const status = document.getElementById("lan-conflict-status");
+    const btn = document.getElementById("btn-lan-conflict-apply");
+
+    // Токен: сначала смотрим state.token (из URL ?token=...),
+    // потом — input на этом экране (если был показан).
+    const tokInp = document.getElementById("lan-conflict-token");
+    if (tokInp && tokInp.value.trim()) {
+        state.token = tokInp.value.trim();
+    }
+    const tokenBlockVisible = !document.getElementById("lan-conflict-token-block").classList.contains("hidden");
+    if (tokenBlockVisible && !/^[0-9a-fA-F]{32}$/.test(state.token)) {
+        status.innerHTML = `<span style="color: var(--warn);">Введите install-токен (32 hex-символа из вывода install.sh).</span>`;
+        return;
+    }
+
+    btn.disabled = true;
+    status.innerHTML = `<span class="muted">Применяю новый адрес на роутере…</span>`;
+
+    try {
+        const r = await rpc("cheburnet", "apply_lan_ip", {
+            ip: c.suggest_ip,
+            token: state.token
+        });
+        if (r && r.status === "applied" && r.new_ip) {
+            // Сохраняем токен в новой ссылке — иначе на новом адресе
+            // юзеру придётся снова искать его в SSH-консоли.
+            const newUrl = `${window.location.protocol}//${r.new_ip}/cheburnet/`
+                + (state.token ? `?token=${encodeURIComponent(state.token)}` : "");
+            document.getElementById("lan-applying-new").textContent = r.new_ip;
+            document.getElementById("lan-applying-url").textContent = newUrl;
+            const link = document.getElementById("lan-applying-link");
+            link.href = newUrl;
+            // target="_self" по умолчанию — браузер откроет в той же вкладке;
+            // старая вкладка/URL станет недоступна с потерей TCP-соединения,
+            // и это нормально (она нам больше не нужна).
+            goto("lan-applying");
+        } else {
+            // r.error пришёл из rpcd-cheburnet или из rpcUnwrap нормализации
+            const msg = (r && r.error) ? r.error : "неизвестная ошибка";
+            status.innerHTML = `<span class="err-msg">Не удалось применить: ${escapeHtml(msg)}</span>`;
+            btn.disabled = false;
+        }
+    } catch (e) {
+        status.innerHTML = `<span class="err-msg">Ошибка вызова RPC: ${escapeHtml(e.message)}</span>`;
+        btn.disabled = false;
+    }
+}
+
+document.getElementById("btn-lan-conflict-apply").onclick = applyLanIp;
+
+// Live-обновление state.token при наборе токена на экране конфликта.
+// Без этого юзер мог бы напечатать токен и нажать «Сменить» — но в state
+// он бы попал только при клике (через applyLanIp). На случай если юзер
+// захочет полагаться на autosave/autofill — обновляем сразу.
+(function bindLanConflictTokenInput() {
+    const inp = document.getElementById("lan-conflict-token");
+    if (inp) {
+        inp.addEventListener("input", () => { state.token = inp.value.trim(); });
+    }
+})();
 
 // =====================================================================
 // Экран 1 — AWG .conf
