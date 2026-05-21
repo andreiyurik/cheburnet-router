@@ -48,27 +48,6 @@ podkop_apply_home
 uci set podkop.settings.log_level='warn'
 uci commit podkop
 
-# === 2a. Bootstrap-кеш sing-box rule_sets из vendor ===
-# Зачем. При DPI на github.com подkop не сможет скачать russia_outside.srs
-# при первом старте sing-box → HOME-режим тихо ляжет (см. rulesets_health
-# баннер в web-панели mgmt). Подкладываем pre-downloaded copy по тому пути
-# и имени, что подkop генерирует в sing-box-конфиге:
-# `<section>-<tag>-community-ruleset.srs`. См.
-# itdoginfo/podkop:podkop/files/usr/bin/podkop::configure_community_list_handler
-# и ::get_ruleset_tag в lib/rulesets.sh.
-#
-# Кеш в /tmp/ (RAM) — на reboot стирается, но после первой установки у
-# юзера уже работает AmneziaWG, и sing-box обновит файл сам через свой
-# update_interval (по умолчанию 1d).
-VENDOR_RULESETS="${CHEBURNET_VENDOR:-/opt/cheburnet/vendor}/sing-box-rulesets"
-RULESETS_DIR=/tmp/sing-box/rulesets
-if [ -s "$VENDOR_RULESETS/russia_outside.srs" ]; then
-    mkdir -p "$RULESETS_DIR"
-    cp "$VENDOR_RULESETS/russia_outside.srs" \
-       "$RULESETS_DIR/exclude_ru-russia_outside-community-ruleset.srs"
-    echo "  ✓ bootstrap-кеш russia_outside.srs ($(wc -c < "$VENDOR_RULESETS/russia_outside.srs") B)"
-fi
-
 # === 3. Enable + start + ожидание готовности ===
 # Раньше тут было `restart &` + `sleep 10`: на медленной железке sing-box не
 # успевал стартовать, проверки ниже печатали ⚠ — а 07-killswitch потом

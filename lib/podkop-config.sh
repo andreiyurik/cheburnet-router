@@ -178,6 +178,67 @@ podkop_apply_travel() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# podkop_save_user_domains / podkop_save_community_lists / podkop_restore_exclude_ru
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Backup и восстановление юзерских настроек секции exclude_ru через apk del +
+# reinstall подkop'а (используется в update_podkop RPC). Upstream-installer
+# itdoginfo/podkop при свежей установке кладёт дефолтный /etc/config/podkop,
+# который перезатирает юзерские user_domains (.kz, kinopoisk.ru) и кастомные
+# community_lists. Без backup'а юзер теряет все свои добавления через LuCI
+# при каждом клике «🔄 Обновить podkop» — это ломает non-destructive контракт
+# веб-панели (см. шапку файла).
+#
+# podkop_save_user_domains:
+#   Печатает в stdout текущие user_domains (space-separated). Пусто если
+#   нет секции или список пустой.
+#
+# podkop_save_community_lists:
+#   То же для community_lists.
+#
+# podkop_restore_exclude_ru "<saved-domains>" "<saved-lists>":
+#   Мерджит сохранённые значения в текущий exclude_ru — дубликаты не
+#   добавляются (case-check с обрамлением пробелами, та же логика что в
+#   apply_home merge). Если секции нет — no-op (caller должен сначала дёрнуть
+#   apply_home/_travel). Коммитит podkop.
+podkop_save_user_domains() {
+    uci -q get podkop.exclude_ru.user_domains 2>/dev/null || true
+}
+
+podkop_save_community_lists() {
+    uci -q get podkop.exclude_ru.community_lists 2>/dev/null || true
+}
+
+podkop_restore_exclude_ru() {
+    _saved_domains="$1"
+    _saved_lists="$2"
+
+    if [ -z "$(uci -q get podkop.exclude_ru.connection_type 2>/dev/null)" ]; then
+        unset _saved_domains _saved_lists
+        return 0
+    fi
+
+    _existing=$(uci -q get podkop.exclude_ru.user_domains 2>/dev/null || true)
+    for _d in $_saved_domains; do
+        case " $_existing " in
+            *" $_d "*) ;;
+            *) uci add_list podkop.exclude_ru.user_domains="$_d" ;;
+        esac
+    done
+
+    _existing=$(uci -q get podkop.exclude_ru.community_lists 2>/dev/null || true)
+    for _l in $_saved_lists; do
+        case " $_existing " in
+            *" $_l "*) ;;
+            *) uci add_list podkop.exclude_ru.community_lists="$_l" ;;
+        esac
+    done
+
+    uci commit podkop
+    unset _saved_domains _saved_lists _existing _d _l
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # podkop_current_mode
 # ─────────────────────────────────────────────────────────────────────────────
 #

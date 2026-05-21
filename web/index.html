@@ -1332,7 +1332,16 @@ async function pollPodkopUpdateProgress() {
             setTimeout(() => renderMgmt().catch(() => {}), 2000);
         } else {
             bar.classList.add("err");
-            setMgmtMsg("err-msg", `Обновление podkop не удалось: ${escapeHtml(p.result || "unknown")}. Лог: SSH → logread.`);
+            // Actionable recovery: операция идемпотентна — повторный клик
+            // безопасен. Самая частая причина фейла — сеть моргнула на
+            // apk add. Если 2-3 попытки не помогли, юзеру нужна внешняя
+            // VPN на 10 минут установки.
+            setMgmtMsg("err-msg",
+                `Обновление podkop не удалось: ${escapeHtml(p.result || "unknown")}. ` +
+                `Кликните «🔄 Обновить podkop» ещё раз (операция идемпотентна). ` +
+                `Если 2-3 попытки подряд не помогают — провайдер блокирует загрузку: ` +
+                `подключите внешний VPN (docs/install-blocked.md) и повторите. ` +
+                `Полный лог: SSH → logread.`);
         }
     } catch (e) {
         if (!document.getElementById("podkop-update-progress").classList.contains("hidden")) {

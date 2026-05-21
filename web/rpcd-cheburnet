@@ -31,10 +31,14 @@ ETC_AWG_DIR="${ETC_AWG_DIR:-/etc/amnezia/amneziawg}"
 ETC_ADBLOCK_CFG="${ETC_ADBLOCK_CFG:-/etc/adblock-lean/config}"
 ETC_INIT_D="${ETC_INIT_D:-/etc/init.d}"
 USR_BIN_VPN_MODE="${USR_BIN_VPN_MODE:-/usr/bin/vpn-mode}"
-# Каталог, куда подkop/sing-box распаковывает rule_set'ы (.srs или .json) после
-# скачивания community_lists. В норме /tmp/sing-box/rulesets/. Переопределяемо
-# для интеграционных тестов get_status.rulesets_health.
-RULESETS_DIR="${RULESETS_DIR:-/tmp/sing-box/rulesets}"
+# Clash API endpoint — sing-box биндится на ${LAN_IP}:9090 (не на loopback)
+# по конфигу подkop'а (`experimental.clash_api.external_controller`). Через
+# этот эндпоинт спрашиваем sing-box «у тебя rule_set X в активных правилах?» —
+# единственный надёжный способ узнать что rule_set реально подхвачен (на
+# 0.7.17+ подkop генерит type=remote rule_set'ы, файлов в /tmp/sing-box/rulesets/
+# для них не создаётся — только в binary cache.db, недоступном для парсинга
+# из shell). См. также комментарий в _ruleset_loaded.
+CLASH_API_PORT="${CLASH_API_PORT:-9090}"
 
 mkdir -p "$STATE_DIR"
 
@@ -72,36 +76,47 @@ _reload_blocklist() {
     "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1
 }
 
-# _ruleset_loaded TAG → 0 если есть хотя бы один non-empty файл в RULESETS_DIR,
-# чьё имя содержит TAG (расширение .json или .srs). 1 если ни одного.
+# _ruleset_loaded TAG → 0 если sing-box работает И rule_set с этим тегом
+# подхвачен (присутствует в /rules через Clash API). 1 в остальных случаях.
 #
-# Зачем существует. Если подkop не смог скачать russia_outside.srs (DPI на
-# github у RU-провайдеров, временный 5xx, изменился upstream URL у старой
-# инсталляции подkop'а), HOME-режим тихо ведёт себя как TRAVEL для .ru-сервисов
-# вне user_domains: Госуслуги/Sberbank/Ozon идут через VPN с не-РФ IP →
-# блокировки. Без healthcheck юзер видит «mode=home» и думает, что всё ок.
+# Зачем существует. Если подkop не смог скачать russia_outside ruleset
+# (DPI на github у RU-провайдеров, временный 5xx), HOME-режим тихо ведёт себя
+# как TRAVEL для .ru-сервисов вне user_domains: Госуслуги/Sberbank/Ozon идут
+# через VPN с не-РФ IP → блокировки. Без healthcheck юзер видит «mode=home»
+# и думает, что всё ок.
 #
-# Glob по подстроке (не точное имя). Имя файла зависит от sing-box-версии и
-# может меняться («exclude_ru-russia_outside-community-ruleset.srs» в одной,
-# «russia_outside.srs» в другой); устойчивее матчить по тегу. Уникальность
-# 'russia_outside' защищает от false-positive — никакого другого файла с такой
-# подстрокой в каталоге быть не может.
+# Почему через Clash API, а не через файлы в /tmp/sing-box/rulesets/.
+# Подkop 0.7.17+ генерирует sing-box-конфиг с `type=remote` для community_lists —
+# sing-box качает их в свой binary cache.db, а отдельных файлов с tag-именем
+# не создаёт. Старый glob-чек `*russia_outside*.srs` всегда возвращал бы false
+# на современной версии — это значит красный баннер у каждого юзера, всегда.
+# Clash API endpoint `/rules` возвращает список активных правил sing-box'а;
+# наличие нашего rule_set в payload одного из правил = «sing-box подхватил».
+#
+# Двойная защита:
+#   1) pidof sing-box — если процесса нет, считать «не загружен» сразу, не
+#      ждать таймаута curl (на свежей инсталляции под DPI sing-box может
+#      падать FATAL до запуска API).
+#   2) curl на /rules с --max-time 3 — sing-box API биндится на LAN-IP:9090
+#      (не на loopback, см. external_controller в его конфиге). LAN-IP мы
+#      определяем через net_lan_ip — тот же источник правды, что для DNS-probe.
 _ruleset_loaded() {
-    # ВАЖНО: имена локальных переменных НЕ должны совпадать с переменными
-    # цикла caller'а — POSIX sh не скопит, и `unset _tag` внутри обнулил бы
-    # caller'ское _tag в `for _tag in $_tags`. Префикс _rs_ — namespace.
+    # Префикс _rs_ — namespace, иначе `unset` обнулит caller'ское _tag в
+    # `for _tag in $_tags` (POSIX sh не имеет scope-локалов).
     _rs_tag="$1"
-    [ -d "$RULESETS_DIR" ] || { unset _rs_tag; return 1; }
-    # for-glob: если ни один файл не подошёл, цикл выполняется один раз со
-    # значением буквального паттерна — поэтому проверяем -s (non-empty file)
-    # внутри, а не condition'ом цикла.
-    for _rs_f in "$RULESETS_DIR"/*"$_rs_tag"*.json "$RULESETS_DIR"/*"$_rs_tag"*.srs; do
-        if [ -s "$_rs_f" ]; then
-            unset _rs_tag _rs_f
-            return 0
-        fi
-    done
-    unset _rs_tag _rs_f
+
+    pidof sing-box >/dev/null 2>&1 || { unset _rs_tag; return 1; }
+
+    _rs_lan=$(net_lan_ip 127.0.0.1)
+    # -s silent, -f fail на HTTP ≥400. --max-time 3 = жёсткий потолок,
+    # чтобы при подвисшем API не блокировать get_status. grep -F = literal —
+    # tag не содержит regex-метасимволов и быстрее.
+    if curl -sf --max-time 3 "http://${_rs_lan}:${CLASH_API_PORT}/rules" 2>/dev/null \
+        | grep -qF "$_rs_tag"; then
+        unset _rs_tag _rs_lan
+        return 0
+    fi
+    unset _rs_tag _rs_lan
     return 1
 }
 
@@ -752,49 +767,96 @@ APPLY
         cat > "$APPLY_SCRIPT" <<'APPLY'
 #!/bin/sh
 # Сгенерирован rpcd-cheburnet (update_podkop). Переустанавливает podkop +
-# sing-box и реаплаит наши UCI-настройки, сохраняя текущий HOME/TRAVEL.
-set -u
+# sing-box и реаплаит наши UCI-настройки, сохраняя HOME/TRAVEL и юзерские
+# домены/community_lists из exclude_ru.
+#
+# set -eu: любой шаг возвращает non-zero → exit с записью fail в DONE_FILE.
+# Без `-e` мы могли молча писать 'ok' при упавшем apply_home или мёртвом
+# sing-box после restart (юзер видит «✓ обновлено», на деле VPN не работает).
+set -eu
 
-# 1. Сохраняем текущий режим ДО apk del — после удаления подkop'а UCI-конфиг
-# /etc/config/podkop может быть стёрт upstream-скриптом установки, и
-# podkop_current_mode вернёт travel (нет секции exclude_ru).
+_fail_marker() {
+    printf 'fail\n' > "$DONE_FILE"
+}
+trap _fail_marker EXIT
+
 . "$INSTALL_DIR/lib/podkop-config.sh"
-SAVED_MODE=$(podkop_current_mode)
-echo "→ текущий режим перед апгрейдом: $SAVED_MODE" >> "$LOG_FILE"
-
-# 2. Переустановка. Все cascading fallback (vendor → upstream → retry → diag)
-# живёт в lib/install-podkop.sh — там же, что для первой установки.
-. "$INSTALL_DIR/lib/cheburnet-utils.sh"  # для cheburnet_apk_fail_advice
+. "$INSTALL_DIR/lib/cheburnet-utils.sh"
 . "$INSTALL_DIR/lib/install-podkop.sh"
+. "$INSTALL_DIR/lib/net-detect.sh"
+
+# 1. Backup ДО apk del. /etc/config/podkop может быть стёрт upstream-инсталлером,
+# а юзер мог через LuCI добавить .kz/kinopoisk.ru в user_domains или кастомные
+# community_lists. Без сохранения они умирают на каждом клике «🔄 Обновить» —
+# это ломает non-destructive контракт веб-панели.
+SAVED_MODE=$(podkop_current_mode)
+SAVED_DOMAINS=$(podkop_save_user_domains)
+SAVED_LISTS=$(podkop_save_community_lists)
+echo "→ режим перед апгрейдом: $SAVED_MODE" >> "$LOG_FILE"
+echo "→ сохранено user_domains:    $SAVED_DOMAINS" >> "$LOG_FILE"
+echo "→ сохранено community_lists: $SAVED_LISTS" >> "$LOG_FILE"
+
+# 2. Переустановка. Cascading fallback (vendor → upstream → retry → diag) —
+# в lib/install-podkop.sh, та же логика, что для первой установки.
 if ! cheburnet_install_podkop force >> "$LOG_FILE" 2>&1; then
     echo "✗ переустановка не удалась" >> "$LOG_FILE"
-    printf 'fail\n' > "$DONE_FILE"
-    exit 1
+    exit 1   # trap пишет fail
 fi
 
-# 3. Реаплаим main + восстанавливаем тот же режим. apply_main_section здесь
-# destructive — но это OK: после apk del + reinstall /etc/config/podkop в
-# свежем состоянии, terять нечего.
-. "$INSTALL_DIR/lib/net-detect.sh"
-LAN_CIDR=$(net_lan_cidr) || {
-    echo "✗ не удалось определить LAN CIDR — main.fully_routed_ips не выставлен" >> "$LOG_FILE"
-    LAN_CIDR=""
-}
+# 3. Реаплаим main. apply_main_section destructive — но это OK: после reinstall
+# /etc/config/podkop в свежем состоянии, перетирать нечего.
+#
+# net_lan_cidr внутри source'ит /lib/functions/network.sh — это netifd-хелперы,
+# которые НЕ совместимы с `set -u` (некоторые переменные читаются до инициализации
+# в внутренних под-функциях). Под `set -eu` net_lan_cidr тихо возвращает пусто,
+# а на 02-podkop без LAN CIDR упадёт fully_routed_ips → kill switch блокирует
+# весь LAN. Поэтому временно снимаем -eu только для этого вызова. trap всё ещё
+# активен и `|| true` сохраняется.
+set +eu
+LAN_CIDR=$(net_lan_cidr 2>/dev/null || echo "")
+set -eu
+if [ -z "$LAN_CIDR" ]; then
+    echo "⚠ LAN CIDR не определился — fully_routed_ips НЕ выставлен" >> "$LOG_FILE"
+fi
 podkop_apply_main_section "$LAN_CIDR" >> "$LOG_FILE" 2>&1
+
+# 4. Восстанавливаем режим. apply_home/_travel создаёт секцию exclude_ru с
+# нашими 4 default-доменами + 'russia_outside' community_list. После этого
+# доливаем юзерские добавки из backup'а — naши defaults не дублируются
+# (merge с case-check).
 if [ "$SAVED_MODE" = "travel" ]; then
     podkop_apply_travel >> "$LOG_FILE" 2>&1
 else
-    # home — дефолт (включая первую установку, где SAVED_MODE мог быть travel
-    # из-за отсутствия секции; апгрейд из такого состояния трактуем как home,
-    # т.к. наш контракт — HOME by default).
+    # home — дефолт (включая случай, когда SAVED_MODE='travel' из-за
+    # отсутствия секции; наш контракт — HOME by default).
     podkop_apply_home >> "$LOG_FILE" 2>&1
 fi
+podkop_restore_exclude_ru "$SAVED_DOMAINS" "$SAVED_LISTS" >> "$LOG_FILE" 2>&1
 
-# 4. Стартуем заново. enable — на случай если старая инсталляция была disabled.
+# 5. Стартуем заново. enable — на случай если старая инсталляция была disabled.
 "$ETC_INIT_D/podkop" enable >> "$LOG_FILE" 2>&1
 "$ETC_INIT_D/podkop" restart >> "$LOG_FILE" 2>&1
 
+# 6. КРИТИЧНО: проверяем что sing-box РЕАЛЬНО поднялся. Без этой проверки мы
+# писали 'ok' даже если bin/sing-box не существует или /etc/init.d/podkop
+# вернул 1 — юзер видит «✓ обновлено», но VPN не работает.
+echo "→ жду готовности sing-box (до 30с)..." >> "$LOG_FILE"
+_r=0
+while [ "$_r" -lt 30 ]; do
+    if pidof sing-box >/dev/null 2>&1; then
+        break
+    fi
+    _r=$((_r + 1))
+    sleep 1
+done
+if ! pidof sing-box >/dev/null 2>&1; then
+    echo "✗ sing-box не поднялся за 30с после restart" >> "$LOG_FILE"
+    logread -e sing-box 2>/dev/null | tail -20 >> "$LOG_FILE" || true
+    exit 1   # trap пишет fail
+fi
+
 echo "✓ апгрейд завершён, режим: $SAVED_MODE" >> "$LOG_FILE"
+trap - EXIT
 printf 'ok\n' > "$DONE_FILE"
 APPLY
         chmod +x "$APPLY_SCRIPT"

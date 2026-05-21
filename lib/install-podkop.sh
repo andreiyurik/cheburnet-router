@@ -103,17 +103,35 @@ cheburnet_install_podkop() {
         return 1
     fi
 
-    # `yes n` шлёт бесконечный поток "n" — устойчиво к любому числу y/n-вопросов
-    # подкоповского установщика (раньше было `printf 'n\nn\nn\n'` — хрупко,
-    # ломалось бы если itdoginfo добавил четвёртый вопрос).
-    # Вывод сохраняем — нужен для детекции «Insufficient space in flash»
-    # и других permanent-ошибок, по которым повторять бессмысленно.
+    # Подкоповский установщик 0.7.17 имеет 3 интерактивных prompt'а (CONFIG_UPDATE,
+    # русский язык, DNSPROXY) — каждый в `while true; do read; case y/n/*) continue;;`.
+    # При EOF stdin `read` возвращает 1 и пустую строку → попадает в `*)` → infinite-loop.
+    # Раньше использовали `yes n | sh installer.sh`, но `yes` падает с SIGPIPE
+    # между prompt'ами (внутри installer'а есть sub-команды что закрывают pipe),
+    # и второй prompt получает EOF → зависает навсегда.
+    #
+    # FIFO + background writer гарантирует «живой» stdin для установщика на всё
+    # время его работы: writer пишет 'n\n' пока fifo не закроется (когда установщик
+    # завершится и закроет свой stdin). SIGPIPE writer'а ловим (|| true).
     INSTALLER_LOG=/tmp/podkop-installer.log
-    # Установщик пишет в файл (нужен для grep по Insufficient space ниже),
-    # за ~30-90с apk update + download юзер ничего не видит. В Web-UI это
-    # читается как «зависло» — поэтому head-up строка о том, что идёт работа.
+    INSTALLER_FIFO=/tmp/podkop-installer.fifo
+    rm -f "$INSTALLER_FIFO"
+    mkfifo "$INSTALLER_FIFO"
+    # Background writer: бесконечный поток 'n'. 2>/dev/null глушит broken-pipe
+    # warning на финальном закрытии. Открываем fifo на запись через exec 3>,
+    # чтобы он не блокировался на open() до первого reader'а.
+    ( while :; do echo n; done > "$INSTALLER_FIFO" 2>/dev/null ) &
+    WRITER_PID=$!
     echo "  → ставлю пакеты (sing-box + kmod-tproxy + podkop, ~30-90с)..."
-    yes n | sh /tmp/podkop-install.sh >"$INSTALLER_LOG" 2>&1
+    sh /tmp/podkop-install.sh < "$INSTALLER_FIFO" >"$INSTALLER_LOG" 2>&1
+    # Когда установщик завершился — pipe закрылся, writer падает на SIGPIPE.
+    # Защитный kill на случай если writer ещё жив (race).
+    # `|| true` обязательно: вызывающий код может быть под `set -e`, а
+    # kill/wait возвращают non-zero когда процесс уже мёртв или убит сигналом —
+    # это НОРМАЛЬНОЕ завершение, не ошибка установки. Раньше падало именно тут.
+    kill "$WRITER_PID" 2>/dev/null || true
+    wait "$WRITER_PID" 2>/dev/null || true
+    rm -f "$INSTALLER_FIFO"
     tail -20 "$INSTALLER_LOG"
 
     # Permanent-фейл: апстрим-установщик сам проверяет flash и пишет
@@ -141,7 +159,15 @@ cheburnet_install_podkop() {
     if [ ! -x /etc/init.d/podkop ]; then
         echo "  установщик подкопа не оставил /etc/init.d/podkop, обновляю индексы и повторяю..."
         apk update >/dev/null 2>&1 || true
-        yes n | sh /tmp/podkop-install.sh >"$INSTALLER_LOG" 2>&1
+        # Тот же FIFO-приём, что выше — `yes n | sh` ломается на 0.7.17+.
+        rm -f "$INSTALLER_FIFO"
+        mkfifo "$INSTALLER_FIFO"
+        ( while :; do echo n; done > "$INSTALLER_FIFO" 2>/dev/null ) &
+        WRITER_PID=$!
+        sh /tmp/podkop-install.sh < "$INSTALLER_FIFO" >"$INSTALLER_LOG" 2>&1
+        kill "$WRITER_PID" 2>/dev/null
+        wait "$WRITER_PID" 2>/dev/null
+        rm -f "$INSTALLER_FIFO"
         tail -20 "$INSTALLER_LOG"
         if grep -q 'Insufficient space in flash' "$INSTALLER_LOG"; then
             echo "" >&2
