@@ -50,8 +50,10 @@ POST_ACL_RUN="$REPO_ROOT/setup/install.sh"
 # завтра в unauth.write попадёт mode_switch, тест #4 покраснеет.
 # apply_lan_ip намеренно НЕ в списке: он разрешён в unauth с install-token-
 # защитой (как install_start), это сознательная архитектурная декорация.
+# update_podkop — post-install метод (требует уже установленный подkop),
+# в pre-install ACL ему делать нечего.
 @test "pre-install ACL: НЕТ запрещённых методов в unauth.write" {
-    for forbidden in mode_switch factory_reset set_blocklist_tier service_restart replace_awg_conf; do
+    for forbidden in mode_switch factory_reset set_blocklist_tier service_restart replace_awg_conf update_podkop; do
         if acl_has "$PRE_ACL" .unauthenticated.write.ubus.cheburnet "$forbidden"; then
             echo "FAIL: '$forbidden' попал в pre-install unauth.write" >&2
             return 1
@@ -85,7 +87,10 @@ assert write is None or write == {} or write == {"ubus": {}}, \
 @test "post-install ACL: cheburnet-admin.write содержит ВСЕ мутирующие методы" {
     methods="$(extract_acl_heredoc "$POST_ACL_RUN" \
                | acl_methods_in_stdin .cheburnet-admin.write.ubus.cheburnet)"
-    expected="factory_reset install_cancel install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter"
+    # update_podkop (Problem 3) — post-install метод для апгрейда устаревших
+    # инсталляций. Доступен ТОЛЬКО через login (не в unauth.write) — пользователь
+    # на post-install этапе уже имеет root-пароль, нет смысла гейтить токеном.
+    expected="factory_reset install_cancel install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter update_podkop"
     [ "$methods" = "$expected" ]
 }
 

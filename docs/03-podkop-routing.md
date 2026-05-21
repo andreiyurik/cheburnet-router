@@ -272,6 +272,77 @@ Podkop не даёт прямо менять `final` через UCI (это ин
 3. **Что будет, если пользователь сменит DNS в своём ноутбуке на `1.1.1.1` (минуя наш dnsmasq)?**
    <details><summary>Ответ</summary>DoH-запрос от ноута пойдёт через AWG (благодаря source-based routing: src=192.168.1.x → main-out). Клиент получит **реальный IP** YouTube, а не FakeIP. Но трафик **всё равно** пойдёт через туннель (source-based правило), просто без оптимизации FakeIP. Конечный результат такой же — цензура обойдена. Единственный «минус»: для .ru-сайтов sing-box не сможет применить exclusion (он не знает, что клиент собрался на `sberbank.ru`), → они тоже пойдут через туннель. Небольшая потеря эффективности.</details>
 
+## Кастомизация: что можно трогать, что мы гарантируем
+
+cheburnet — это не «всё-в-одном» лочилка, а **слой быстрой первоначальной настройки** поверх стандартного podkop. Дальше вы свободны допиливать через LuCI / CLI / прямой UCI — мы не вмешиваемся.
+
+### Наш контракт
+
+Скрипт cheburnet трогает в `podkop.*` строго **5 полей**:
+
+| Поле | Когда трогаем | Почему нельзя иначе |
+|---|---|---|
+| `podkop.main.user_domain_list_type = 'dynamic'` | каждый mode_switch | без него секция main skip'ается, HOME ломается (был incident) |
+| `podkop.settings.source_network_interfaces` ⊇ `'br-lan'` | каждый mode_switch | без LAN в source-листе пакеты попадают в forward_lan → KillSwitch DROP |
+| `podkop.exclude_ru.enabled = '0'/'1'` | переключение HOME/TRAVEL | источник правды режима |
+| `podkop.exclude_ru.user_domains` — **merge** наших 4 default'ов | apply_home (только если их нет) | страховка на случай если community_list не скачался |
+| `podkop.main.*` (interface, fully_routed_ips, connection_type) | **ТОЛЬКО** первая установка и update_podkop | при следующих mode_switch не перезатираются |
+
+Всё остальное в `podkop.*` — **ваша территория**, можно настраивать через LuCI / CLI / UCI. Наша панель и `vpn-mode` CLI это не трогают.
+
+### Типичные сценарии кастомизации
+
+#### 1. Добавить домен в HOME-исключения (например `.kz`)
+
+```bash
+ssh root@192.168.1.1 'uci add_list podkop.exclude_ru.user_domains=.kz && uci commit podkop && /etc/init.d/podkop reload'
+```
+
+Не потеряется при HOME ⇄ TRAVEL — `apply_home` не делает `uci delete user_domains`, только доливает наши default'ы.
+
+#### 2. Удалить наш default (например vk.com не нужен)
+
+```bash
+ssh root@192.168.1.1 'uci del_list podkop.exclude_ru.user_domains=vk.com && uci commit podkop && /etc/init.d/podkop reload'
+```
+
+⚠ **Контр-интуитивный момент:** при **следующем** клике «HOME» в web-панели мы доливаем `vk.com` обратно. Это контракт: «наши 4 default'а гарантированно есть в HOME». Если хотите гарантированно убрать — заодно отключите авто-восстановление, добавив `vk.com` в свою custom-секцию с другим `connection_type`.
+
+#### 3. Поменять VPN-интерфейс с awg0 на awg1 (поднял второй VPN)
+
+```bash
+ssh root@192.168.1.1 'uci set podkop.main.interface=awg1 && uci commit podkop && /etc/init.d/podkop reload'
+```
+
+Не перезатирается при mode_switch — `ensure_main_invariants` чинит только `user_domain_list_type` и `source_network_interfaces`, не `interface`. **Исключение:** клик «🔄 Обновить podkop» в web-панели вызывает `apply_main_section` (это re-install, destructive), `interface` вернётся на `awg0` — придётся пересетить.
+
+#### 4. Создать вторую секцию (split-tunnel для конкретного домена)
+
+Через LuCI → Services → Podkop → Add Section. Создайте свою секцию (например `crypto_vpn`), наша панель её не видит и не трогает.
+
+#### 5. Восстановить наши default'ы если что-то сломали через LuCI
+
+```bash
+ssh root@192.168.1.1 '/usr/bin/vpn-mode home'
+```
+
+`vpn-mode home` вызовет `ensure_main_invariants` (дольёт `user_domain_list_type=dynamic`, добавит `br-lan` в `source_network_interfaces` если их нет) + merge default'ов в `user_domains`. Если совсем плохо — `/usr/bin/vpn-mode travel && /usr/bin/vpn-mode home` форсит полный re-apply.
+
+### Что мы НЕ покрываем UI
+
+- Управление `user_domains` через web-панель — только через LuCI или SSH.
+- Создание / переключение дополнительных секций.
+- Тонкие настройки sing-box (`proxy_config_type`, доп. `community_lists`, FakeIP-параметры).
+- Изменение `dns_type` / `dns_server` (DoH через Quad9 — наш дефолт).
+
+Для всего остального — LuCI → Services → Podkop, либо ssh + `uci`.
+
+### Видимость поломки community-листа
+
+Если podkop не смог скачать `russia_outside.srs` (DPI у RU-провайдеров на `github.com`, временный 5xx, или старая инсталляция с битым upstream URL), HOME-режим тихо ведёт себя как TRAVEL для .ru-сервисов вне `user_domains`: Госуслуги/Sberbank/Ozon идут через VPN с не-РФ IP → блокировки и капчи.
+
+Симптом: в web-панели на экране «Состояние и управление» появляется **красный баннер** «Список `russia_outside` не загружен». Источник — `rulesets_health` в `get_status` RPC: проверяем наличие непустого файла `*russia_outside*.{json,srs}` в `/tmp/sing-box/rulesets/`. Если списка нет — кнопка «🔄 Обновить podkop» переустанавливает подkop с актуальным upstream-URL'ом.
+
 ## 📚 Глубже изучить
 
 ### Обязательно

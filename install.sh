@@ -191,6 +191,49 @@ ok "интернет есть"
 # PoP Fastly отдают байты по 5 КБ/с, FIN не приходит, apk ждёт навсегда. Жёсткий
 # таймаут + 3 попытки разрывают повисший сокет и заставляют переподключиться.
 step 2 "Обновляю индекс пакетов (таймаут 120с, до 3 попыток)"
+
+# Ранний DPI-probe (5с). Без него юзер с заблокированным mirror'ом 6 минут
+# смотрит в чёрный терминал, не понимая виснет оно или работает, начинает
+# рандомно жать Ctrl-C. Probe-URL — короткий файл SHA256SUMS текущего релиза
+# (гарантированно существует). При фейле — сразу показываем краткую
+# инструкцию + даём 30с на выбор: подождать стандартный retry (вдруг
+# транзиент) или прервать и поднять VPN снаружи. При успехе probe тихо
+# идём дальше — никакого UX-шума для юзеров без DPI.
+DPI_PROBE_URL="https://downloads.openwrt.org/releases/${DISTRIB_RELEASE:-25.12.2}/SHA256SUMS"
+if ! wget -qO /dev/null --timeout=5 "$DPI_PROBE_URL" 2>/dev/null; then
+    echo
+    echo "  ⚠ За 5с не достучаться до downloads.openwrt.org. Похоже на DPI."
+    echo
+    echo "  Cheburnet сам обойти не может (он ещё не установлен)."
+    echo "  Поставь сторонний VPN на ноут или Android-телефон и используй его"
+    echo "  как WAN роутера на 10 минут установки:"
+    echo
+    echo "    A. Ноут + AmneziaVPN + Internet Sharing → Ethernet → роутер"
+    echo "       (надёжнее, рекомендуем)"
+    echo
+    echo "    B. Android + AmneziaVPN + USB-кабель → роутер"
+    echo "       (включи в AmneziaVPN «Tunnel ALL traffic» — по умолчанию"
+    echo "        tethered-трафик НЕ заворачивается в VPN, это типичный косяк)"
+    echo
+    echo "  Подробная инструкция (обе схемы по шагам):"
+    echo "    https://github.com/yurik2718/cheburnet-router/blob/master/docs/install-blocked.md"
+    echo
+    echo "  Если думаешь, что это транзиент — нажми Enter [таймаут 30с],"
+    echo "  и я попробую стандартный 6-мин retry. Ctrl-C — выйти, поднять"
+    echo "  VPN и запустить установку снова."
+    echo
+    printf "  > "
+    # read -t 30 — auto-timeout. Возврат non-zero на таймауте/EOF (если ssh-
+    # сессия неинтерактивная) — нам всё равно, в обоих случаях идём в retry.
+    # `|| :` чтобы set -e не убил скрипт на read'е.
+    # shellcheck disable=SC3045  # busybox-ash supports read -t
+    read -r -t 30 _dpi_ans 2>/dev/null || :
+    unset _dpi_ans
+    echo
+    echo "  → продолжаю apk update..."
+    echo
+fi
+
 if ! with_retry 120 3 "apk update" apk update; then
     # Перед вердиктом «провайдер режет» проверяем что именно отвалилось.
     # Без этой проверки мы могли врать юзеру про DPI, когда у него на самом

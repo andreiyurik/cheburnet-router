@@ -165,3 +165,60 @@ EOF
     sleep 1
     ! kill -0 "$pid" 2>/dev/null
 }
+
+# ─── update_podkop ──────────────────────────────────────────────────────────
+# Problem 3: апгрейд устаревших инсталляций. Пре-флайты (нет подkop'а / уже
+# идёт операция) + happy path (started + PID). Сам апгрейд (apk del + reinstall
+# + reapply + restart) делает фоновый script, его поведение здесь не тестируем
+# (real apk на CI отсутствует, сценарий покрывает qemu-install при ручной
+# проверке).
+
+@test "update_podkop: подkop не установлен → 'podkop не установлен'" {
+    # /etc/init.d/podkop отсутствует — апгрейдить нечего
+    run run_rpcd update_podkop '{}'
+    assert_success
+    assert_output --partial "podkop не установлен"
+}
+
+@test "update_podkop: уже идёт операция (PID жив) → 'already running'" {
+    # Pre-condition: подkop установлен (init-script на месте)
+    cat > "$ETC_INIT_D/podkop" <<'EOF'
+#!/bin/sh
+echo "Service podkop is running"
+EOF
+    chmod +x "$ETC_INIT_D/podkop"
+
+    sleep 30 &
+    pid=$!
+    echo "$pid" > "$STATE_DIR/pid"
+    run run_rpcd update_podkop '{}'
+    kill "$pid" 2>/dev/null || true
+    assert_success
+    assert_output --partial "already running"
+}
+
+@test "update_podkop: happy path — status=started, PID > 0, apply-скрипт создан" {
+    # Pre-condition: подkop установлен. Сам install/restart фейлится в sandbox
+    # (нет apk + нет sing-box), но это уже фоновый процесс — его результат
+    # пишется в DONE_FILE, нас интересует только что RPC корректно запустил.
+    cat > "$ETC_INIT_D/podkop" <<'EOF'
+#!/bin/sh
+echo "Service podkop is running"
+EOF
+    chmod +x "$ETC_INIT_D/podkop"
+
+    run run_rpcd update_podkop '{}'
+    assert_success
+    assert_json_field "$output" .status "started"
+    # PID-файл создан, apply-скрипт на месте
+    [ -s "$STATE_DIR/pid" ]
+    [ -x "$STATE_DIR/podkop-update-apply.sh" ]
+    # state выставлен на podkop-update — UI поймёт что это наш шаг
+    grep -q "podkop-update" "$STATE_DIR/state"
+
+    # Cleanup: убиваем фоновый процесс (он точно зафейлится на apk,
+    # но мог недотечь до записи DONE — не оставляем мусор после теста).
+    pid=$(cat "$STATE_DIR/pid")
+    kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    sleep 1
+}

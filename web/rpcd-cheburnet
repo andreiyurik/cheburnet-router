@@ -31,6 +31,10 @@ ETC_AWG_DIR="${ETC_AWG_DIR:-/etc/amnezia/amneziawg}"
 ETC_ADBLOCK_CFG="${ETC_ADBLOCK_CFG:-/etc/adblock-lean/config}"
 ETC_INIT_D="${ETC_INIT_D:-/etc/init.d}"
 USR_BIN_VPN_MODE="${USR_BIN_VPN_MODE:-/usr/bin/vpn-mode}"
+# Каталог, куда подkop/sing-box распаковывает rule_set'ы (.srs или .json) после
+# скачивания community_lists. В норме /tmp/sing-box/rulesets/. Переопределяемо
+# для интеграционных тестов get_status.rulesets_health.
+RULESETS_DIR="${RULESETS_DIR:-/tmp/sing-box/rulesets}"
 
 mkdir -p "$STATE_DIR"
 
@@ -66,6 +70,39 @@ PODKOP_LIB="${CHEBURNET_PODKOP_LIB:-$INSTALL_DIR/lib/podkop-config.sh}"
 _reload_blocklist() {
     "$ETC_INIT_D/adblock-lean" start >/dev/null 2>&1
     "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1
+}
+
+# _ruleset_loaded TAG → 0 если есть хотя бы один non-empty файл в RULESETS_DIR,
+# чьё имя содержит TAG (расширение .json или .srs). 1 если ни одного.
+#
+# Зачем существует. Если подkop не смог скачать russia_outside.srs (DPI на
+# github у RU-провайдеров, временный 5xx, изменился upstream URL у старой
+# инсталляции подkop'а), HOME-режим тихо ведёт себя как TRAVEL для .ru-сервисов
+# вне user_domains: Госуслуги/Sberbank/Ozon идут через VPN с не-РФ IP →
+# блокировки. Без healthcheck юзер видит «mode=home» и думает, что всё ок.
+#
+# Glob по подстроке (не точное имя). Имя файла зависит от sing-box-версии и
+# может меняться («exclude_ru-russia_outside-community-ruleset.srs» в одной,
+# «russia_outside.srs» в другой); устойчивее матчить по тегу. Уникальность
+# 'russia_outside' защищает от false-positive — никакого другого файла с такой
+# подстрокой в каталоге быть не может.
+_ruleset_loaded() {
+    # ВАЖНО: имена локальных переменных НЕ должны совпадать с переменными
+    # цикла caller'а — POSIX sh не скопит, и `unset _tag` внутри обнулил бы
+    # caller'ское _tag в `for _tag in $_tags`. Префикс _rs_ — namespace.
+    _rs_tag="$1"
+    [ -d "$RULESETS_DIR" ] || { unset _rs_tag; return 1; }
+    # for-glob: если ни один файл не подошёл, цикл выполняется один раз со
+    # значением буквального паттерна — поэтому проверяем -s (non-empty file)
+    # внутри, а не condition'ом цикла.
+    for _rs_f in "$RULESETS_DIR"/*"$_rs_tag"*.json "$RULESETS_DIR"/*"$_rs_tag"*.srs; do
+        if [ -s "$_rs_f" ]; then
+            unset _rs_tag _rs_f
+            return 0
+        fi
+    done
+    unset _rs_tag _rs_f
+    return 1
 }
 
 # Принимает .conf через stdin, нормализует CRLF→LF (юзер мог вставить из
@@ -113,7 +150,8 @@ if [ "$1" = "list" ]; then
     "set_blocklist_tier": { "tier": "str" },
     "set_family_filter": { "enabled": "bool" },
     "factory_reset": { "confirm": "str" },
-    "replace_awg_conf": { "awg_conf": "str" }
+    "replace_awg_conf": { "awg_conf": "str" },
+    "update_podkop": {}
 }
 EOF
     exit 0
@@ -209,6 +247,47 @@ case "$METHOD" in
         TOKEN_PRESENT="false"
         [ -s "$ETC_CHEBURNET/install-token" ] && TOKEN_PRESENT="true"
 
+        # Healthcheck rulesets — только в HOME-режиме.
+        #
+        # В TRAVEL ruleset'ы не используются (нет правила-исключения), поэтому
+        # их отсутствие — не проблема: russia_outside_loaded=true (нечего
+        # проверять), missing=[] — фронт не показывает баннер.
+        #
+        # В HOME проверяем все community_lists из exclude_ru. Если хоть один tag
+        # не загружен (нет non-empty файла в RULESETS_DIR) — добавляем в missing
+        # и, если этот tag = russia_outside, флагуем russia_outside_loaded=false.
+        # russia_outside_loaded — главный флаг для UI (баннер); missing — детали.
+        RULESETS_LOADED="true"
+        RULESETS_MISSING_JSON="[]"
+        if [ "$MODE" = "home" ]; then
+            _tags=$(uci -q get podkop.exclude_ru.community_lists 2>/dev/null || true)
+            _missing=""
+            for _tag in $_tags; do
+                if ! _ruleset_loaded "$_tag"; then
+                    [ "$_tag" = "russia_outside" ] && RULESETS_LOADED="false"
+                    # collect tag в строку — потом разнесём в JSON-массив
+                    _missing="$_missing $_tag"
+                fi
+            done
+            if [ -n "$_missing" ]; then
+                # Собираем JSON-массив строк из space-separated списка тегов.
+                # community_list-имена в подkop'е — [a-z_], спецсимволов не бывает,
+                # но всё равно json_escape'им на всякий случай (defensive).
+                _arr=""
+                for _t in $_missing; do
+                    _e=$(json_escape "$_t")
+                    if [ -z "$_arr" ]; then
+                        _arr="\"$_e\""
+                    else
+                        _arr="$_arr, \"$_e\""
+                    fi
+                done
+                RULESETS_MISSING_JSON="[$_arr]"
+                unset _arr _t _e
+            fi
+            unset _tags _missing _tag
+        fi
+
         cat <<EOF
 {
     "install_type": "$INSTALL_TYPE",
@@ -222,7 +301,11 @@ case "$METHOD" in
     "dns_up": $DNS_UP,
     "awg_handshake_age": $AWG_HS_AGE,
     "blocklist_tier": "$TIER",
-    "family_filter_enabled": $FAMILY_FILTER_ENABLED
+    "family_filter_enabled": $FAMILY_FILTER_ENABLED,
+    "rulesets_health": {
+        "russia_outside_loaded": $RULESETS_LOADED,
+        "missing": $RULESETS_MISSING_JSON
+    }
 }
 EOF
         ;;
@@ -625,6 +708,110 @@ APPLY
         PID=$!
         echo "$PID" > "$PID_FILE"
         echo "{\"status\": \"applying\", \"pid\": $PID}"
+        ;;
+
+    # ------------------------------------------------------------------
+    update_podkop)
+        # Переустановка podkop + sing-box. RPC для апгрейда устаревших
+        # инсталляций: старые подkop'ы тянут .srs из raw.githubusercontent.com/
+        # .../main/<tag>.srs (404 после смены upstream-URL на releases/latest/
+        # download), HOME-режим тихо умирает. Юзер из mgmt-экрана кликает
+        # «Обновить podkop» → этот метод.
+        #
+        # Доступ — только cheburnet-admin (см. setup/install.sh::lock-acl).
+        # rpcd сам гейтит по ACL; здесь добавочно проверяем НЕ install-токеном
+        # (post-install метод, токена уже нет): на install-flow update_podkop
+        # бессмыслен (подkop ещё не стоит) — отдаём ошибку.
+        #
+        # Защита от параллельного запуска: тот же PID-файл что у install_start
+        # и replace_awg_conf. Чтобы UI поллил install_progress единообразно.
+        if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+            echo '{"error": "operation already running", "pid": '"$(cat "$PID_FILE")"'}'
+            exit 0
+        fi
+
+        # Pre-flight: подkop должен быть уже установлен. До установки апгрейдить
+        # нечего. Соответствует критерию "vpn" в get_status.install_type.
+        if [ ! -x "$ETC_INIT_D/podkop" ]; then
+            echo '{"error": "podkop не установлен — апгрейд возможен только после установки"}'
+            exit 0
+        fi
+
+        # Чистим артефакты предыдущего apply (install/replace), чтобы
+        # install_progress видел СВЕЖИЙ STATE/DONE/LOG нашего апгрейда.
+        rm -f "$DONE_FILE" "$LOG_FILE"
+        echo "[STEP] podkop-update" > "$STATE_FILE"
+
+        # Apply-скрипт — отдельный файл (как в replace_awg_conf), чтобы:
+        #   - heredoc <<'APPLY' блокировал экспансию переменных при записи
+        #     (никакого ад'а с экранированием $-значений в setsid sh -c '...');
+        #   - тест мог прочитать сгенерированный скрипт.
+        # Env: INSTALL_DIR / RULESETS_DIR / DONE_FILE / LOG_FILE / STATE_FILE /
+        #      ETC_INIT_D — рантаймовые пути. Внутри скрипта только читаются.
+        APPLY_SCRIPT="$STATE_DIR/podkop-update-apply.sh"
+        cat > "$APPLY_SCRIPT" <<'APPLY'
+#!/bin/sh
+# Сгенерирован rpcd-cheburnet (update_podkop). Переустанавливает podkop +
+# sing-box и реаплаит наши UCI-настройки, сохраняя текущий HOME/TRAVEL.
+set -u
+
+# 1. Сохраняем текущий режим ДО apk del — после удаления подkop'а UCI-конфиг
+# /etc/config/podkop может быть стёрт upstream-скриптом установки, и
+# podkop_current_mode вернёт travel (нет секции exclude_ru).
+. "$INSTALL_DIR/lib/podkop-config.sh"
+SAVED_MODE=$(podkop_current_mode)
+echo "→ текущий режим перед апгрейдом: $SAVED_MODE" >> "$LOG_FILE"
+
+# 2. Переустановка. Все cascading fallback (vendor → upstream → retry → diag)
+# живёт в lib/install-podkop.sh — там же, что для первой установки.
+. "$INSTALL_DIR/lib/cheburnet-utils.sh"  # для cheburnet_apk_fail_advice
+. "$INSTALL_DIR/lib/install-podkop.sh"
+if ! cheburnet_install_podkop force >> "$LOG_FILE" 2>&1; then
+    echo "✗ переустановка не удалась" >> "$LOG_FILE"
+    printf 'fail\n' > "$DONE_FILE"
+    exit 1
+fi
+
+# 3. Реаплаим main + восстанавливаем тот же режим. apply_main_section здесь
+# destructive — но это OK: после apk del + reinstall /etc/config/podkop в
+# свежем состоянии, terять нечего.
+. "$INSTALL_DIR/lib/net-detect.sh"
+LAN_CIDR=$(net_lan_cidr) || {
+    echo "✗ не удалось определить LAN CIDR — main.fully_routed_ips не выставлен" >> "$LOG_FILE"
+    LAN_CIDR=""
+}
+podkop_apply_main_section "$LAN_CIDR" >> "$LOG_FILE" 2>&1
+if [ "$SAVED_MODE" = "travel" ]; then
+    podkop_apply_travel >> "$LOG_FILE" 2>&1
+else
+    # home — дефолт (включая первую установку, где SAVED_MODE мог быть travel
+    # из-за отсутствия секции; апгрейд из такого состояния трактуем как home,
+    # т.к. наш контракт — HOME by default).
+    podkop_apply_home >> "$LOG_FILE" 2>&1
+fi
+
+# 4. Стартуем заново. enable — на случай если старая инсталляция была disabled.
+"$ETC_INIT_D/podkop" enable >> "$LOG_FILE" 2>&1
+"$ETC_INIT_D/podkop" restart >> "$LOG_FILE" 2>&1
+
+echo "✓ апгрейд завершён, режим: $SAVED_MODE" >> "$LOG_FILE"
+printf 'ok\n' > "$DONE_FILE"
+APPLY
+        chmod +x "$APPLY_SCRIPT"
+
+        # setsid отвязывает дочерний процесс от controlling terminal rpcd,
+        # чтобы SIGHUP при выходе rpcd-сессии не убил apply до записи done.
+        # Тот же приём, что в install_start и replace_awg_conf.
+        INSTALL_DIR="$INSTALL_DIR" \
+        STATE_DIR="$STATE_DIR" \
+        STATE_FILE="$STATE_FILE" \
+        LOG_FILE="$LOG_FILE" \
+        DONE_FILE="$DONE_FILE" \
+        ETC_INIT_D="$ETC_INIT_D" \
+        setsid sh "$APPLY_SCRIPT" < /dev/null >/dev/null 2>&1 &
+        PID=$!
+        echo "$PID" > "$PID_FILE"
+        echo "{\"status\": \"started\", \"pid\": $PID}"
         ;;
 
     # ------------------------------------------------------------------
