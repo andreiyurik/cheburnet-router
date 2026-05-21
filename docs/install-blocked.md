@@ -1,167 +1,112 @@
 # Установка, когда провайдер блокирует загрузку пакетов
 
-Гайд для случая, когда установщик падает с ошибками вида:
+Установщик cheburnet падает с одной из ошибок:
 
 ```
 wget: Failed to send request: Operation not permitted
-ERROR: wget: exited with error 4
+apk update: download failed
 ```
 
-## Что происходит
+Это **DPI у твоего провайдера** режет `downloads.openwrt.org`. Типично в РФ
+в 2024–2026. Cheburnet сам это обойти не может — он ещё не установлен.
 
-Твой провайдер режет SNI-фильтром соединение с зеркалом OpenWrt (`downloads.openwrt.org`) — типичная DPI-практика у RU-провайдеров в 2024–2026. Cheburnet сам это обойти не может, потому что он ещё не установлен (chicken-and-egg).
+**Решение:** на 10 минут установки подними интернет через стороннее
+устройство с VPN, и используй его как WAN роутера. После установки
+cheburnet поднимет свой AmneziaWG-туннель и проблема исчезнет навсегда.
 
-**Решение** — на время установки прокинуть интернет через VPN.
-
-**После установки cheburnet сам уйдёт под VPN — эта проблема исчезнет навсегда.**
-
-## Какой способ выбрать
-
-Зависит от того, есть ли на твоём роутере USB-порт:
-
-- **На роутере есть USB-порт** → [Способ 1 — через смартфон](#способ-1-через-смартфон-по-usb).
-- **USB нет** (компактные модели, mini-роутеры) → [Способ 2 — через ноутбук](#способ-2-через-ноутбук). Может потребоваться переходник USB-Ethernet (~$8), если на ноуте нет встроенного Ethernet.
-
-Оба способа делают одно и то же: на 5–10 минут установки заворачивают трафик роутера через VPN. После установки трафик идёт через AmneziaWG-туннель самого cheburnet'а.
+Два варианта. **Сначала пробуй Вариант A (ноутбук) — он работает почти
+всегда.** Вариант B (Android+USB) — только если нет ноутбука с Ethernet.
 
 ---
 
-## Способ 1: Через смартфон по USB
-
-### Что нужно
-
-- Роутер с USB-портом.
-- USB-кабель с поддержкой данных (обычный зарядный часто не подходит).
-- Телефон (Android или iOS).
-
-### Шаг 1. На телефоне
-
-1. Установи **AmneziaVPN** (App Store / Google Play / [amnezia.org](https://amnezia.org)). В приложении есть бесплатные серверы — для 10 минут установки этого достаточно.
-2. Подключись к VPN-серверу.
-3. Включи USB-tethering:
-   - **Android:** Настройки → Сеть → Точка доступа → **USB-модем**.
-   - **iOS:** Настройки → Личная точка доступа → разрешить. После подключения USB подтверди «Доверять этому компьютеру».
-
-### Шаг 2. Подключи телефон к роутеру
-
-Воткни USB-кабель: телефон → USB-порт роутера. Подожди 15-30 секунд (на iOS в первый раз — до минуты).
-
-### Шаг 3. Запусти автоматический скрипт
-
-Если у тебя на роутере уже развёрнут `/opt/cheburnet/` (от прошлой попытки):
-
-```sh
-ssh root@192.168.1.1 /opt/cheburnet/scripts/install-via-tether.sh
-```
-
-Скрипт сам переключит WAN на телефон, запустит установку, и вернёт WAN обратно после завершения.
-
-Если репо ещё не на роутере — сначала запусти bootstrap (он скачивается с GitHub, который DPI не режет).
-
-**Linux / macOS:**
-```bash
-ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
-```
-
-**Windows (PowerShell или Терминал Windows):**
-```powershell
-ssh root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
-```
-
-**Windows (CMD / Командная строка):**
-```cmd
-ssh root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
-```
-
-Bootstrap скачает репо и упадёт на `apk update` — после этого запусти `install-via-tether.sh` (см. выше).
-
----
-
-## Способ 2: Через ноутбук
+## Вариант A: Ноутбук с AmneziaVPN ✅ рекомендую
 
 ### Что нужно
 
 - Ноутбук рядом с роутером.
-- Ethernet-кабель (тот же, которым WAN роутера сейчас воткнут в домашний роутер).
-- **Если на ноуте нет встроенного Ethernet** — переходник USB-Ethernet (~$8). Часто уже есть в доме.
+- Ethernet-кабель (тот же, что обычно в WAN-порту роутера).
+- **Если на ноуте нет Ethernet** — переходник USB-Ethernet (~$8).
 
-### Шаг 1. На ноутбуке — AmneziaVPN
+### Шаги
 
-1. Установи **AmneziaVPN** ([amnezia.org](https://amnezia.org), есть для macOS / Windows / Linux). В приложении есть бесплатные серверы.
-2. Подключись к VPN-серверу. Проверь — открой `ifconfig.me` в браузере, должен показать НЕ твой реальный IP.
+1. **На ноутбуке — AmneziaVPN:**
+   - Скачай: [amnezia.org](https://amnezia.org/downloads) (macOS / Windows / Linux).
+   - Подключись к серверу (бесплатные на выбор есть в приложении).
+   - Открой в браузере `ifconfig.me` — должен показать НЕ твой реальный IP.
 
-### Шаг 2. На ноутбуке — Internet Sharing
+2. **Включи Internet Sharing на Ethernet-порт:**
+   - **macOS:** Settings → General → Sharing → Internet Sharing →  
+     «Share connection from» = AmneziaVPN, «To computers using» = Ethernet.
+   - **Windows:** Панель управления → Сеть → правый клик на AmneziaVPN-адаптере →  
+     Properties → Sharing → «Allow other network users…» → выбери свой Ethernet.
+   - **Linux (GNOME):** Settings → Network → Ethernet → ⚙️ → IPv4 → **Shared to other computers**.
 
-Включи раздачу интернета на Ethernet-порт.
+3. **Переткни WAN-кабель cheburnet'а:**
+   Один конец остаётся в WAN-порту роутера, другой — в Ethernet-порт ноута.
+   Подожди 15 секунд (роутер получит IP от ноута).
 
-- **macOS:** System Settings → General → Sharing → Internet Sharing → поделиться «AmneziaVPN» по «Ethernet» (или USB-Ethernet адаптеру).
-- **Windows:** правый клик на сетевом адаптере AmneziaVPN → Properties → Sharing → «Allow other network users to connect» → в выпадающем списке выбрать твой Ethernet-адаптер.
-- **Linux (GNOME):** Settings → Network → Ethernet → шестерёнка → IPv4 → Method: **«Shared to other computers»**.
+4. **Запусти ту же команду установки cheburnet снова** (см. README).
 
-### Шаг 3. Переткни WAN-кабель cheburnet'а
-
-Переткни WAN-кабель: один конец остаётся в WAN-порту роутера, другой — **в ноут**. Подожди 15 секунд — роутер получит DHCP от ноута.
-
-### Шаг 4. Запусти установку
-
-Открой терминал ноута и запусти ту же команду установки, что и в первый раз.
-
-**Linux / macOS:**
-```bash
-ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
-```
-
-**Windows (PowerShell или Терминал Windows):**
-```powershell
-ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
-```
-
-**Windows (CMD / Командная строка):**
-```cmd
-ssh-keygen -R 192.168.1.1 2>nul & ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh"
-```
-
-Установка пройдёт через VPN на ноуте — DPI больше не помешает.
-
-### Шаг 5. После установки
-
-Переткни WAN-кабель обратно в домашний роутер. На ноуте можно выключить Internet Sharing и AmneziaVPN. Cheburnet дальше сам ходит через свой AmneziaWG-туннель.
+5. **После успешной установки** — переткни WAN-кабель обратно в домашний роутер.
+   На ноуте можно выключить AmneziaVPN и Internet Sharing. Cheburnet дальше
+   сам ходит через свой AmneziaWG.
 
 ---
 
-## Troubleshooting
+## Вариант B: Android-телефон + USB + AmneziaVPN
 
-### Способ 1: usb0 не появляется после подключения телефона
+⚠ **Важно:** по умолчанию Android-tethering **НЕ** заворачивает трафик
+подключённого устройства в VPN. Будут идти твои реальные пакеты с DPI,
+и установка снова упадёт. Нужно явно включить «Always-on VPN» в системных
+настройках Android — это форсит весь трафик (включая tethered) через VPN.
 
-1. **Кабель USB только для зарядки.** Признак: телефон заряжается, но в `dmesg` ничего нового. Попробуй другой кабель.
-2. **Android в неправильном USB-режиме.** Опусти шторку → нажми на USB-уведомление → выбери «USB-модем» (или сначала «Передача файлов», потом включи USB-модем в настройках заново).
-3. **iPhone требует разблокировки.** Каждое первое подключение iOS просит подтвердить «Доверять компьютеру».
-4. **В OpenWrt нет драйвера USB-tether для Android.** На stock-OpenWrt 25.12 есть `cdc_ether` (работает с iPhone), но `rndis_host` (Android) часто отсутствует. Если у тебя Android и `usb0` не появляется — используй iPhone, или собери кастомный sysupgrade-образ с `kmod-usb-net-rndis` через [firmware-selector.openwrt.org](https://firmware-selector.openwrt.org), или **переключись на Способ 2**.
+### Что нужно
 
-### Способ 2: cheburnet не получает интернет через ноут
+- Роутер с USB-портом.
+- USB-кабель с поддержкой данных (зарядный обычно НЕ подходит).
+- Android-телефон с установленным AmneziaVPN.
 
-Проверь по порядку:
+### Шаги
 
-1. **На ноуте AmneziaVPN работает?** Открой `ifconfig.me` в браузере — должен показать НЕ твой реальный IP.
-2. **Internet Sharing включено для нужного интерфейса?** На macOS убедись что в «Share your connection from» выбран именно AmneziaVPN-туннель, а в «To computers using» — Ethernet.
-3. **Cheburnet получил DHCP от ноута?** На роутере по SSH:
-   ```sh
-   ip addr show eth0  # WAN-интерфейс
-   ip route show default
-   ```
-   Default route должен идти через IP ноута (обычно `192.168.2.1` на macOS, `192.168.137.1` на Windows). Если IP типа `192.168.31.111` — кабель ещё в домашнем роутере, переткни.
+1. **AmneziaVPN на Android — настрой full tunnel:**
+   - Скачай AmneziaVPN из Google Play или с amnezia.org.
+   - Подключись к серверу.
 
-### После установки cheburnet всё равно не работает
+2. **Включи Always-on VPN (важно!):**
+   - Android Settings → Network & Internet → VPN → AmneziaVPN → ⚙️.
+   - Включи **Always-on VPN**.
+   - Включи **Block connections without VPN** (это и есть ключевая опция —
+     запрещает любому трафику идти мимо туннеля, включая tethered).
 
-Это уже не про обход DPI — открывай [docs/09-troubleshooting.md](09-troubleshooting.md) или пиши в Telegram.
+3. **Включи USB-tethering:**
+   - Android Settings → Network & Internet → Hotspot & Tethering →  
+     **USB tethering** = ON.
+
+4. **Воткни USB-кабель: телефон → USB-порт роутера.**  
+   Подожди 15–30 секунд.
+
+5. **Запусти ту же команду установки cheburnet снова** (см. README).
+
+6. **После успешной установки** — отключи USB-кабель, выключи tethering
+   на телефоне.
+
+### Не работает?
+
+- **`usb0` не появляется на роутере** — стоковый OpenWrt 25.12 не всегда
+  включает драйвер `kmod-usb-net-rndis` (нужен для Android-tether). В этом
+  случае переключайся на **Вариант A**.
+- **Трафик идёт мимо VPN** — Always-on VPN с галкой «Block connections
+  without VPN» обязательны. На некоторых прошивках Android (особенно
+  кастомных) эта опция спрятана глубже или вообще не работает. Снова —
+  **Вариант A**.
 
 ---
 
-## Когда совсем ничего не помогает
+## Не помогает / совсем ничего не работает
 
 Напиши в Telegram: [@industrialprofi](https://t.me/industrialprofi).
 
 Приложи:
-- Лог установки: `cat /tmp/cheburnet/install.log | tail -100`
-- Модель роутера + название провайдера
-- На каком шаге упало
+- Модель роутера и провайдера.
+- На каком шаге упало (последние 20 строк из терминала).
+- Что пробовал из этого гайда.

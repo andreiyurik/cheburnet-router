@@ -123,15 +123,21 @@ vm_ssh "cat > /tmp/lan-conflict-subtest.sh" <<'TESTSCRIPT'
 # (busybox-ash + busybox jsonfilter). ubus подменён как shell-функция
 # чтобы детерминированно контролировать вход без переконфигурирования
 # реального WAN-интерфейса VM.
-set -e
+#
+# ВАЖНО: НЕ ставим `set -e` — наши тестируемые функции при детекте
+# конфликта корректно возвращают rc=1, и busybox-ash в этом случае
+# прибивает скрипт прямо внутри `out=$(net_detect_lan_conflict)` ДО того
+# как мы успеваем проверить $rc и $out. Поэтому собственный fail-handling
+# через явные `if [ rc != expected ]; exit 1`.
 
 . /opt/cheburnet/lib/net-detect.sh
 . /opt/cheburnet/lib/cheburnet-preflight.sh
 
 # ── scenario 1: WAN не поднят → нет конфликта ────────────────────────────
+# Перенаправляем stdout детектора в переменную и rc в отдельную, чтобы
+# `set +e` не нужен: явный if проверяет оба значения вручную.
 ubus() { echo '{"up":false,"ipv4-address":[]}'; }
-out=$(net_detect_lan_conflict)
-rc=$?
+out=$(net_detect_lan_conflict); rc=$?
 if [ "$rc" -ne 0 ] || [ -n "$out" ]; then
     echo "  ✗ scenario 1 (WAN down): rc=$rc out='$out' (ожидали rc=0, пусто)"
     exit 1
@@ -142,8 +148,7 @@ echo "  ✓ scenario 1: WAN не поднят → нет конфликта"
 ubus() { echo '{"up":true,"ipv4-address":[{"address":"192.168.1.50","mask":24}]}'; }
 uci set network.lan.ipaddr=192.168.1.1/24
 uci commit network
-out=$(net_detect_lan_conflict)
-rc=$?
+out=$(net_detect_lan_conflict); rc=$?
 expected="192.168.1.50 192.168.1.1 192.168.2.1"
 if [ "$rc" -ne 1 ] || [ "$out" != "$expected" ]; then
     echo "  ✗ scenario 2 (same /24): rc=$rc out='$out' (ожидали rc=1 '$expected')"
@@ -155,8 +160,7 @@ echo "  ✓ scenario 2: WAN+LAN в 192.168.1.0/24 → конфликт, suggest 
 ubus() { echo '{"up":true,"ipv4-address":[{"address":"192.168.2.55","mask":24}]}'; }
 uci set network.lan.ipaddr=192.168.2.1/24
 uci commit network
-out=$(net_detect_lan_conflict)
-rc=$?
+out=$(net_detect_lan_conflict); rc=$?
 expected="192.168.2.55 192.168.2.1 192.168.3.1"
 if [ "$rc" -ne 1 ] || [ "$out" != "$expected" ]; then
     echo "  ✗ scenario 3 (suggest skip): rc=$rc out='$out' (ожидали rc=1 '$expected')"
@@ -168,8 +172,7 @@ echo "  ✓ scenario 3: WAN в 192.168.2.x → suggest пропускает за
 ubus() { echo '{"up":true,"ipv4-address":[{"address":"192.168.1.50","mask":24}]}'; }
 uci set network.lan.ipaddr=192.168.1.1/24
 uci commit network
-out=$(cheburnet_preflight_lan_conflict 2>&1)
-rc=$?
+out=$(cheburnet_preflight_lan_conflict 2>&1); rc=$?
 if [ "$rc" -ne 1 ]; then
     echo "  ✗ scenario 4 (preflight): rc=$rc — ожидали rc=1"
     echo "$out"

@@ -108,6 +108,8 @@ flowchart LR
 
 > **Если терминал попросит пароль** (`root@192.168.1.1's password:`) — нажми **Enter**: на свежем OpenWrt пароль пустой, ты зададёшь его в мастере на шаге 2 из 4.
 
+> **🇷🇺 Из РФ / Беларуси / Ирана?** Провайдер может резать загрузку пакетов OpenWrt (DPI). Установщик это сам обнаружит за 5 секунд и подскажет — но если хочешь подготовиться заранее, прочти **[docs/install-blocked.md](docs/install-blocked.md)** (2 варианта обхода: ноутбук с VPN или Android+USB+AmneziaVPN).
+
 **Linux / macOS:**
 ```bash
 ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
@@ -124,8 +126,8 @@ ssh-keygen -R 192.168.1.1 2>nul & ssh -o StrictHostKeyChecking=accept-new -o Con
 ```
 > Если в CMD выскочило `Системе не удается найти указанный путь` — это значит, ты случайно вставил Linux-вариант (с `2>/dev/null`). Вернись и скопируй именно CMD-блок выше (с `2>nul` и `&`).
 
-> **⚠ Падает с `Failed to send request: Operation not permitted` или `apk update не прошёл`?**
-> Это блокировка загрузки пакетов твоим интернет-провайдером (DPI на `downloads.openwrt.org`). Cheburnet не может обойти её, пока он не установлен — нужен интернет с обходом, поднятый снаружи роутера. Готовая инструкция (5 минут, два варианта — через смартфон по USB или через ноутбук с AmneziaVPN):
+> **⚠ Упало с `Operation not permitted` / `apk update не прошёл` / установщик сразу написал «За 5с не достучаться до downloads.openwrt.org»?**
+> Провайдер режет загрузку пакетов OpenWrt (DPI). Cheburnet сам это обойти не может, пока не установлен — нужно на 10 минут установки поднять интернет через сторонний VPN. Подробно (2 схемы, шаги):
 >
 > **→ [docs/install-blocked.md](docs/install-blocked.md)**
 

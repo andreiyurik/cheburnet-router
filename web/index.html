@@ -453,6 +453,32 @@
     <h3>Статус</h3>
     <dl class="kv" id="mgmt-status"></dl>
 
+    <!-- Баннер healthcheck rulesets (Problem 2: видимость тихой деградации HOME). -->
+    <!-- Показывается только когда rulesets_health.russia_outside_loaded=false: -->
+    <!-- подkop не смог скачать community-список → .ru-сервисы идут через VPN. -->
+    <!-- renderMgmt() переключает hidden-класс. -->
+    <div id="rulesets-warning" class="hidden" style="margin-top: 12px; padding: 12px; border: 1px solid var(--err); border-radius: 6px; background: rgba(229, 62, 62, 0.08);">
+      <p style="margin: 0 0 8px 0;">
+        <strong style="color: var(--err);">⚠ Список <code id="rulesets-missing-tag">russia_outside</code> не загружен</strong>
+      </p>
+      <p style="margin: 0 0 8px 0; font-size: 13px;">
+        Этот список определяет, какие домены идут напрямую (минуя VPN).
+        Сейчас они идут через VPN — на российских сервисах (Госуслуги, Sberbank, Ozon)
+        возможны блокировки и капчи.
+      </p>
+      <p style="margin: 0 0 8px 0; font-size: 13px;">
+        Возможные причины:
+      </p>
+      <ul style="margin: 0 0 8px 20px; font-size: 13px;">
+        <li>временный сбой <code>github.com</code> (попробуйте через 5 минут);</li>
+        <li>RU-провайдер блокирует github — нужен апгрейд podkop'а
+          (см. <code>docs/09-troubleshooting.md</code>).</li>
+      </ul>
+      <div class="row" style="gap: 8px;">
+        <button id="btn-update-podkop-from-warning" class="ghost">🔄 Обновить podkop</button>
+      </div>
+    </div>
+
     <details class="edu" style="margin-top: 12px;">
       <summary style="cursor: pointer;">ℹ️ Если открыли страницу <code>luci-app-podkop</code> и видите красные индикаторы — прочитайте это</summary>
       <p style="margin: 8px 0 4px;">
@@ -481,6 +507,14 @@
       <button id="btn-svc-vpn"     class="ghost">VPN</button>
       <button id="btn-svc-dns"     class="ghost">DNS</button>
       <button id="btn-svc-adblock" class="ghost">Adblock</button>
+      <button id="btn-update-podkop" class="ghost">🔄 Обновить podkop</button>
+    </div>
+    <!-- Прогресс update_podkop. Открывается при клике на «Обновить podkop». -->
+    <!-- Поллим install_progress (тот же протокол, что install_start), детектим -->
+    <!-- state='podkop-update' и done='ok'|'fail'. -->
+    <div id="podkop-update-progress" class="hidden" style="margin-top: 12px;">
+      <div class="progress"><div id="podkop-update-bar" class="bar"></div></div>
+      <div id="podkop-update-step" class="muted"></div>
     </div>
 
     <h3>Блок-лист рекламы (Hagezi)</h3>
@@ -1206,6 +1240,16 @@ async function renderMgmt(st) {
     const showMode = st.install_type === "vpn";
     document.getElementById("mgmt-mode-header").classList.toggle("hidden", !showMode);
     document.getElementById("mgmt-mode").classList.toggle("hidden", !showMode);
+
+    // Healthcheck rulesets (Problem 2). Показываем баннер только если бэкенд
+    // явно сказал «не загружено» И мы в HOME (в TRAVEL ruleset'ы не нужны —
+    // бэкенд возвращает loaded=true в travel-режиме).
+    const rs = st.rulesets_health || {};
+    const showWarning = rs.russia_outside_loaded === false;
+    document.getElementById("rulesets-warning").classList.toggle("hidden", !showWarning);
+    if (showWarning && rs.missing && rs.missing.length) {
+        document.getElementById("rulesets-missing-tag").textContent = rs.missing[0];
+    }
 }
 
 // Авто-обновление каждые 15 сек, пауза при скрытой странице
@@ -1265,6 +1309,62 @@ document.getElementById("btn-travel").onclick  = () => mgmtCall("cheburnet", "mo
 document.getElementById("btn-svc-vpn").onclick     = () => mgmtCall("cheburnet", "service_restart", { service: "vpn" },     "Перезапуск VPN");
 document.getElementById("btn-svc-dns").onclick     = () => mgmtCall("cheburnet", "service_restart", { service: "dns" },     "Перезапуск DNS");
 document.getElementById("btn-svc-adblock").onclick = () => mgmtCall("cheburnet", "service_restart", { service: "adblock" }, "Перезагрузка adblock");
+
+// Обновление podkop (Problem 3 — RPC update_podkop). Те же UI-паттерны, что
+// у replace_awg_conf: запускаем фоновый процесс, поллим install_progress
+// (state='podkop-update'), различаем результат: ok / fail. Кнопка сейчас две:
+// (а) в блоке «Перезапустить сервис» — для пре-эмптивного апгрейда без
+//     визуального триггера (юзер хочет вручную дернуть обновление подkop'а);
+// (б) внутри баннера «список не загружен» — для реактивного апгрейда (юзер
+//     увидел красный баннер и кликает по нему).
+async function pollPodkopUpdateProgress() {
+    try {
+        const p = await rpc("cheburnet", "install_progress");
+        const bar = document.getElementById("podkop-update-bar");
+        const stepRaw = (p.step || "").replace(/^\[STEP\] |\[|\]/g, "");
+        document.getElementById("podkop-update-step").textContent =
+            stepRaw === "podkop-update" ? "обновляю podkop + sing-box…" : `текущий шаг: ${stepRaw}`;
+        if (!p.done) { bar.style.width = "60%"; setTimeout(pollPodkopUpdateProgress, 2000); return; }
+        bar.style.width = "100%";
+        if (p.result === "ok") {
+            bar.classList.add("done");
+            setMgmtMsg("ok-msg", "✓ Podkop обновлён. Подождите 10-20 секунд, режим должен восстановиться сам.");
+            setTimeout(() => renderMgmt().catch(() => {}), 2000);
+        } else {
+            bar.classList.add("err");
+            setMgmtMsg("err-msg", `Обновление podkop не удалось: ${escapeHtml(p.result || "unknown")}. Лог: SSH → logread.`);
+        }
+    } catch (e) {
+        if (!document.getElementById("podkop-update-progress").classList.contains("hidden")) {
+            // Сеть моргнула — продолжаем поллить
+            setTimeout(pollPodkopUpdateProgress, 4000);
+        }
+    }
+}
+
+async function startPodkopUpdate() {
+    const ok = confirm(
+        "Обновить podkop?\n\n" +
+        "Будет переустановлен podkop + sing-box (~2 минуты). На это время VPN " +
+        "временно не работает. Текущий режим (HOME/TRAVEL) сохранится."
+    );
+    if (!ok) return;
+    setMgmtMsg("muted", "Запускаю обновление podkop'а…");
+    const box = document.getElementById("podkop-update-progress");
+    const bar = document.getElementById("podkop-update-bar");
+    bar.className = "bar"; bar.style.width = "10%";
+    box.classList.remove("hidden");
+    try {
+        await rpc("cheburnet", "update_podkop");
+        pollPodkopUpdateProgress();
+    } catch (e) {
+        box.classList.add("hidden");
+        setMgmtMsg("err-msg", `Не удалось запустить обновление: ${e.message}`);
+    }
+}
+
+document.getElementById("btn-update-podkop").onclick              = startPodkopUpdate;
+document.getElementById("btn-update-podkop-from-warning").onclick = startPodkopUpdate;
 
 // Hagezi tier
 document.getElementById("btn-tier-apply").onclick = () => {
