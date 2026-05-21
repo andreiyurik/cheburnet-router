@@ -62,11 +62,8 @@ sandbox_init() {
     export ETC_ADBLOCK_CFG="$FAKE_ROOT/etc/adblock-lean/config"
     export ETC_INIT_D="$FAKE_ROOT/etc/init.d"
     export USR_BIN_VPN_MODE="$FAKE_ROOT/usr/bin/vpn-mode"
-    # Каталог rule_set'ов sing-box (Problem 2: healthcheck в get_status).
-    # По умолчанию указываем на несуществующий путь — тогда _ruleset_loaded
-    # вернёт «не загружено» (fail-open для тестов: чтобы тест ДОЛЖЕН был
-    # подложить файл сам, иначе мы видим «missing»).
-    export RULESETS_DIR="$FAKE_ROOT/sing-box-rulesets"
+    # Clash API мокается через mocks/curl + mocks/pidof. CLASH_API_PORT
+    # переопределять не нужно (rpcd-cheburnet использует дефолт 9090).
 
     # lib подкладываем — rpcd-cheburnet source'ит cheburnet-utils.sh и
     # net-detect.sh из $INSTALL_DIR/lib/. Используем cp (не симлинк) чтобы

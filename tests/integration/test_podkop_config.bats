@@ -373,6 +373,131 @@ assert_uci_not_called() {
     [ "$(podkop_current_mode)" = "home" ]
 }
 
+# ─── save/restore exclude_ru (Problem 3: update_podkop non-destructive) ──────
+#
+# update_podkop делает apk del → reinstall → upstream-installer перезатирает
+# /etc/config/podkop. Без backup'а юзер теряет .kz и любые кастомные домены,
+# которые он добавил в exclude_ru.user_domains через LuCI. То же про
+# community_lists. Эти тесты охраняют backup/restore-логику.
+
+@test "save_user_domains: печатает текущий список через пробел" {
+    uci set podkop.exclude_ru=section
+    uci set podkop.exclude_ru.connection_type=exclusion
+    # Мок uci хранит list-значения как одно space-separated; реальный uci get
+    # на list-опции тоже печатает через пробел — поведение совпадает.
+    uci set podkop.exclude_ru.user_domains='.ru .kz kinopoisk.ru'
+
+    result=$(podkop_save_user_domains)
+    [[ "$result" == *".ru"* ]]
+    [[ "$result" == *".kz"* ]]
+    [[ "$result" == *"kinopoisk.ru"* ]]
+}
+
+@test "save_user_domains: секции нет → пустой вывод (без ошибки)" {
+    result=$(podkop_save_user_domains)
+    [ -z "$result" ]
+}
+
+@test "save_community_lists: печатает текущий список" {
+    uci set podkop.exclude_ru=section
+    uci set podkop.exclude_ru.connection_type=exclusion
+    uci set podkop.exclude_ru.community_lists='russia_outside custom_user_list'
+
+    result=$(podkop_save_community_lists)
+    [[ "$result" == *"russia_outside"* ]]
+    [[ "$result" == *"custom_user_list"* ]]
+}
+
+@test "restore_exclude_ru: секции нет → no-op (не падает, не делает uci set)" {
+    : > "$CALLS_DIR/uci"
+    run podkop_restore_exclude_ru ".kz kinopoisk.ru" "custom_list"
+    [ "$status" -eq 0 ]
+    # Никаких add_list — секции нет, восстанавливать некуда
+    if grep -qE "add_list podkop\\.exclude_ru" "$CALLS_DIR/uci"; then
+        echo "FAIL: restore пытался добавить домены без секции exclude_ru" >&2
+        cat "$CALLS_DIR/uci" >&2
+        return 1
+    fi
+}
+
+@test "restore_exclude_ru: добавляет недостающие user_domains, не дублирует существующие" {
+    # Состояние после apply_home: 4 default'а на месте
+    uci set podkop.exclude_ru=section
+    uci set podkop.exclude_ru.connection_type=exclusion
+    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com'
+    : > "$CALLS_DIR/uci"
+
+    # Restore с saved-списком, где .ru уже есть, .kz и kinopoisk.ru — новые
+    podkop_restore_exclude_ru ".ru .kz kinopoisk.ru" ""
+
+    # .ru НЕ добавляется (уже в списке)
+    assert_uci_not_called "add_list podkop.exclude_ru.user_domains=.ru"
+    # .kz и kinopoisk.ru — добавляются
+    assert_uci_called "add_list podkop.exclude_ru.user_domains=.kz"
+    assert_uci_called "add_list podkop.exclude_ru.user_domains=kinopoisk.ru"
+}
+
+@test "restore_exclude_ru: восстанавливает кастомные community_lists" {
+    uci set podkop.exclude_ru=section
+    uci set podkop.exclude_ru.connection_type=exclusion
+    uci set podkop.exclude_ru.community_lists='russia_outside'
+    : > "$CALLS_DIR/uci"
+
+    podkop_restore_exclude_ru "" "russia_outside my_custom_list"
+
+    # russia_outside уже есть — не дублируем
+    assert_uci_not_called "add_list podkop.exclude_ru.community_lists=russia_outside"
+    # my_custom_list — добавляем
+    assert_uci_called "add_list podkop.exclude_ru.community_lists=my_custom_list"
+}
+
+@test "restore_exclude_ru: коммитит podkop после изменений" {
+    uci set podkop.exclude_ru=section
+    uci set podkop.exclude_ru.connection_type=exclusion
+    : > "$CALLS_DIR/uci"
+
+    podkop_restore_exclude_ru ".kz" "extra_list"
+
+    assert_uci_called "commit podkop"
+}
+
+@test "сценарий update_podkop: save → reinstall → apply_home → restore — юзерский .kz выживает" {
+    # Шаг 1: юзер настроил exclude_ru с .kz и kinopoisk.ru через LuCI.
+    # Используем `uci set` (space-separated), потому что мок add_list — no-op
+    # (см. setup() в шапке этого файла).
+    uci set podkop.exclude_ru=section
+    uci set podkop.exclude_ru.connection_type=exclusion
+    uci set podkop.exclude_ru.community_lists='russia_outside'
+    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com .kz kinopoisk.ru'
+
+    # Шаг 2: backup ДО apk del
+    saved_d=$(podkop_save_user_domains)
+    saved_l=$(podkop_save_community_lists)
+    # Sanity: сохранённое содержит юзерские добавки
+    [[ "$saved_d" == *".kz"* ]]
+    [[ "$saved_d" == *"kinopoisk.ru"* ]]
+
+    # Шаг 3: симулируем reinstall — upstream-installer стёр секцию exclude_ru,
+    # потом наш apply_home создаст её заново. Для теста — выставим только
+    # 4 default'а (как сделал бы apply_home в реальности, через add_list).
+    uci set podkop.exclude_ru.connection_type=exclusion
+    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com'
+    uci set podkop.exclude_ru.community_lists='russia_outside'
+
+    # Шаг 4: restore — доливает .kz и kinopoisk.ru, не дублирует default'ы
+    : > "$CALLS_DIR/uci"
+    podkop_restore_exclude_ru "$saved_d" "$saved_l"
+
+    # КРИТИЧНО: юзерские добавки восстановлены
+    assert_uci_called "add_list podkop.exclude_ru.user_domains=.kz"
+    assert_uci_called "add_list podkop.exclude_ru.user_domains=kinopoisk.ru"
+    # А default'ы НЕ дублируются (apply_home уже их добавил)
+    assert_uci_not_called "add_list podkop.exclude_ru.user_domains=.ru"
+    assert_uci_not_called "add_list podkop.exclude_ru.user_domains=vk.com"
+    # russia_outside тоже не дублируется
+    assert_uci_not_called "add_list podkop.exclude_ru.community_lists=russia_outside"
+}
+
 @test "сценарий: кастомная секция (corp_vpn) не тронута mode_switch" {
     # Юзер через LuCI добавил вторую секцию podkop.corp_vpn (свой split-tunnel).
     # Наша панель ни apply_home, ни apply_travel её НЕ трогает.

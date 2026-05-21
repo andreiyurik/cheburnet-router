@@ -107,67 +107,74 @@ EOF
 }
 
 # ─── rulesets_health (Problem 2: видимость тихой деградации HOME) ────────────
+#
+# Healthcheck проверяет состояние sing-box ЧЕРЕЗ Clash API (не через файлы),
+# потому что подkop 0.7.17+ кладёт community-list'ы в binary cache.db, а не в
+# /tmp/sing-box/rulesets/. См. _ruleset_loaded в web/rpcd-cheburnet.
+#
+# Моки:
+#   • pidof — по умолчанию находит sing-box (FAKE_ROOT/no-sing-box чтобы нет).
+#   • curl — на /rules возвращает JSON с russia_outside в payload (FAKE_ROOT/
+#     clash-rules-response чтобы переопределить; "MOCK_NO_API" чтобы симулировать
+#     недоступный API через rc=28).
 
 @test "rulesets_health: TRAVEL → loaded=true, missing=[] (rulesets не нужны)" {
     sandbox_set_token >/dev/null
-    # mode=travel по умолчанию (нет exclude_ru) → проверки не делаем,
-    # даже если RULESETS_DIR пустой / отсутствует. Не показываем баннер
-    # в travel-режиме — нечего проверять, всё ожидаемо.
+    # mode=travel по умолчанию (нет exclude_ru) → проверки не делаем.
+    # Не показываем баннер в travel-режиме — нечего проверять.
     run run_rpcd get_status
     assert_success
     assert_json_field "$output" .mode "travel"
     assert_json_field "$output" .rulesets_health.russia_outside_loaded "true"
 }
 
-@test "rulesets_health: HOME, файл russia_outside.srs есть и не пустой → loaded=true" {
+@test "rulesets_health: HOME, sing-box работает, API содержит russia_outside → loaded=true" {
     sandbox_set_token >/dev/null
-    # Симулируем HOME-режим: exclude_ru.connection_type есть, enabled пуст = home
+    # HOME: exclude_ru.connection_type есть, enabled пуст = home (UCI-дефолт boolean).
     uci set podkop.exclude_ru.connection_type=exclusion
     uci set podkop.exclude_ru.community_lists=russia_outside
-    # Подкладываем непустой файл в RULESETS_DIR (export'нут в sandbox_init)
-    mkdir -p "$RULESETS_DIR"
-    echo "stub-srs-content" > "$RULESETS_DIR/exclude_ru-russia_outside-community-ruleset.srs"
+    # Mock pidof возвращает success по умолчанию; mock curl возвращает дефолтный
+    # JSON с russia_outside по умолчанию. Ничего настраивать не нужно.
     run run_rpcd get_status
     assert_success
     assert_json_field "$output" .mode "home"
     assert_json_field "$output" .rulesets_health.russia_outside_loaded "true"
 }
 
-@test "rulesets_health: HOME, файла russia_outside нет → loaded=false, missing содержит tag" {
+@test "rulesets_health: HOME, sing-box не запущен → loaded=false, missing содержит tag" {
     sandbox_set_token >/dev/null
     uci set podkop.exclude_ru.connection_type=exclusion
     uci set podkop.exclude_ru.community_lists=russia_outside
-    mkdir -p "$RULESETS_DIR"
-    # каталог есть, но файла russia_outside в нём нет
+    # Маркер для мока pidof — «sing-box не найден» (свежая установка под DPI,
+    # sing-box упал FATAL до старта API).
+    touch "$FAKE_ROOT/no-sing-box"
     run run_rpcd get_status
     assert_success
     assert_json_field "$output" .rulesets_health.russia_outside_loaded "false"
-    # missing — JSON-массив. assert_json_field печатает значение; для массива
-    # python печатает Python-repr. Достаточно --partial для подстроки.
     assert_output --partial '"russia_outside"'
 }
 
-@test "rulesets_health: HOME, файл существует но пустой (0 bytes) → loaded=false" {
-    # Edge case: подkop создал файл, но скачивание прервалось (DPI рвёт
-    # соединение на TLS-handshake) → файл 0 bytes, sing-box правило не применит.
+@test "rulesets_health: HOME, sing-box запущен но API недоступен → loaded=false" {
+    # Edge case: sing-box процесс живёт, но Clash API ещё не слушает (старт)
+    # или биндится на другой IP. Curl с --max-time 3 вернёт rc=28.
     sandbox_set_token >/dev/null
     uci set podkop.exclude_ru.connection_type=exclusion
     uci set podkop.exclude_ru.community_lists=russia_outside
-    mkdir -p "$RULESETS_DIR"
-    : > "$RULESETS_DIR/exclude_ru-russia_outside-community-ruleset.srs"
+    echo "MOCK_NO_API" > "$FAKE_ROOT/clash-rules-response"
     run run_rpcd get_status
     assert_success
     assert_json_field "$output" .rulesets_health.russia_outside_loaded "false"
 }
 
-@test "rulesets_health: HOME, RULESETS_DIR не существует → loaded=false" {
-    # Сценарий полной поломки: подkop не успел даже создать каталог
-    # /tmp/sing-box/rulesets (sing-box не стартовал).
-    # RULESETS_DIR из sandbox_init по умолчанию указывает на несуществующий
-    # путь — не создаём его, тест видит «нет каталога».
+@test "rulesets_health: HOME, API отвечает но russia_outside НЕ в правилах → loaded=false" {
+    # Сценарий полной деградации: sing-box запущен, API работает, но rule_set
+    # с russia_outside не в /rules — значит подkop не сгенерил его в конфиг
+    # (юзер сломал руками через LuCI / битый upgrade).
     sandbox_set_token >/dev/null
     uci set podkop.exclude_ru.connection_type=exclusion
     uci set podkop.exclude_ru.community_lists=russia_outside
+    # /rules без упоминания russia_outside
+    printf '%s' '{"rules":[{"type":"default","payload":"inbound=tproxy-in source_ip_cidr=192.168.1.0/24","proxy":"route(main-out)"}]}' > "$FAKE_ROOT/clash-rules-response"
     run run_rpcd get_status
     assert_success
     assert_json_field "$output" .rulesets_health.russia_outside_loaded "false"
@@ -175,7 +182,7 @@ EOF
 
 @test "rulesets_health: HOME без community_lists → loaded=true (юзер сознательно убрал)" {
     # Юзер через LuCI убрал community_lists, оставив только user_domains.
-    # Это его выбор — не показываем баннер «не загружено».
+    # Это его выбор — не показываем баннер «не загружено» (нечего проверять).
     sandbox_set_token >/dev/null
     uci set podkop.exclude_ru.connection_type=exclusion
     # community_lists не выставляем

@@ -965,3 +965,134 @@ check_install_via_tether_rejects_without_usb() {
     report_pass check_install_via_tether_rejects_without_usb \
         "exit $rc, WAN unchanged ($wan_after)"
 }
+
+# ─── split-routing (phase5) ───────────────────────────────────────────────────
+#
+# Эти три функции проверяют что HOME-режим реально работает на железе:
+#   1. routing-separation: outgoing IP через WAN ≠ через awg0 (два туннеля живы)
+#   2. dns-split: .ru-домены резолвятся в FakeIP (sing-box подменил), западные — в real IP
+#   3. lan-traffic-split: с хоста-разработчика как LAN-клиента, 5+5 сайтов
+#      открываются, outgoing IP при заходе на западное = VPN-IP роутера
+#
+# Толерантны к internet-flakiness: пороги «≥4/5», коды 4xx считаются OK
+# (соединение прошло, сервер ответил), 5xx тоже считаются «соединение есть»;
+# критично — только timeout (000) и DNS-fail.
+#
+# Test 3 требует чтобы хост был подключён в LAN cheburnet'а (default gw =
+# IP роутера). Если нет — тест пропускается с warn, остальные проходят.
+
+check_routing_separation() {
+    local wan vpn
+    wan=$(ssh_router 'curl -s --max-time 10 https://ifconfig.io' 2>/dev/null)
+    vpn=$(ssh_router 'curl -s --max-time 10 --interface awg0 https://ifconfig.io' 2>/dev/null)
+    if [ -z "$wan" ] || [ -z "$vpn" ]; then
+        report_fail check_routing_separation \
+            "один из IP пустой: WAN='$wan' VPN='$vpn' (один из выходов не работает)"
+        return 1
+    fi
+    if [ "$wan" = "$vpn" ]; then
+        report_fail check_routing_separation \
+            "WAN == VPN == $wan — split routing не работает, оба выхода идут одним путём"
+        return 1
+    fi
+    report_pass check_routing_separation "WAN=$wan ≠ VPN=$vpn"
+}
+
+check_dns_split() {
+    # .ru-домены должны попадать в exclude_ru rule_set → DNS возвращает FakeIP.
+    # Западные — обычный real IP. Берём по 4 домена в каждой группе —
+    # достаточно чтобы поймать поломку, но не слишком много чтобы блокировать
+    # тест на медленных DNS.
+    local ru_domains="gosuslugi.ru yandex.ru sberbank.ru vk.com"
+    local west_domains="google.com github.com youtube.com wikipedia.org"
+    local router_lan="${ROUTER#*@}"
+    local d ip failures=0 details=""
+
+    for d in $ru_domains; do
+        ip=$(ssh_router "nslookup '$d' '$router_lan' 2>/dev/null \
+            | awk '/^Address: [0-9]/{print \$2; exit}'" 2>/dev/null)
+        case "$ip" in
+            198.18.*) ;;
+            *) failures=$((failures + 1)); details="$details [.ru/$d=$ip]" ;;
+        esac
+    done
+    for d in $west_domains; do
+        ip=$(ssh_router "nslookup '$d' '$router_lan' 2>/dev/null \
+            | awk '/^Address: [0-9]/{print \$2; exit}'" 2>/dev/null)
+        case "$ip" in
+            198.18.*) failures=$((failures + 1)); details="$details [west/$d=$ip(FakeIP)]" ;;
+            "")       failures=$((failures + 1)); details="$details [west/$d=NXDOMAIN]" ;;
+            *) ;;
+        esac
+    done
+
+    if [ "$failures" -gt 0 ]; then
+        report_fail check_dns_split "$failures доменов с неправильным DNS:$details"
+        return 1
+    fi
+    report_pass check_dns_split "4 .ru → FakeIP (198.18.*), 4 западных → real IP"
+}
+
+check_lan_traffic_split() {
+    # Эта проверка использует HOST (где run-all.sh запущен) как LAN-клиента.
+    # Это типичный setup hw-теста: ноут разработчика подключён ethernet'ом
+    # в LAN-порт роутера. Если хост в LAN — default gw совпадает с роутером.
+    local router_ip="${ROUTER#*@}"
+    local host_gw
+    host_gw=$(ip route 2>/dev/null | awk '/^default /{print $3; exit}')
+    if [ "$host_gw" != "$router_ip" ]; then
+        report_warn check_lan_traffic_split \
+            "host default-gw='$host_gw' ≠ router='$router_ip' — host не подключён в LAN cheburnet'а, тест пропущен"
+        return 0
+    fi
+
+    # 5+5 сайтов. Любой 2xx/3xx/4xx считаем «соединение прошло» — мы тестируем
+    # routing, не HTTP-status сайта. 5xx — тоже OK (сервер ответил). Только
+    # 000 (timeout) = реальный сбой соединения.
+    local west_sites="google.com github.com youtube.com wikipedia.org cloudflare.com"
+    local ru_sites="gosuslugi.ru yandex.ru sberbank.ru vk.com lenta.ru"
+    local d code west_ok=0 ru_ok=0 failed=""
+
+    for d in $west_sites; do
+        code=$(curl -sk --max-time 15 -o /dev/null -w '%{http_code}' "https://$d" 2>/dev/null)
+        case "$code" in
+            [2345][0-9][0-9]) west_ok=$((west_ok + 1)) ;;
+            *) failed="$failed [west/$d=$code]" ;;
+        esac
+    done
+    for d in $ru_sites; do
+        code=$(curl -sk --max-time 15 -o /dev/null -w '%{http_code}' "https://$d" 2>/dev/null)
+        case "$code" in
+            [2345][0-9][0-9]) ru_ok=$((ru_ok + 1)) ;;
+            *) failed="$failed [ru/$d=$code]" ;;
+        esac
+    done
+
+    # Outgoing IP с хоста (LAN-клиент) при заходе на западный сайт должен
+    # отличаться от WAN-IP роутера — это значит трафик ушёл через VPN,
+    # а не direct через провайдера. Сравнивать ровно с awg0-bind IP роутера
+    # нельзя: CDN-VPN'ы (Amnezia, Cloudflare) используют разные egress-сервера
+    # для разных запросов — host_out и router-awg0-out часто разные IP, но
+    # оба не равны WAN-IP. Контракт: «LAN-трафик НЕ идёт через WAN-провайдера».
+    local host_out wan_ip
+    host_out=$(curl -s --max-time 10 https://ifconfig.io 2>/dev/null)
+    wan_ip=$(ssh_router 'curl -s --max-time 10 https://ifconfig.io' 2>/dev/null)
+
+    local errors=""
+    [ "$west_ok" -lt 4 ] && errors="$errors west_ok=$west_ok/5(min 4)"
+    [ "$ru_ok"   -lt 4 ] && errors="$errors ru_ok=$ru_ok/5(min 4)"
+    if [ -z "$host_out" ]; then
+        errors="$errors host_out=пусто(ifconfig.io недоступен)"
+    elif [ -n "$wan_ip" ] && [ "$host_out" = "$wan_ip" ]; then
+        # Худший сценарий: LAN-трафик идёт через WAN — split routing СЛОМАН
+        # или AmneziaWG не поднят. Юзер из РФ виден миру как из РФ.
+        errors="$errors host_out=$host_out=WAN_IP(VPN не работает!)"
+    fi
+
+    if [ -n "$errors" ]; then
+        report_fail check_lan_traffic_split "$errors$failed"
+        return 1
+    fi
+    report_pass check_lan_traffic_split \
+        "$west_ok/5 западных OK, $ru_ok/5 .ru OK, host_out=$host_out ≠ WAN=$wan_ip (VPN активен)"
+}

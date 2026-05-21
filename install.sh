@@ -196,11 +196,31 @@ step 2 "Обновляю индекс пакетов (таймаут 120с, до
 # смотрит в чёрный терминал, не понимая виснет оно или работает, начинает
 # рандомно жать Ctrl-C. Probe-URL — короткий файл SHA256SUMS текущего релиза
 # (гарантированно существует). При фейле — сразу показываем краткую
-# инструкцию + даём 30с на выбор: подождать стандартный retry (вдруг
-# транзиент) или прервать и поднять VPN снаружи. При успехе probe тихо
-# идём дальше — никакого UX-шума для юзеров без DPI.
+# инструкцию + даём паузу: подождать стандартный retry (вдруг транзиент) или
+# прервать (Ctrl-C) и поднять VPN снаружи. При успехе probe тихо идём дальше.
+#
+# Probe-URL имеет fallback на корень `/releases/`: если DISTRIB_RELEASE — это
+# SNAPSHOT/RC (свежак, ещё нет SHA256SUMS под этим именем), узкий probe даст
+# 404 и мы ложно объявим DPI. Корневой index точно отвечает 200 на любом
+# валидном зеркале.
 DPI_PROBE_URL="https://downloads.openwrt.org/releases/${DISTRIB_RELEASE:-25.12.2}/SHA256SUMS"
-if ! wget -qO /dev/null --timeout=5 "$DPI_PROBE_URL" 2>/dev/null; then
+DPI_PROBE_FALLBACK_URL="https://downloads.openwrt.org/releases/"
+DPI_PROBE_TMP=/tmp/.cheburnet-dpi-probe
+rm -f "$DPI_PROBE_TMP"
+DPI_BLOCKED=1
+# Проверка `-s`: defense против DPI-устройств, которые отдают 200 OK с
+# пустым body для всех HTTPS (часть RU-провайдеров). wget exit 0, body
+# нулевой — для нас это всё ещё DPI.
+if wget -qO "$DPI_PROBE_TMP" --timeout=5 "$DPI_PROBE_URL" 2>/dev/null \
+    && [ -s "$DPI_PROBE_TMP" ]; then
+    DPI_BLOCKED=0
+elif wget -qO "$DPI_PROBE_TMP" --timeout=5 "$DPI_PROBE_FALLBACK_URL" 2>/dev/null \
+    && [ -s "$DPI_PROBE_TMP" ]; then
+    DPI_BLOCKED=0
+fi
+rm -f "$DPI_PROBE_TMP"
+
+if [ "$DPI_BLOCKED" = "1" ]; then
     echo
     echo "  ⚠ За 5с не достучаться до downloads.openwrt.org. Похоже на DPI."
     echo
@@ -211,25 +231,33 @@ if ! wget -qO /dev/null --timeout=5 "$DPI_PROBE_URL" 2>/dev/null; then
     echo "    A. Ноут + AmneziaVPN + Internet Sharing → Ethernet → роутер"
     echo "       (надёжнее, рекомендуем)"
     echo
-    echo "    B. Android + AmneziaVPN + USB-кабель → роутер"
-    echo "       (включи в AmneziaVPN «Tunnel ALL traffic» — по умолчанию"
-    echo "        tethered-трафик НЕ заворачивается в VPN, это типичный косяк)"
+    echo "    B. Android: AmneziaVPN + системная «Always-on VPN» с галкой"
+    echo "       «Block connections without VPN» (без неё tethered-трафик идёт"
+    echo "        мимо VPN — типичный косяк) + USB-tethering → роутер"
     echo
     echo "  Подробная инструкция (обе схемы по шагам):"
     echo "    https://github.com/yurik2718/cheburnet-router/blob/master/docs/install-blocked.md"
     echo
-    echo "  Если думаешь, что это транзиент — нажми Enter [таймаут 30с],"
-    echo "  и я попробую стандартный 6-мин retry. Ctrl-C — выйти, поднять"
-    echo "  VPN и запустить установку снова."
-    echo
-    printf "  > "
-    # read -t 30 — auto-timeout. Возврат non-zero на таймауте/EOF (если ssh-
-    # сессия неинтерактивная) — нам всё равно, в обоих случаях идём в retry.
-    # `|| :` чтобы set -e не убил скрипт на read'е.
-    # shellcheck disable=SC3045  # busybox-ash supports read -t
-    read -r -t 30 _dpi_ans 2>/dev/null || :
-    unset _dpi_ans
-    echo
+    # tty-detect: при `ssh root@router 'wget|sh'` stdin = закрытый пайп, и
+    # `read -t N` возвращается мгновенно (EOF) — обещанная пауза не работает.
+    # Если stdin не tty — даём визуальную задержку через sleep вместо read,
+    # чтобы юзер успел увидеть текст и нажать Ctrl-C.
+    if [ -t 0 ]; then
+        echo "  Если думаешь, что это транзиент — нажми Enter [таймаут 15с],"
+        echo "  и я попробую стандартный 6-мин retry. Ctrl-C — выйти, поднять"
+        echo "  VPN и запустить установку снова."
+        echo
+        printf "  > "
+        # shellcheck disable=SC3045  # busybox-ash supports read -t
+        read -r -t 15 _dpi_ans 2>/dev/null || :
+        unset _dpi_ans
+        echo
+    else
+        echo "  Через 10 секунд начну стандартный 6-мин retry — если думаешь,"
+        echo "  что это транзиент, просто жди. Ctrl-C — выйти и поднять VPN."
+        echo
+        sleep 10
+    fi
     echo "  → продолжаю apk update..."
     echo
 fi
@@ -369,13 +397,18 @@ if ! with_retry 120 3 "apk update" apk update; then
         echo
         echo "  ─── Вариант A: на роутере ЕСТЬ USB-порт → через смартфон ───"
         echo
-        echo "    1. На телефоне: AmneziaVPN включён, подключён к серверу,"
-        echo "       USB-tethering включён."
+        echo "    1. На телефоне: AmneziaVPN подключён к серверу."
+        echo "    2. Android — ОБЯЗАТЕЛЬНО включи системную «Always-on VPN»"
+        echo "       с галкой «Block connections without VPN»: Settings →"
+        echo "       Network & Internet → VPN → AmneziaVPN → ⚙️."
+        echo "       Без этого tethered-трафик идёт МИМО VPN (типичный косяк)."
+        echo "       iOS: ничего дополнительно — VPN покрывает Personal Hotspot."
+        echo "    3. Включи USB-tethering:"
         echo "       Android: Настройки → Точка доступа → USB-модем"
         echo "       iOS:     Настройки → Личная точка доступа"
-        echo "    2. Воткни USB-кабель: телефон → USB-порт роутера."
+        echo "    4. Воткни USB-кабель: телефон → USB-порт роутера."
         echo "       Подожди 15-30 секунд."
-        echo "    3. Запусти ту же команду установки cheburnet снова."
+        echo "    5. Запусти ту же команду установки cheburnet снова."
         echo
         echo "  ─── Вариант B: USB на роутере НЕТ → через ноутбук ──────────"
         echo
