@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# mock pidof — для integration-тестов.
+#
+# По умолчанию: для sing-box возвращает фейковый PID + exit 0; для остальных
+# процессов — exit 1 (не найдено).
+#
+# Тест может переопределить через маркер $FAKE_ROOT/no-sing-box (touch'нуть
+# чтобы заставить мок «не нашёл» sing-box; remove чтобы вернуть default).
+echo "$@" >> "${CALLS_DIR:-/tmp}/pidof"
+
+case "$1" in
+    sing-box)
+        if [ -f "${FAKE_ROOT:?}/no-sing-box" ]; then
+            exit 1
+        fi
+        echo "9999"
+        exit 0
+        ;;
+    *)
+        exit 1
+        ;;
+esac

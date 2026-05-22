@@ -46,14 +46,18 @@ vm_ssh "ubus list cheburnet >/dev/null" || {
     exit 1
 }
 
-echo "→ assert: ubus list cheburnet — все 10 методов"
+echo "→ assert: ubus list cheburnet — все 13 методов"
 # Каждый метод в `ubus -v list` идёт строкой `<TAB>"name":{args}`. Берём имя
 # до первого `"` после имени — иначе текстовый парсер слипает имя метода
 # с именами аргументов.
+# +apply_lan_ip + check_lan_conflict — pre-install детект и автофикс
+# конфликта подсетей LAN/WAN (см. lib/net-detect.sh + docs/test-lan-conflict.md).
+# +update_podkop — post-install RPC для апгрейда устаревших инсталляций
+# (старый URL .srs → 404), Problem 3 в feat/podkop-non-destructive.
 methods="$(vm_ssh 'ubus -v list cheburnet' \
     | sed -nE 's/^[[:space:]]+"([^"]+)":.*$/\1/p' \
     | sort | tr '\n' ' ' | sed 's/ $//')"
-expected="factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter"
+expected="apply_lan_ip check_lan_conflict factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter update_podkop"
 [ "$methods" = "$expected" ] || {
     echo "  expected: $expected"
     echo "  actual:   $methods"

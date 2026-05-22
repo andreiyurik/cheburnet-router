@@ -209,23 +209,67 @@ cheburnet_valid_factory_confirm() {
 # Диагностика — два wget --spider запроса (~5-15 сек), без модификации
 # системного состояния.
 
-# cheburnet_apk_fail_advice [MARKER]
+# cheburnet_apk_fail_advice [MARKER] [APK_OUTPUT]
 #
 # Юзер вызвал `apk add MARKER` и оно упало. Эта функция:
-#   1) делает два wget --spider запроса к OpenWrt-зеркалу: один с именем
-#      пакета в URL, второй с нейтральным именем — оба к 404-страницам;
-#   2) по их исходам различает три случая: DPI на имя файла, общая
-#      недоступность зеркала, или временный mirror-lag;
+#   1) если передан APK_OUTPUT и в нём видна сигнатура kernel-mismatch
+#      (apk прямо пишет «breaks: kmod-X[kernel=Y] satisfies: world[kernel=Z]»)
+#      — печатает честный вердикт «несовместимость ядра» и выходит. Это
+#      не лечится повтором и не имеет отношения к зеркалу — нельзя пускать
+#      юзера в mirror-probe ниже, иначе он услышит «mirror lag, подожди
+#      минуту» и будет повторять установку часами впустую.
+#   2) иначе — делает два wget --spider запроса к OpenWrt-зеркалу: один
+#      с именем пакета в URL, второй с нейтральным именем (оба к 404);
+#      по их исходам различает: DPI на имя файла, общая недоступность
+#      зеркала, или временный mirror-lag;
 #   3) печатает в stdout диагностику (попадает в install.log), в stderr —
 #      human-readable «ЧТО ДЕЛАТЬ» с командами обхода.
 #
-# Раньше это были две функции с 4 return-кодами (0/2/3/99) — слой
-# абстракции, который никто не использовал: все callsites просто хотели
-# «упало → расскажи юзеру что делать». Объединено в одну.
-#
-# MARKER — имя пакета (по умолчанию sing-box) для подстановки в suspect-URL.
+# APK_OUTPUT — опциональная строка с полным stderr от `apk add`. Если не
+# передана — kernel-mismatch detection пропускается, поведение как раньше.
 cheburnet_apk_fail_advice() {
     _marker="${1:-sing-box}"
+    _apk_output="${2:-}"
+
+    # Шаг 1 — kernel-mismatch detection. apk при breaks/satisfies печатает
+    # квалификатор «[kernel=<id>]» рядом с именем kmod-пакета и рядом с
+    # `satisfies: world`. Сравнение этих двух id — однозначный сигнал, что
+    # kmod собран под другое ядро. Никакого retry/mirror-обхода тут не
+    # поможет — нужна либо новая сборка апстрима, либо откат прошивки.
+    if [ -n "$_apk_output" ] \
+       && printf '%s' "$_apk_output" | grep -qE 'breaks:.*kmod-.*\[kernel=' 2>/dev/null; then
+        # Берём kernel-id до тильды: «kernel=6.12.87~deadbeef-r1» → «6.12.87».
+        # Человеку понятно, а полный hash в сообщении только пугает.
+        _expected=$(printf '%s' "$_apk_output" \
+            | grep -oE 'kmod-[^[]*\[kernel=[^~]*' | head -1 \
+            | sed -E 's/.*\[kernel=//')
+        _have=$(printf '%s' "$_apk_output" \
+            | grep -oE 'satisfies: world\[kernel=[^~]*' | head -1 \
+            | sed -E 's/.*\[kernel=//')
+        echo ""
+        echo "─── ДИАГНОСТИКА ───"
+        echo "  Пакет ${_marker} собран под ядро Linux ${_expected:-?},"
+        echo "  а на твоём роутере установлено ядро ${_have:-?}."
+        echo "  Это несовместимость ядра, не сбой сети — повторять бессмысленно."
+        echo "─── /ДИАГНОСТИКА ───"
+        {
+            echo ""
+            echo "ЧТО ДЕЛАТЬ:"
+            echo "  Вариант 1 — подождать 1-2 недели: апстрим обычно выпускает"
+            echo "  сборку под актуальное ядро OpenWrt в течение этого срока."
+            echo "    https://github.com/Slava-Shchipunov/awg-openwrt/releases"
+            echo ""
+            echo "  Вариант 2 — откатиться на предыдущую минорную версию OpenWrt"
+            echo "  (например с 25.12.4 на 25.12.2): её ядро совпадает с тем,"
+            echo "  под которое уже есть готовая сборка."
+            echo ""
+            echo "  Если ты ставишь на snapshot — это ожидаемо: snapshot имеет"
+            echo "  rolling-ядро, kmod-пакеты под него редко доступны вовремя."
+            echo "  Для повседневной работы используй stable-релиз 25.12.x."
+        } >&2
+        unset _marker _apk_output _expected _have
+        return 0
+    fi
 
     # Читаем DISTRIB_* в subshell — не утекают в окружение caller'а
     # (см. lib/cheburnet-preflight.sh::cheburnet_preflight_arch).

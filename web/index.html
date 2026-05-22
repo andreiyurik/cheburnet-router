@@ -169,6 +169,93 @@
   </div>
 
   <!-- ============================================================ -->
+  <!-- Экран: конфликт LAN/WAN-подсетей (показывается ДО установки) -->
+  <!--                                                              -->
+  <!-- Типичный сценарий: главный роутер (Keenetic, Mi Router и т.п.) -->
+  <!-- выдаёт нашему OpenWrt-роутеру WAN-IP в 192.168.1.X, а LAN     -->
+  <!-- OpenWrt тоже на 192.168.1.1 — две сети в одной подсети,       -->
+  <!-- роутер не маршрутизирует, клиенты в LAN не выходят в инет.    -->
+  <!--                                                                -->
+  <!-- Решение: сменить LAN-IP роутера на 192.168.X.1 ДО запуска     -->
+  <!-- установки. Юзер ничего ещё не вводил → state не теряется,     -->
+  <!-- просто откроет новый адрес и продолжит мастер с самого начала. -->
+  <!-- ============================================================ -->
+  <div id="scr-lan-conflict" class="panel hidden">
+    <h2>⚠ Перед установкой нужно сменить адрес роутера</h2>
+
+    <p>
+      Ваш главный роутер и этот OpenWrt-роутер сейчас используют одну
+      и ту же подсеть. В такой конфигурации роутер не сможет
+      маршрутизировать трафик из LAN в интернет.
+    </p>
+
+    <dl class="kv" style="margin: 12px 0;">
+      <dt>WAN-IP роутера:</dt><dd><code id="lan-conflict-wan">—</code> <span class="muted">(получен от главного роутера)</span></dd>
+      <dt>LAN-IP роутера:</dt><dd><code id="lan-conflict-lan">—</code> <span class="muted">(по умолчанию OpenWrt)</span></dd>
+    </dl>
+
+    <div class="edu" style="margin: 12px 0;">
+      <strong>Это нормальная ситуация для каскада «главный роутер → OpenWrt-роутер».</strong>
+      Чиним заменой LAN-адреса OpenWrt-роутера на свободный — после этого
+      обе сети будут в разных подсетях, и всё заработает.
+    </div>
+
+    <p>Поменяем LAN-адрес этого роутера на <strong><code id="lan-conflict-suggest">—</code></strong>.</p>
+
+    <div id="lan-conflict-token-block" class="hidden">
+      <label>Install-токен (из вывода <code>install.sh</code> по SSH):</label>
+      <input type="text" id="lan-conflict-token" placeholder="32 hex-символа">
+      <p class="muted" style="margin-top: 4px;">
+        Если перешли по ссылке вида <code>?token=...</code> — поле уже заполнено.
+        Иначе скопируйте токен из терминала, где запускали <code>install.sh</code>.
+      </p>
+    </div>
+
+    <div id="lan-conflict-status" class="muted" style="margin-top: 10px;"></div>
+
+    <div class="row" style="justify-content: flex-end;">
+      <button id="btn-lan-conflict-apply">Сменить адрес роутера</button>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- Экран: применение нового LAN-IP (после клика на «Сменить»)   -->
+  <!-- Объясняет ЧТО ДЕЛАТЬ юзеру (переподключить кабель/Wi-Fi)     -->
+  <!-- и даёт ссылку на новый адрес. После применения текущая       -->
+  <!-- страница «зависает» — браузер на старом IP, ssh-сессии тоже. -->
+  <!-- Никакого автоматического редиректа: браузер всё равно не     -->
+  <!-- сможет открыть новый IP пока ноут не получит новую DHCP-     -->
+  <!-- аренду; пусть юзер тыкнет ссылку САМ когда готов.            -->
+  <!-- ============================================================ -->
+  <div id="scr-lan-applying" class="panel hidden">
+    <h2>Меняю адрес роутера на <code id="lan-applying-new">—</code>…</h2>
+
+    <div class="edu" style="margin: 12px 0;">
+      <strong>Что делать вам — в следующие 30 секунд:</strong>
+      <ol style="margin: 8px 0 0 20px; padding-left: 0; color: var(--text);">
+        <li style="margin: 6px 0;">Подождите ~10 секунд — роутер перезапускает сеть.</li>
+        <li style="margin: 6px 0;"><strong>Если вы по Wi-Fi:</strong> отключитесь от сети роутера и подключитесь снова — телефон/ноутбук получит новый IP-адрес автоматически.</li>
+        <li style="margin: 6px 0;"><strong>Если вы по кабелю:</strong> отсоедините кабель от ноутбука и подсоедините снова.</li>
+        <li style="margin: 6px 0;">Откройте новую ссылку — кнопка ниже.</li>
+      </ol>
+    </div>
+
+    <div class="row" style="justify-content: center; margin: 20px 0;">
+      <a id="lan-applying-link" href="#" class="support-cta" style="text-align: center;">
+        → Открыть новый адрес
+      </a>
+    </div>
+
+    <p class="muted" style="font-size: 13px;">
+      Если кнопка не открывается — наберите в браузере вручную:
+      <code id="lan-applying-url">—</code>.
+      Если адрес недоступен — значит ноутбук ещё не получил новый IP в
+      подсети. Дождитесь обновления (обычно 10–30 секунд после
+      переподключения) или вручную сделайте release/renew DHCP.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
   <!-- Экран 1: AWG .conf -->
   <!-- ============================================================ -->
   <div id="scr-conf" class="panel hidden">
@@ -366,6 +453,32 @@
     <h3>Статус</h3>
     <dl class="kv" id="mgmt-status"></dl>
 
+    <!-- Баннер healthcheck rulesets (Problem 2: видимость тихой деградации HOME). -->
+    <!-- Показывается только когда rulesets_health.russia_outside_loaded=false: -->
+    <!-- подkop не смог скачать community-список → .ru-сервисы идут через VPN. -->
+    <!-- renderMgmt() переключает hidden-класс. -->
+    <div id="rulesets-warning" class="hidden" style="margin-top: 12px; padding: 12px; border: 1px solid var(--err); border-radius: 6px; background: rgba(229, 62, 62, 0.08);">
+      <p style="margin: 0 0 8px 0;">
+        <strong style="color: var(--err);">⚠ Список <code id="rulesets-missing-tag">russia_outside</code> не загружен</strong>
+      </p>
+      <p style="margin: 0 0 8px 0; font-size: 13px;">
+        Этот список определяет, какие домены идут напрямую (минуя VPN).
+        Сейчас они идут через VPN — на российских сервисах (Госуслуги, Sberbank, Ozon)
+        возможны блокировки и капчи.
+      </p>
+      <p style="margin: 0 0 8px 0; font-size: 13px;">
+        Возможные причины:
+      </p>
+      <ul style="margin: 0 0 8px 20px; font-size: 13px;">
+        <li>временный сбой <code>github.com</code> (попробуйте через 5 минут);</li>
+        <li>RU-провайдер блокирует github — нужен апгрейд podkop'а
+          (см. <code>docs/09-troubleshooting.md</code>).</li>
+      </ul>
+      <div class="row" style="gap: 8px;">
+        <button id="btn-update-podkop-from-warning" class="ghost">🔄 Обновить podkop</button>
+      </div>
+    </div>
+
     <details class="edu" style="margin-top: 12px;">
       <summary style="cursor: pointer;">ℹ️ Если открыли страницу <code>luci-app-podkop</code> и видите красные индикаторы — прочитайте это</summary>
       <p style="margin: 8px 0 4px;">
@@ -394,6 +507,14 @@
       <button id="btn-svc-vpn"     class="ghost">VPN</button>
       <button id="btn-svc-dns"     class="ghost">DNS</button>
       <button id="btn-svc-adblock" class="ghost">Adblock</button>
+      <button id="btn-update-podkop" class="ghost">🔄 Обновить podkop</button>
+    </div>
+    <!-- Прогресс update_podkop. Открывается при клике на «Обновить podkop». -->
+    <!-- Поллим install_progress (тот же протокол, что install_start), детектим -->
+    <!-- state='podkop-update' и done='ok'|'fail'. -->
+    <div id="podkop-update-progress" class="hidden" style="margin-top: 12px;">
+      <div class="progress"><div id="podkop-update-bar" class="bar"></div></div>
+      <div id="podkop-update-step" class="muted"></div>
     </div>
 
     <h3>Блок-лист рекламы (Hagezi)</h3>
@@ -605,7 +726,7 @@ function loginPrompt(errorMsg) {
 // =====================================================================
 // Навигация между экранами
 // =====================================================================
-const SCREENS = ["loading", "conf", "rootpass", "wifi", "confirm", "install", "success", "mgmt"];
+const SCREENS = ["loading", "lan-conflict", "lan-applying", "conf", "rootpass", "wifi", "confirm", "install", "success", "mgmt"];
 function goto(name) {
     SCREENS.forEach(s => document.getElementById("scr-" + s).classList.toggle("hidden", s !== name));
     document.getElementById("edu").classList.toggle("hidden", name === "mgmt");
@@ -620,7 +741,11 @@ const state = {
     rootPass: "",
     ssid: "",
     wifiKey: "",
-    token: ""
+    token: "",
+    // Сохраняем результат check_lan_conflict между init() и кликом на «Сменить» —
+    // чтобы не делать второй RPC-запрос (особенно после того как пользователь
+    // мог вернуться на этот экран при ошибке apply_lan_ip).
+    lanConflict: null
 };
 
 // Подхватить токен из URL ?token=... (выдаётся install.sh)
@@ -632,6 +757,26 @@ const state = {
 })();
 
 // =====================================================================
+// Проверка LAN/WAN-конфликта подсетей.
+// Вызывается из init() перед показом экрана установки. Если RPC недоступен
+// (старая сборка без check_lan_conflict в ACL/handler'е) — молча возвращаем
+// false: «нет данных» лучше чем «крашим инициализацию».
+// =====================================================================
+async function checkLanConflict() {
+    try {
+        const c = await rpc("cheburnet", "check_lan_conflict");
+        if (!c || !c.conflict) return false;
+        state.lanConflict = c;
+        document.getElementById("lan-conflict-wan").textContent = c.wan_ip;
+        document.getElementById("lan-conflict-lan").textContent = c.lan_ip;
+        document.getElementById("lan-conflict-suggest").textContent = c.suggest_ip;
+        return true;
+    } catch (_e) {
+        return false;
+    }
+}
+
+// =====================================================================
 // Инициализация — проверить, настроен ли уже роутер
 // =====================================================================
 async function init() {
@@ -641,6 +786,23 @@ async function init() {
         if (st.installing) { goto("install"); pollProgress(); return; }
         // Если уже установлено — на management
         if (st.install_type !== "none") { goto("mgmt"); renderMgmt(st); startMgmtAutoRefresh(); return; }
+
+        // Pre-install: ДО показа форм проверяем конфликт LAN/WAN.
+        // Если есть — отправляем юзера на отдельный экран «сменить IP».
+        // Делать это здесь (а не внутри install.sh) важно потому, что
+        // браузер физически не сможет переключиться на новый IP «на ходу»:
+        // network restart мид-install убил бы и TCP-сессию RPC, и маршрут
+        // на новый адрес (ноут ещё в старой подсети). А тут юзер ничего
+        // не ввёл — переподключение к новому Wi-Fi/IP естественный шаг.
+        if (await checkLanConflict()) {
+            // Токен нужен для apply_lan_ip. Если в URL не был — показываем
+            // поле ввода прямо на этом экране (юзер скопирует из SSH-консоли).
+            if (st.install_token_required && !state.token) {
+                document.getElementById("lan-conflict-token-block").classList.remove("hidden");
+            }
+            goto("lan-conflict");
+            return;
+        }
 
         // Pre-install режим — показываем блок токена и подставляем значение из URL, если есть
         if (st.install_token_required) {
@@ -665,6 +827,77 @@ async function init() {
              <p>Запустите в SSH на роутере: <code>ubus list cheburnet</code>. Если ничего не возвращает — повторите install.sh.</p>`;
     }
 }
+
+// =====================================================================
+// Обработчик кнопки «Сменить адрес» на экране конфликта LAN/WAN.
+// Валидирует токен → POST apply_lan_ip → переходит на scr-lan-applying
+// с настроенной ссылкой на новый адрес. Новый URL сохраняет токен
+// в query-string, чтобы юзер не вводил его второй раз.
+// =====================================================================
+async function applyLanIp() {
+    const c = state.lanConflict;
+    if (!c) return;  // не должно случиться, но guard на всякий случай
+
+    const status = document.getElementById("lan-conflict-status");
+    const btn = document.getElementById("btn-lan-conflict-apply");
+
+    // Токен: сначала смотрим state.token (из URL ?token=...),
+    // потом — input на этом экране (если был показан).
+    const tokInp = document.getElementById("lan-conflict-token");
+    if (tokInp && tokInp.value.trim()) {
+        state.token = tokInp.value.trim();
+    }
+    const tokenBlockVisible = !document.getElementById("lan-conflict-token-block").classList.contains("hidden");
+    if (tokenBlockVisible && !/^[0-9a-fA-F]{32}$/.test(state.token)) {
+        status.innerHTML = `<span style="color: var(--warn);">Введите install-токен (32 hex-символа из вывода install.sh).</span>`;
+        return;
+    }
+
+    btn.disabled = true;
+    status.innerHTML = `<span class="muted">Применяю новый адрес на роутере…</span>`;
+
+    try {
+        const r = await rpc("cheburnet", "apply_lan_ip", {
+            ip: c.suggest_ip,
+            token: state.token
+        });
+        if (r && r.status === "applied" && r.new_ip) {
+            // Сохраняем токен в новой ссылке — иначе на новом адресе
+            // юзеру придётся снова искать его в SSH-консоли.
+            const newUrl = `${window.location.protocol}//${r.new_ip}/cheburnet/`
+                + (state.token ? `?token=${encodeURIComponent(state.token)}` : "");
+            document.getElementById("lan-applying-new").textContent = r.new_ip;
+            document.getElementById("lan-applying-url").textContent = newUrl;
+            const link = document.getElementById("lan-applying-link");
+            link.href = newUrl;
+            // target="_self" по умолчанию — браузер откроет в той же вкладке;
+            // старая вкладка/URL станет недоступна с потерей TCP-соединения,
+            // и это нормально (она нам больше не нужна).
+            goto("lan-applying");
+        } else {
+            // r.error пришёл из rpcd-cheburnet или из rpcUnwrap нормализации
+            const msg = (r && r.error) ? r.error : "неизвестная ошибка";
+            status.innerHTML = `<span class="err-msg">Не удалось применить: ${escapeHtml(msg)}</span>`;
+            btn.disabled = false;
+        }
+    } catch (e) {
+        status.innerHTML = `<span class="err-msg">Ошибка вызова RPC: ${escapeHtml(e.message)}</span>`;
+        btn.disabled = false;
+    }
+}
+
+document.getElementById("btn-lan-conflict-apply").onclick = applyLanIp;
+
+// Live-обновление state.token при наборе токена на экране конфликта.
+// Без этого юзер мог бы напечатать токен и нажать «Сменить» — но в state
+// он бы попал только при клике (через applyLanIp). На случай если юзер
+// захочет полагаться на autosave/autofill — обновляем сразу.
+(function bindLanConflictTokenInput() {
+    const inp = document.getElementById("lan-conflict-token");
+    if (inp) {
+        inp.addEventListener("input", () => { state.token = inp.value.trim(); });
+    }
+})();
 
 // =====================================================================
 // Экран 1 — AWG .conf
@@ -1007,6 +1240,16 @@ async function renderMgmt(st) {
     const showMode = st.install_type === "vpn";
     document.getElementById("mgmt-mode-header").classList.toggle("hidden", !showMode);
     document.getElementById("mgmt-mode").classList.toggle("hidden", !showMode);
+
+    // Healthcheck rulesets (Problem 2). Показываем баннер только если бэкенд
+    // явно сказал «не загружено» И мы в HOME (в TRAVEL ruleset'ы не нужны —
+    // бэкенд возвращает loaded=true в travel-режиме).
+    const rs = st.rulesets_health || {};
+    const showWarning = rs.russia_outside_loaded === false;
+    document.getElementById("rulesets-warning").classList.toggle("hidden", !showWarning);
+    if (showWarning && rs.missing && rs.missing.length) {
+        document.getElementById("rulesets-missing-tag").textContent = rs.missing[0];
+    }
 }
 
 // Авто-обновление каждые 15 сек, пауза при скрытой странице
@@ -1066,6 +1309,71 @@ document.getElementById("btn-travel").onclick  = () => mgmtCall("cheburnet", "mo
 document.getElementById("btn-svc-vpn").onclick     = () => mgmtCall("cheburnet", "service_restart", { service: "vpn" },     "Перезапуск VPN");
 document.getElementById("btn-svc-dns").onclick     = () => mgmtCall("cheburnet", "service_restart", { service: "dns" },     "Перезапуск DNS");
 document.getElementById("btn-svc-adblock").onclick = () => mgmtCall("cheburnet", "service_restart", { service: "adblock" }, "Перезагрузка adblock");
+
+// Обновление podkop (Problem 3 — RPC update_podkop). Те же UI-паттерны, что
+// у replace_awg_conf: запускаем фоновый процесс, поллим install_progress
+// (state='podkop-update'), различаем результат: ok / fail. Кнопка сейчас две:
+// (а) в блоке «Перезапустить сервис» — для пре-эмптивного апгрейда без
+//     визуального триггера (юзер хочет вручную дернуть обновление подkop'а);
+// (б) внутри баннера «список не загружен» — для реактивного апгрейда (юзер
+//     увидел красный баннер и кликает по нему).
+async function pollPodkopUpdateProgress() {
+    try {
+        const p = await rpc("cheburnet", "install_progress");
+        const bar = document.getElementById("podkop-update-bar");
+        const stepRaw = (p.step || "").replace(/^\[STEP\] |\[|\]/g, "");
+        document.getElementById("podkop-update-step").textContent =
+            stepRaw === "podkop-update" ? "обновляю podkop + sing-box…" : `текущий шаг: ${stepRaw}`;
+        if (!p.done) { bar.style.width = "60%"; setTimeout(pollPodkopUpdateProgress, 2000); return; }
+        bar.style.width = "100%";
+        if (p.result === "ok") {
+            bar.classList.add("done");
+            setMgmtMsg("ok-msg", "✓ Podkop обновлён. Подождите 10-20 секунд, режим должен восстановиться сам.");
+            setTimeout(() => renderMgmt().catch(() => {}), 2000);
+        } else {
+            bar.classList.add("err");
+            // Actionable recovery: операция идемпотентна — повторный клик
+            // безопасен. Самая частая причина фейла — сеть моргнула на
+            // apk add. Если 2-3 попытки не помогли, юзеру нужна внешняя
+            // VPN на 10 минут установки.
+            setMgmtMsg("err-msg",
+                `Обновление podkop не удалось: ${escapeHtml(p.result || "unknown")}. ` +
+                `Кликните «🔄 Обновить podkop» ещё раз (операция идемпотентна). ` +
+                `Если 2-3 попытки подряд не помогают — провайдер блокирует загрузку: ` +
+                `подключите внешний VPN (docs/install-blocked.md) и повторите. ` +
+                `Полный лог: SSH → logread.`);
+        }
+    } catch (e) {
+        if (!document.getElementById("podkop-update-progress").classList.contains("hidden")) {
+            // Сеть моргнула — продолжаем поллить
+            setTimeout(pollPodkopUpdateProgress, 4000);
+        }
+    }
+}
+
+async function startPodkopUpdate() {
+    const ok = confirm(
+        "Обновить podkop?\n\n" +
+        "Будет переустановлен podkop + sing-box (~2 минуты). На это время VPN " +
+        "временно не работает. Текущий режим (HOME/TRAVEL) сохранится."
+    );
+    if (!ok) return;
+    setMgmtMsg("muted", "Запускаю обновление podkop'а…");
+    const box = document.getElementById("podkop-update-progress");
+    const bar = document.getElementById("podkop-update-bar");
+    bar.className = "bar"; bar.style.width = "10%";
+    box.classList.remove("hidden");
+    try {
+        await rpc("cheburnet", "update_podkop");
+        pollPodkopUpdateProgress();
+    } catch (e) {
+        box.classList.add("hidden");
+        setMgmtMsg("err-msg", `Не удалось запустить обновление: ${e.message}`);
+    }
+}
+
+document.getElementById("btn-update-podkop").onclick              = startPodkopUpdate;
+document.getElementById("btn-update-podkop-from-warning").onclick = startPodkopUpdate;
 
 // Hagezi tier
 document.getElementById("btn-tier-apply").onclick = () => {

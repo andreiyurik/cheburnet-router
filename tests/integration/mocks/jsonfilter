@@ -1,23 +1,65 @@
 #!/usr/bin/env python3
-"""mock jsonfilter — реализует подмножество flagов нужное rpcd-cheburnet.
+"""mock jsonfilter — реализует подмножество синтаксиса нужное rpcd-cheburnet.
 
-rpcd-cheburnet вызывает только: jsonfilter -e '@.field'
-Это эквивалент `python json.load(stdin)['field']` (или вложенный путь @.a.b).
+Поддерживаемые формы выражений (-e EXPR):
+   @.field                          — простое поле
+   @.field.subfield                 — вложенные поля
+   @["field-with-dash"]             — bracket-notation для ключей с тире
+                                       (нужно для @["ipv4-address"] в net_detect_lan_conflict)
+   @["a"][0].b                      — индексация массива
+   @.foo[0]                         — индексация массива в dot-notation
+
+Это надмножество того, что было раньше — обратно совместимо со всеми существующими
+вызовами `jf '@.field'`, плюс новый детектор LAN-conflict умеет добраться
+до `ipv4-address[0].address` в выводе ubus.
 """
 import json
+import re
 import sys
 
 
+def parse_path(path):
+    """Разбирает выражение в список ключей/индексов.
+
+    Примеры:
+        '@.foo.bar'              → ['foo', 'bar']
+        '@["ipv4-address"][0].x' → ['ipv4-address', 0, 'x']
+        '@.foo[0]'               → ['foo', 0]
+    """
+    s = path.lstrip("@")
+    tokens = []
+    # Regex захватывает три варианта токена: ["..."], [N], либо .name
+    # Используем lookahead чтобы не было overlap'ов.
+    pattern = re.compile(r'\["([^"]+)"\]|\[(\d+)\]|\.([A-Za-z_][\w-]*)')
+    pos = 0
+    while pos < len(s):
+        m = pattern.match(s, pos)
+        if not m:
+            # Допускаем висящие точки в начале или мусор в конце — просто стоп.
+            break
+        if m.group(1) is not None:        # ["key"]
+            tokens.append(m.group(1))
+        elif m.group(2) is not None:      # [N]
+            tokens.append(int(m.group(2)))
+        else:                              # .name
+            tokens.append(m.group(3))
+        pos = m.end()
+    return tokens
+
+
 def get_path(data, path):
-    # path = "@.foo.bar" → ["foo", "bar"]
-    parts = path.lstrip("@").lstrip(".").split(".")
-    for p in parts:
-        if p == "":
-            continue
-        if isinstance(data, dict) and p in data:
-            data = data[p]
+    tokens = parse_path(path)
+    for t in tokens:
+        if isinstance(t, int):
+            if isinstance(data, list) and 0 <= t < len(data):
+                data = data[t]
+            else:
+                return None
         else:
-            return None
+            if isinstance(data, dict) and t in data:
+                data = data[t]
+            else:
+                return None
     return data
 
 

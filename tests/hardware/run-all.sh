@@ -13,10 +13,11 @@
 # automating factoryreset would wipe authorized_keys and lock the framework
 # out. See README.md → Precondition.
 #
-# Phase order is phase0 → 1 → 2 → 3 → 6 → 4. Phase 0 is the precondition gate
-# (aborts the run on fail). Phase 4 (fault injection) runs last but is
-# non-destructive — it exercises the replace_awg_conf rollback path on the
-# install from phase 1, no firstboot needed.
+# Phase order is phase0 → 1 → 2 → 3 → 5 → 6 → 4. Phase 0 is the precondition
+# gate (aborts the run on fail). Phase 5 (split routing) validates end-to-end
+# that HOME-mode actually splits traffic. Phase 4 (fault injection) runs last
+# but is non-destructive — it exercises the replace_awg_conf rollback path on
+# the install from phase 1, no firstboot needed.
 #
 # Outputs:
 #   • Live log to stdout (tee'd from each phase)
@@ -142,6 +143,7 @@ fi
 run_phase phase1 "happy install"         phase1-install.sh
 run_phase phase2 "web UI via RPC"        phase2-webui.sh
 run_phase phase3 "CLI tools"             phase3-cli.sh
+run_phase phase5 "split routing"         phase5-routing.sh
 run_phase phase6 "reboot + steady state" phase6-reboot.sh
 run_phase phase4 "failure injection"     phase4-failures.sh
 

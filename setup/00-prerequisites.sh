@@ -56,7 +56,7 @@ if [ -z "${APK_UPDATE_SKIPPED:-}" ]; then
             echo
             echo "  ── Диагностика (~20с) ───────────────────────────────────"
 
-            PING_OK=0; DNS_OK=0; GH_OK=0; OPENWRT_BLOCKED=0; OPENWRT_OK=0
+            PING_OK=0; DNS_OK=0; GH_OK=0; OPENWRT_OK=0
 
             if ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1; then
                 echo "  ✓ ping 8.8.8.8 — общий интернет работает"
@@ -98,10 +98,10 @@ if [ -z "${APK_UPDATE_SKIPPED:-}" ]; then
             if [ "$OPENWRT_RC" = "0" ]; then
                 echo "  ? wget downloads.openwrt.org прошёл СЕЙЧАС (apk упал — транзиент?)"
                 OPENWRT_OK=1
-            elif echo "$OPENWRT_ERR" | grep -qiE "Operation not permitted|Connection refused|Connection reset|Connection timed out|Couldn't resolve"; then
-                echo "  ✗ wget downloads.openwrt.org: $OPENWRT_ERR"
-                OPENWRT_BLOCKED=1
             else
+                # Любая ненулевая RC (DPI-сигнатуры или другие сетевые ошибки) → не OK.
+                # Вердикт ниже не различает их: else-ветка покрывает оба случая
+                # рекомендацией VPN-обхода, разделение тут лишний шум.
                 echo "  ✗ wget downloads.openwrt.org: $OPENWRT_ERR"
             fi
 

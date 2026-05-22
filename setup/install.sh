@@ -32,6 +32,11 @@ echo "[STEP] starting" > "$STATE"
 [ -f "$INSTALL_DIR/lib/cheburnet-utils.sh" ] && . "$INSTALL_DIR/lib/cheburnet-utils.sh"
 # shellcheck source=../lib/cheburnet-preflight.sh disable=SC1090,SC1091
 [ -f "$INSTALL_DIR/lib/cheburnet-preflight.sh" ] && . "$INSTALL_DIR/lib/cheburnet-preflight.sh"
+# net-detect.sh нужен preflight'у LAN-conflict (net_detect_lan_conflict).
+# Также используется на финальном шаге для FINAL_LAN_IP — раньше source делался
+# дважды (здесь у нас явно подключают), теперь one-shot в самом начале.
+# shellcheck source=../lib/net-detect.sh disable=SC1090,SC1091
+[ -f "$INSTALL_DIR/lib/net-detect.sh" ] && . "$INSTALL_DIR/lib/net-detect.sh"
 
 # === Системный паспорт — печатается один раз в самом начале ===
 # Без него нельзя интерпретировать ни одну ошибку: «у юзера 64 МБ overlay —
@@ -68,9 +73,14 @@ echo "[STEP] preflight" > "$STATE"
 echo "[preflight] проверяю железо и сеть"
 _preflight_fail=""
 cheburnet_preflight_flash    || _preflight_fail="flash"
-[ -z "$_preflight_fail" ] && { cheburnet_preflight_ram      || _preflight_fail="ram"; }
-[ -z "$_preflight_fail" ] && { cheburnet_preflight_internet || _preflight_fail="internet"; }
-[ -z "$_preflight_fail" ] && { cheburnet_preflight_arch     || _preflight_fail="arch"; }
+[ -z "$_preflight_fail" ] && { cheburnet_preflight_ram          || _preflight_fail="ram"; }
+# LAN/WAN-конфликт — ПЕРЕД internet-проверкой: интернет-проверка не ловит
+# конфликт (у самого роутера WAN живой, ping/HTTP работают), но клиенты в LAN
+# выходить в инет не смогут. Тут только детект + понятный фейл; реальный фикс
+# делает pre-check в setup.sh / web wizard ДО запуска install.sh.
+[ -z "$_preflight_fail" ] && { cheburnet_preflight_lan_conflict || _preflight_fail="lan-conflict"; }
+[ -z "$_preflight_fail" ] && { cheburnet_preflight_internet     || _preflight_fail="internet"; }
+[ -z "$_preflight_fail" ] && { cheburnet_preflight_arch         || _preflight_fail="arch"; }
 if [ -n "$_preflight_fail" ]; then
     echo "fail-preflight-${_preflight_fail}" > "$DONE"
     exit 1
@@ -224,7 +234,7 @@ cat > /usr/share/rpcd/acl.d/cheburnet.json <<'ACL'
     "cheburnet-admin": {
         "description": "cheburnet admin (login as root required)",
         "read":  { "ubus": { "cheburnet": ["get_status", "install_progress"] } },
-        "write": { "ubus": { "cheburnet": ["install_start", "install_cancel", "mode_switch", "service_restart", "set_blocklist_tier", "set_family_filter", "factory_reset", "replace_awg_conf"] } }
+        "write": { "ubus": { "cheburnet": ["install_start", "install_cancel", "mode_switch", "service_restart", "set_blocklist_tier", "set_family_filter", "factory_reset", "replace_awg_conf", "update_podkop"] } }
     }
 }
 ACL

@@ -16,7 +16,7 @@
 
 # ─── конфиг по умолчанию (можно переопределить ДО vm_lib_init) ───────────────
 : "${IMG_URL:=https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-x86-64-generic-ext4-combined.img.gz}"
-: "${IMG_SHA256:=dfe13a87bf1c1ddd85808c642eed9e66e7d0a6b480cb4087d9f174e73d3bbe12}"
+: "${IMG_SHA256:=15fd1ac15cd0f78bc9a65b602af07836e5c6caa854609aedd8e551c83d9f5466}"
 : "${SSH_PORT:=2222}"
 : "${HTTP_PORT:=8080}"      # для smoke-http (port-forward 8080→80)
 : "${VM_RAM_MB:=512}"
@@ -202,17 +202,57 @@ vm_boot_and_setup() {
     vm_wait_serial "SHELL_READY_$$" 15
 
     echo "→ Конфигурирую DHCP на br-lan"
+    # Ждём пока netifd зарегистрирует lan в ubus — на свежих snapshot'ах
+    # /etc/init.d/network restart, запущенный СРАЗУ после shell-ready, валится
+    # с `Command failed: Not found` (lan-секции ещё нет в активной конфиге
+    # netifd, хотя в /etc/config/network она уже есть).
+    vm_serial_send "for i in \$(seq 1 20); do ifstatus lan >/dev/null 2>&1 && break; sleep 1; done"
+    sleep 2
     vm_serial_send "uci set network.lan.proto='dhcp'"
     vm_serial_send "uci -q delete network.lan.ipaddr"
     vm_serial_send "uci -q delete network.lan.netmask"
-    vm_serial_send "uci commit network && /etc/init.d/network restart"
-    sleep 5
+    vm_serial_send "uci commit network"
+    # network reload вместо restart: reload подгружает изменённые секции без
+    # сброса device'ов; restart на свежем netifd ловит тот же race.
+    vm_serial_send "/etc/init.d/network reload"
+    sleep 3
+    # ifup lan форсит DHCP-renew даже если netifd считает что lan уже up
+    # со static IP (его proto только что сменили на dhcp, но netifd мог
+    # не подхватить через reload — это бывает).
+    vm_serial_send "ifup lan"
+    # Ждём пока lan получит IP. Маркер `ipv4-address` появляется в ifstatus
+    # после udhcpc handshake; до этого SSH-форвардинг qemu user-mode не
+    # доедет до VM (slirp форвардит на assigned IP, обычно 10.0.2.15).
+    # 40с — qemu DHCP отвечает за ~2с, но первый udhcpc после ifup может
+    # ретраить пакеты.
+    vm_serial_send "for i in \$(seq 1 40); do ifstatus lan 2>/dev/null | grep -q ipv4-address && break; sleep 1; done"
+    sleep 2
+    # Fallback на случай если netifd так и не запустил udhcpc — bare-metal
+    # udhcpc на br-lan напрямую. -q (один shot), -n (no-fork), -t 5 (5 retry).
+    vm_serial_send "ifstatus lan 2>/dev/null | grep -q ipv4-address || udhcpc -i br-lan -q -n -t 5 2>/dev/null || true"
+    sleep 3
+    # Диагностика — печатаем что в итоге получили (видно в serial-логе при
+    # фейле SSH).
+    vm_serial_send "echo IFCONFIG_DUMP_BEGIN; ifstatus lan 2>/dev/null | head -20; ip -4 addr show br-lan 2>/dev/null; echo IFCONFIG_DUMP_END"
+    sleep 2
 
-    echo "→ Раздаю SSH-ключ"
+    echo "→ Раздаю SSH-ключ + отключаю firewall в VM"
     local pubkey; pubkey="$(cat "$SSH_KEY.pub")"
     vm_serial_send "mkdir -p /root/.ssh && chmod 700 /root/.ssh"
     vm_serial_send "printf '%s\\n' '$pubkey' > /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys"
+    # На свежем OpenWrt SNAPSHOT firewall запускается и блокирует input
+    # на :22 со стороны 10.0.2.x (qemu slirp). Для T3a (тестовое окружение)
+    # firewall не нужен — отключаем перед dropbear restart.
+    vm_serial_send "/etc/init.d/firewall stop 2>/dev/null || true"
+    # На дефолтном dropbear-конфиге может быть Interface=lan — после смены
+    # proto на dhcp lan-интерфейс «новый», нужен restart чтобы dropbear
+    # перебиндил сокет на актуальный l3_device.
     vm_serial_send "/etc/init.d/dropbear restart"
+    sleep 2
+    # Диагностика на случай если SSH всё равно не отвечает: проверяем что
+    # dropbear слушает на :22, и что nft не режет input.
+    vm_serial_send "echo SSH_DIAG_BEGIN; netstat -lnt 2>/dev/null | grep ':22 ' || ss -lnt 2>/dev/null | grep ':22 '; nft list ruleset 2>/dev/null | head -5; echo SSH_DIAG_END"
+    sleep 2
 
     echo "→ Жду SSH на :$SSH_PORT"
     vm_wait_tcp "$SSH_PORT" "$SSH_TIMEOUT"
@@ -235,13 +275,18 @@ vm_deploy_handler() {
             /usr/libexec/rpcd /usr/share/rpcd/acl.d"
     vm_scp "$REPO_ROOT/web/rpcd-cheburnet"     "/usr/libexec/rpcd/cheburnet"
     vm_scp "$REPO_ROOT/web/rpcd-acl.json"      "/usr/share/rpcd/acl.d/cheburnet.json"
-    # rpcd-cheburnet source'ит cheburnet-utils.sh и net-detect.sh из lib/.
-    # Список держим в синхроне с тем, что rpcd-cheburnet реально подключает —
-    # иначе rpcd при старте падает «Not found», ubus list cheburnet пуст,
-    # и smoke-test диагностирует это как «handler не зарегистрирован».
+    # rpcd-cheburnet source'ит lib-файлы БЕЗУСЛОВНО (`.` без `[ -f ]` гарда).
+    # На busybox-ash если хоть один источник отсутствует — весь скрипт падает,
+    # rpcd считает handler сломанным, ubus list cheburnet возвращает пусто.
+    # Поэтому список ОБЯЗАТЕЛЬНО держать в синхроне с .-цепочкой в начале
+    # web/rpcd-cheburnet — каждая правка source'ов там → правка здесь.
+    # Forgetting podkop-config.sh здесь приводило к падению make qemu на
+    # `ubus list cheburnet` с error «Not found», полностью маскируя любые
+    # реальные регрессии в нашем коде.
     vm_scp "$REPO_ROOT/lib/cheburnet-utils.sh" "/opt/cheburnet/lib/cheburnet-utils.sh"
     vm_scp "$REPO_ROOT/lib/net-detect.sh"      "/opt/cheburnet/lib/net-detect.sh"
     vm_scp "$REPO_ROOT/lib/family-filter.sh"   "/opt/cheburnet/lib/family-filter.sh"
+    vm_scp "$REPO_ROOT/lib/podkop-config.sh"   "/opt/cheburnet/lib/podkop-config.sh"
     vm_ssh "chmod +x /usr/libexec/rpcd/cheburnet"
     vm_ssh "/etc/init.d/rpcd restart"
     sleep 2

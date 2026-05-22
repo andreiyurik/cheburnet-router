@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # Контракт RPC-протокола rpcd-cheburnet:
-# - list возвращает все 9 методов с правильной сигнатурой
+# - list возвращает все 13 методов с правильной сигнатурой
 # - install_progress корректно возвращает state/log/done
 # - неизвестный метод → error
 # - неизвестное действие (не list/call) → error на stderr
@@ -23,13 +23,18 @@ teardown() {
     printf '%s' "$output" | python3 -m json.tool >/dev/null
 }
 
-@test "list: содержит все 10 методов" {
+@test "list: содержит все 13 методов" {
     out="$(run_rpcd_list)"
     methods="$(printf '%s' "$out" | python3 -c '
 import json, sys
 print(" ".join(sorted(json.load(sys.stdin).keys())))
 ')"
-    expected="factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter"
+    # +check_lan_conflict (read) и +apply_lan_ip (write, token-gated) — оба
+    # для pre-install мастера (детект и автофикс конфликта LAN/WAN-подсетей
+    # перед началом установки). Доступны только пока install-токен на месте.
+    # +update_podkop (Problem 3, cheburnet-admin only) — реинсталл подkop'а
+    # для апгрейда устаревших инсталляций (старые URL .srs → 404).
+    expected="apply_lan_ip check_lan_conflict factory_reset get_status install_cancel install_progress install_start mode_switch replace_awg_conf service_restart set_blocklist_tier set_family_filter update_podkop"
     [ "$methods" = "$expected" ]
 }
 

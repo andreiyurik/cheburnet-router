@@ -100,6 +100,108 @@ WIFI_COUNTRY="RU"
 EOF
 echo "  ✓ wireless-actual.txt с тестовыми параметрами"
 
+# === LAN/WAN-conflict sub-test ===
+# Перед полным install прогоняем детектор LAN/WAN-конфликта на РЕАЛЬНОМ
+# busybox-ash с РЕАЛЬНЫМ jsonfilter. Это критично — mock-тесты T2 гоняются
+# на bash хоста + python-jsonfilter, а реальный busybox jsonfilter ИНАЧЕ
+# парсит bracket-notation @["ipv4-address"][0].address. Если бы парсил
+# неправильно — наш детектор молча возвращал бы «нет конфликта» для всех
+# каскадных установок 192.168.1.x в проде, и юзеры натыкались бы на
+# safety-net в preflight install.sh (вместо мягкого pre-check'а).
+#
+# Используем override `ubus` как shell-функции вместо реконфигурирования
+# WAN-интерфейса: настоящий WAN в qemu user-mode netdev единственный и
+# одновременно служит каналом SSH к VM, переконфигурировать его опасно
+# (потеряем SSH-доступ и тест умрёт на timeout'е).
+echo
+echo "→ LAN-conflict sub-test (детектор + preflight safety net на busybox)"
+
+vm_ssh "cat > /tmp/lan-conflict-subtest.sh" <<'TESTSCRIPT'
+#!/bin/sh
+# Sub-test для qemu-install: проверяет что net_detect_lan_conflict и
+# cheburnet_preflight_lan_conflict работают на реальном OpenWrt
+# (busybox-ash + busybox jsonfilter). ubus подменён как shell-функция
+# чтобы детерминированно контролировать вход без переконфигурирования
+# реального WAN-интерфейса VM.
+#
+# ВАЖНО: НЕ ставим `set -e` — наши тестируемые функции при детекте
+# конфликта корректно возвращают rc=1, и busybox-ash в этом случае
+# прибивает скрипт прямо внутри `out=$(net_detect_lan_conflict)` ДО того
+# как мы успеваем проверить $rc и $out. Поэтому собственный fail-handling
+# через явные `if [ rc != expected ]; exit 1`.
+
+. /opt/cheburnet/lib/net-detect.sh
+. /opt/cheburnet/lib/cheburnet-preflight.sh
+
+# ── scenario 1: WAN не поднят → нет конфликта ────────────────────────────
+# Перенаправляем stdout детектора в переменную и rc в отдельную, чтобы
+# `set +e` не нужен: явный if проверяет оба значения вручную.
+ubus() { echo '{"up":false,"ipv4-address":[]}'; }
+out=$(net_detect_lan_conflict); rc=$?
+if [ "$rc" -ne 0 ] || [ -n "$out" ]; then
+    echo "  ✗ scenario 1 (WAN down): rc=$rc out='$out' (ожидали rc=0, пусто)"
+    exit 1
+fi
+echo "  ✓ scenario 1: WAN не поднят → нет конфликта"
+
+# ── scenario 2: WAN+LAN в одной /24 → конфликт, suggest 192.168.2.1 ──────
+ubus() { echo '{"up":true,"ipv4-address":[{"address":"192.168.1.50","mask":24}]}'; }
+uci set network.lan.ipaddr=192.168.1.1/24
+uci commit network
+out=$(net_detect_lan_conflict); rc=$?
+expected="192.168.1.50 192.168.1.1 192.168.2.1"
+if [ "$rc" -ne 1 ] || [ "$out" != "$expected" ]; then
+    echo "  ✗ scenario 2 (same /24): rc=$rc out='$out' (ожидали rc=1 '$expected')"
+    exit 1
+fi
+echo "  ✓ scenario 2: WAN+LAN в 192.168.1.0/24 → конфликт, suggest 192.168.2.1"
+
+# ── scenario 3: WAN занимает .2.x → suggest пропускает к .3.1 ────────────
+ubus() { echo '{"up":true,"ipv4-address":[{"address":"192.168.2.55","mask":24}]}'; }
+uci set network.lan.ipaddr=192.168.2.1/24
+uci commit network
+out=$(net_detect_lan_conflict); rc=$?
+expected="192.168.2.55 192.168.2.1 192.168.3.1"
+if [ "$rc" -ne 1 ] || [ "$out" != "$expected" ]; then
+    echo "  ✗ scenario 3 (suggest skip): rc=$rc out='$out' (ожидали rc=1 '$expected')"
+    exit 1
+fi
+echo "  ✓ scenario 3: WAN в 192.168.2.x → suggest пропускает занятый октет"
+
+# ── scenario 4: preflight safety net печатает баннер + return 1 ──────────
+ubus() { echo '{"up":true,"ipv4-address":[{"address":"192.168.1.50","mask":24}]}'; }
+uci set network.lan.ipaddr=192.168.1.1/24
+uci commit network
+out=$(cheburnet_preflight_lan_conflict 2>&1); rc=$?
+if [ "$rc" -ne 1 ]; then
+    echo "  ✗ scenario 4 (preflight): rc=$rc — ожидали rc=1"
+    echo "$out"
+    exit 1
+fi
+if ! echo "$out" | grep -q 'КОНФЛИКТ ПОДСЕТЕЙ'; then
+    echo "  ✗ scenario 4 (preflight): баннер 'КОНФЛИКТ ПОДСЕТЕЙ' не найден"
+    echo "$out"
+    exit 1
+fi
+echo "  ✓ scenario 4: preflight safety-net печатает баннер + return 1"
+
+# ── cleanup: возвращаем LAN на DHCP, чтобы дальнейший полный install не
+# срабатывал на оставленный нами синтетический конфликт ──────────────────
+uci -q delete network.lan.ipaddr  >/dev/null 2>&1 || true
+uci -q delete network.lan.netmask >/dev/null 2>&1 || true
+uci set network.lan.proto=dhcp
+uci commit network
+
+echo "  ✓ sub-test пройден, LAN восстановлен в DHCP-режим"
+TESTSCRIPT
+
+if ! vm_ssh "sh /tmp/lan-conflict-subtest.sh"; then
+    echo "✗ LAN-conflict sub-test FAILED — остановка перед полным install"
+    echo "  (детектор/preflight работают на bash моков но не на busybox VM —"
+    echo "   разбираемся ДО того как полный install прячет проблему за apk-логами)"
+    exit 1
+fi
+
 # === Запускаем установку ===
 echo
 echo "→ Запускаю /opt/cheburnet/setup/install.sh"

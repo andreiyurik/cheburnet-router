@@ -14,105 +14,12 @@ LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
 echo "== 02. Podkop + sing-box =="
 
 # === 1. Установка через официальный скрипт ===
-if [ -x /etc/init.d/podkop ]; then
-    echo "→ podkop уже установлен"
-else
-    echo "→ скачиваем и ставим podkop"
-    UPSTREAM_URL="https://raw.githubusercontent.com/itdoginfo/podkop/refs/heads/main/install.sh"
-    VENDOR_FILE="${CHEBURNET_VENDOR:-/opt/cheburnet/vendor}/podkop-install.sh"
-
-    # Сначала пробуем upstream (свежая версия), потом fallback на vendored-копию.
-    # raw.githubusercontent.com периодически блокируют провайдеры по DPI —
-    # без vendor-копии пользователь без VPN никогда сюда не доберётся.
-    if wget -qO /tmp/podkop-install.sh --timeout=20 "$UPSTREAM_URL" 2>/dev/null && \
-       [ -s /tmp/podkop-install.sh ]; then
-        echo "  ✓ скачан свежий установщик с upstream"
-    elif [ -f "$VENDOR_FILE" ]; then
-        # ⚠ → →: для RU-юзера это основной путь (raw.githubusercontent.com
-        # массово закрыт DPI у провайдеров по SNI). Текст «недоступен» юзер
-        # читал как поломку — поэтому переформулировка с «это норма».
-        echo "  → беру установщик podkop из репозитория"
-        echo "    (свежий с github.com не качается — это норма в некоторых странах, не ошибка)"
-        cp "$VENDOR_FILE" /tmp/podkop-install.sh
-    else
-        echo "✗ Не удалось получить podkop installer ни с upstream, ни локально." >&2
-        echo "  Проверьте: wget $UPSTREAM_URL" >&2
-        exit 1
-    fi
-
-    # `yes n` шлёт бесконечный поток "n" — устойчиво к любому числу y/n-вопросов
-    # подкоповского установщика (раньше было `printf 'n\nn\nn\n'` — хрупко,
-    # ломалось бы если itdoginfo добавил четвёртый вопрос).
-    # Вывод сохраняем — нужен для детекции «Insufficient space in flash»
-    # и других permanent-ошибок, по которым повторять бессмысленно.
-    INSTALLER_LOG=/tmp/podkop-installer.log
-    # Установщик пишет в файл (нужен для grep по Insufficient space ниже),
-    # за ~30-90с apk update + download юзер ничего не видит. В Web-UI это
-    # читается как «зависло» — поэтому head-up строка о том, что идёт работа.
-    echo "  → ставлю пакеты (sing-box + kmod-tproxy + podkop, ~30-90с)..."
-    yes n | sh /tmp/podkop-install.sh >"$INSTALLER_LOG" 2>&1
-    tail -20 "$INSTALLER_LOG"
-
-    # Permanent-фейл: апстрим-установщик сам проверяет flash и пишет
-    # «Insufficient space in flash, Required: 15MB, Available: 5MB».
-    # Повтор не поможет — это аппаратное ограничение. Раньше скрипт
-    # пытался дважды и финальное сообщение врало юзеру про «временный
-    # сбой зеркал». Жёсткий preflight в setup/install.sh обычно ловит
-    # это раньше, но оставляем defense-in-depth (юзер мог запустить
-    # 02-podkop.sh напрямую, или порог preflight'а отличается).
-    if grep -q 'Insufficient space in flash' "$INSTALLER_LOG"; then
-        echo "" >&2
-        echo "✗ Подкоп не помещается в flash-память роутера." >&2
-        echo "  Это аппаратное ограничение — программно не обойти." >&2
-        echo "  Нужен роутер с ≥64 МБ flash (см. README, проверенные модели)." >&2
-        exit 1
-    fi
-
-    # Установщик подкопа сам внутри делает apk update + apk add. Изредка
-    # падает на транзиентных проблемах с зеркалами OpenWrt
-    # (wget "Operation not permitted", "unexpected end of file", битый
-    # индекс). Один повтор после apk update закрывает 90% таких случаев
-    # без вмешательства пользователя. Дальше идти бессмысленно — UCI-конфиг
-    # подкопа применять некуда.
-    if [ ! -x /etc/init.d/podkop ]; then
-        echo "  установщик подкопа не оставил /etc/init.d/podkop, обновляю индексы и повторяю..."
-        apk update >/dev/null 2>&1 || true
-        yes n | sh /tmp/podkop-install.sh >"$INSTALLER_LOG" 2>&1
-        tail -20 "$INSTALLER_LOG"
-        if grep -q 'Insufficient space in flash' "$INSTALLER_LOG"; then
-            echo "" >&2
-            echo "✗ Подкоп не помещается в flash-память роутера." >&2
-            echo "  Нужен роутер с ≥64 МБ flash (см. README)." >&2
-            exit 1
-        fi
-    fi
-    if [ ! -x /etc/init.d/podkop ]; then
-        echo "✗ Установщик podkop отработал дважды, но /etc/init.d/podkop не появился." >&2
-        # Диагностика — выяснит, что блокируется: зеркало, IPv6 или имя пакета.
-        command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
-            && cheburnet_apk_fail_advice podkop
-        exit 1
-    fi
-
-    # КРИТИЧНО: sing-box — обязательная зависимость подкопа. Если её
-    # установка свалилась на сети («wget: Operation not permitted»,
-    # «unexpected end of file»), /etc/init.d/podkop появляется, а
-    # /etc/init.d/sing-box — нет. Без sing-box подкоп не маршрутизирует
-    # ничего, и установка должна остановиться, а не идти дальше с тихим ⚠.
-    # Раньше эта проверка была warning'ом на шаге 4 и шаг печатал «✓ podkop OK»,
-    # хотя по факту юзер получал нерабочий VPN.
-    if [ ! -x /etc/init.d/sing-box ]; then
-        echo "" >&2
-        echo "✗ sing-box не установлен после установщика подкопа." >&2
-        echo "  Это критично — без sing-box подкоп не маршрутизирует ничего." >&2
-        # Диагностика — sing-box известный таргет DPI у части провайдеров.
-        # Лог юзера 1 показал ровно это: sing-box падает, остальные пакеты
-        # из той же транзакции — нет. Диагностика подтвердит/опровергнет.
-        command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
-            && cheburnet_apk_fail_advice sing-box
-        exit 1
-    fi
-fi
+# Cascading fallback (vendor → upstream → retry с apk update → diag) вынесен
+# в lib/install-podkop.sh, чтобы update_podkop RPC переиспользовал ту же
+# логику. Здесь — ensure-режим: skip если уже стоит.
+# shellcheck source=../lib/install-podkop.sh disable=SC1090,SC1091
+. "$LIB_DIR/install-podkop.sh"
+cheburnet_install_podkop ensure || exit 1
 
 # === 2. UCI-конфигурация ===
 echo "→ настраиваем podkop UCI"

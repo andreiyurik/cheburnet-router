@@ -7,6 +7,8 @@
 #   install_start      — запустить установку (ssid, wifi_key, awg_conf, root_pass)
 #   install_progress   — текущий шаг + последние 5000 байт логов + done-флаг
 #   install_cancel     — пометить установку как отменённую (реально не убивает процесс)
+#   check_lan_conflict — детект конфликта LAN/WAN-подсетей (без мутаций, read-only)
+#   apply_lan_ip       — сменить LAN-IP роутера (отложенный network restart, install-token-gated)
 #   mode_switch        — переключить HOME/TRAVEL
 #   service_restart    — перезапустить сервис (vpn | dns | adblock)
 #   replace_awg_conf   — заменить awg0.conf после установки (с auto-rollback при сбое)
@@ -29,6 +31,14 @@ ETC_AWG_DIR="${ETC_AWG_DIR:-/etc/amnezia/amneziawg}"
 ETC_ADBLOCK_CFG="${ETC_ADBLOCK_CFG:-/etc/adblock-lean/config}"
 ETC_INIT_D="${ETC_INIT_D:-/etc/init.d}"
 USR_BIN_VPN_MODE="${USR_BIN_VPN_MODE:-/usr/bin/vpn-mode}"
+# Clash API endpoint — sing-box биндится на ${LAN_IP}:9090 (не на loopback)
+# по конфигу подkop'а (`experimental.clash_api.external_controller`). Через
+# этот эндпоинт спрашиваем sing-box «у тебя rule_set X в активных правилах?» —
+# единственный надёжный способ узнать что rule_set реально подхвачен (на
+# 0.7.17+ подkop генерит type=remote rule_set'ы, файлов в /tmp/sing-box/rulesets/
+# для них не создаётся — только в binary cache.db, недоступном для парсинга
+# из shell). См. также комментарий в _ruleset_loaded.
+CLASH_API_PORT="${CLASH_API_PORT:-9090}"
 
 mkdir -p "$STATE_DIR"
 
@@ -66,6 +76,50 @@ _reload_blocklist() {
     "$ETC_INIT_D/dnsmasq" restart >/dev/null 2>&1
 }
 
+# _ruleset_loaded TAG → 0 если sing-box работает И rule_set с этим тегом
+# подхвачен (присутствует в /rules через Clash API). 1 в остальных случаях.
+#
+# Зачем существует. Если подkop не смог скачать russia_outside ruleset
+# (DPI на github у RU-провайдеров, временный 5xx), HOME-режим тихо ведёт себя
+# как TRAVEL для .ru-сервисов вне user_domains: Госуслуги/Sberbank/Ozon идут
+# через VPN с не-РФ IP → блокировки. Без healthcheck юзер видит «mode=home»
+# и думает, что всё ок.
+#
+# Почему через Clash API, а не через файлы в /tmp/sing-box/rulesets/.
+# Подkop 0.7.17+ генерирует sing-box-конфиг с `type=remote` для community_lists —
+# sing-box качает их в свой binary cache.db, а отдельных файлов с tag-именем
+# не создаёт. Старый glob-чек `*russia_outside*.srs` всегда возвращал бы false
+# на современной версии — это значит красный баннер у каждого юзера, всегда.
+# Clash API endpoint `/rules` возвращает список активных правил sing-box'а;
+# наличие нашего rule_set в payload одного из правил = «sing-box подхватил».
+#
+# Двойная защита:
+#   1) pidof sing-box — если процесса нет, считать «не загружен» сразу, не
+#      ждать таймаута curl (на свежей инсталляции под DPI sing-box может
+#      падать FATAL до запуска API).
+#   2) curl на /rules с --max-time 3 — sing-box API биндится на LAN-IP:9090
+#      (не на loopback, см. external_controller в его конфиге). LAN-IP мы
+#      определяем через net_lan_ip — тот же источник правды, что для DNS-probe.
+_ruleset_loaded() {
+    # Префикс _rs_ — namespace, иначе `unset` обнулит caller'ское _tag в
+    # `for _tag in $_tags` (POSIX sh не имеет scope-локалов).
+    _rs_tag="$1"
+
+    pidof sing-box >/dev/null 2>&1 || { unset _rs_tag; return 1; }
+
+    _rs_lan=$(net_lan_ip 127.0.0.1)
+    # -s silent, -f fail на HTTP ≥400. --max-time 3 = жёсткий потолок,
+    # чтобы при подвисшем API не блокировать get_status. grep -F = literal —
+    # tag не содержит regex-метасимволов и быстрее.
+    if curl -sf --max-time 3 "http://${_rs_lan}:${CLASH_API_PORT}/rules" 2>/dev/null \
+        | grep -qF "$_rs_tag"; then
+        unset _rs_tag _rs_lan
+        return 0
+    fi
+    unset _rs_tag _rs_lan
+    return 1
+}
+
 # Принимает .conf через stdin, нормализует CRLF→LF (юзер мог вставить из
 # Windows Notepad — висячий \r ломает awg-quick), кладёт в $1 с mode 600,
 # валидирует через awg_validate_conf. На успех return 0; на failure
@@ -101,12 +155,18 @@ if [ "$1" = "list" ]; then
     },
     "install_progress": {},
     "install_cancel": {},
+    "check_lan_conflict": {},
+    "apply_lan_ip": {
+        "ip": "str",
+        "token": "str"
+    },
     "mode_switch": { "mode": "str" },
     "service_restart": { "service": "str" },
     "set_blocklist_tier": { "tier": "str" },
     "set_family_filter": { "enabled": "bool" },
     "factory_reset": { "confirm": "str" },
-    "replace_awg_conf": { "awg_conf": "str" }
+    "replace_awg_conf": { "awg_conf": "str" },
+    "update_podkop": {}
 }
 EOF
     exit 0
@@ -202,6 +262,47 @@ case "$METHOD" in
         TOKEN_PRESENT="false"
         [ -s "$ETC_CHEBURNET/install-token" ] && TOKEN_PRESENT="true"
 
+        # Healthcheck rulesets — только в HOME-режиме.
+        #
+        # В TRAVEL ruleset'ы не используются (нет правила-исключения), поэтому
+        # их отсутствие — не проблема: russia_outside_loaded=true (нечего
+        # проверять), missing=[] — фронт не показывает баннер.
+        #
+        # В HOME проверяем все community_lists из exclude_ru. Если хоть один tag
+        # не загружен (нет non-empty файла в RULESETS_DIR) — добавляем в missing
+        # и, если этот tag = russia_outside, флагуем russia_outside_loaded=false.
+        # russia_outside_loaded — главный флаг для UI (баннер); missing — детали.
+        RULESETS_LOADED="true"
+        RULESETS_MISSING_JSON="[]"
+        if [ "$MODE" = "home" ]; then
+            _tags=$(uci -q get podkop.exclude_ru.community_lists 2>/dev/null || true)
+            _missing=""
+            for _tag in $_tags; do
+                if ! _ruleset_loaded "$_tag"; then
+                    [ "$_tag" = "russia_outside" ] && RULESETS_LOADED="false"
+                    # collect tag в строку — потом разнесём в JSON-массив
+                    _missing="$_missing $_tag"
+                fi
+            done
+            if [ -n "$_missing" ]; then
+                # Собираем JSON-массив строк из space-separated списка тегов.
+                # community_list-имена в подkop'е — [a-z_], спецсимволов не бывает,
+                # но всё равно json_escape'им на всякий случай (defensive).
+                _arr=""
+                for _t in $_missing; do
+                    _e=$(json_escape "$_t")
+                    if [ -z "$_arr" ]; then
+                        _arr="\"$_e\""
+                    else
+                        _arr="$_arr, \"$_e\""
+                    fi
+                done
+                RULESETS_MISSING_JSON="[$_arr]"
+                unset _arr _t _e
+            fi
+            unset _tags _missing _tag
+        fi
+
         cat <<EOF
 {
     "install_type": "$INSTALL_TYPE",
@@ -215,7 +316,11 @@ case "$METHOD" in
     "dns_up": $DNS_UP,
     "awg_handshake_age": $AWG_HS_AGE,
     "blocklist_tier": "$TIER",
-    "family_filter_enabled": $FAMILY_FILTER_ENABLED
+    "family_filter_enabled": $FAMILY_FILTER_ENABLED,
+    "rulesets_health": {
+        "russia_outside_loaded": $RULESETS_LOADED,
+        "missing": $RULESETS_MISSING_JSON
+    }
 }
 EOF
         ;;
@@ -338,6 +443,81 @@ EOF
     "log": "$LOG"
 }
 EOF
+        ;;
+
+    # ------------------------------------------------------------------
+    check_lan_conflict)
+        # Read-only детект конфликта подсетей LAN/WAN. Юзер вызывает на
+        # welcome-экране ДО ввода каких-либо данных. Если конфликт есть,
+        # wizard покажет специальный экран с предложением сменить LAN-IP
+        # (через apply_lan_ip ниже). Если нет — обычный flow установки.
+        #
+        # Возвращает либо {conflict:false}, либо
+        # {conflict:true, wan_ip, lan_ip, suggest_ip}.
+        if _info=$(net_detect_lan_conflict); then
+            echo '{"conflict": false}'
+        else
+            # shellcheck disable=SC2086  # сознательный split на 3 токена
+            set -- $_info
+            _wan_esc=$(json_escape "$1")
+            _lan_esc=$(json_escape "$2")
+            _sug_esc=$(json_escape "$3")
+            printf '{"conflict": true, "wan_ip": "%s", "lan_ip": "%s", "suggest_ip": "%s"}\n' \
+                "$_wan_esc" "$_lan_esc" "$_sug_esc"
+            unset _wan_esc _lan_esc _sug_esc
+        fi
+        unset _info
+        ;;
+
+    # ------------------------------------------------------------------
+    apply_lan_ip)
+        # Меняет LAN-IP роутера. Гейтим install-токеном (как install_start) —
+        # это destructive-операция, рвёт сетевое соединение всех LAN-клиентов.
+        # Доступ unauth-but-token: до завершения установки у юзера ещё нет
+        # пароля root, авторизоваться нечем; токен из install.sh — единственный
+        # рабочий идентификатор «это я ставлю роутер, а не сосед в LAN».
+        TOKEN_FILE="$ETC_CHEBURNET/install-token"
+        if [ ! -s "$TOKEN_FILE" ]; then
+            echo '{"error": "install token not found — apply_lan_ip недоступен после завершения установки. Используйте LuCI → Network → Interfaces → LAN."}'
+            exit 0
+        fi
+        EXPECTED_TOKEN=$(cat "$TOKEN_FILE")
+        GIVEN_TOKEN=$(jf '@.token')
+        if [ -z "$GIVEN_TOKEN" ] || [ "$GIVEN_TOKEN" != "$EXPECTED_TOKEN" ]; then
+            echo '{"error": "invalid install token"}'
+            exit 0
+        fi
+
+        NEW_IP=$(jf '@.ip')
+        # Жёсткая валидация формата. Принимаем ТОЛЬКО 192.168.x.y — это
+        # safety guard: webwizard всегда передаёт suggest_ip из check_lan_conflict
+        # (тот ограничен 192.168.{2,3,4,8,9,10,11}.1), но если юзер подделает
+        # запрос, нельзя позволить ему уронить роутер в 0.0.0.0 или 255.255.255.255.
+        case "$NEW_IP" in
+            192.168.[0-9].[0-9]|\
+            192.168.[0-9].[0-9][0-9]|\
+            192.168.[0-9].[0-9][0-9][0-9]|\
+            192.168.[0-9][0-9].[0-9]|\
+            192.168.[0-9][0-9].[0-9][0-9]|\
+            192.168.[0-9][0-9].[0-9][0-9][0-9])
+                ;;
+            *)
+                echo '{"error": "ip must be 192.168.X.Y (X,Y = 0..999 digits)"}'
+                exit 0
+                ;;
+        esac
+
+        # Применяем через общую функцию (uci set + commit + setsid sleep 3
+        # + /etc/init.d/network restart). setsid отвязывает рестарт от rpcd-
+        # сессии, чтобы SIGHUP при выходе нас не убил до того, как новая сеть
+        # поднимется.
+        if ! net_apply_new_lan_ip "$NEW_IP"; then
+            echo '{"error": "failed to apply new LAN IP — check logread"}'
+            exit 0
+        fi
+
+        NEW_IP_ESC=$(json_escape "$NEW_IP")
+        echo "{\"status\": \"applied\", \"new_ip\": \"$NEW_IP_ESC\", \"restart_in\": 3}"
         ;;
 
     # ------------------------------------------------------------------
@@ -543,6 +723,157 @@ APPLY
         PID=$!
         echo "$PID" > "$PID_FILE"
         echo "{\"status\": \"applying\", \"pid\": $PID}"
+        ;;
+
+    # ------------------------------------------------------------------
+    update_podkop)
+        # Переустановка podkop + sing-box. RPC для апгрейда устаревших
+        # инсталляций: старые подkop'ы тянут .srs из raw.githubusercontent.com/
+        # .../main/<tag>.srs (404 после смены upstream-URL на releases/latest/
+        # download), HOME-режим тихо умирает. Юзер из mgmt-экрана кликает
+        # «Обновить podkop» → этот метод.
+        #
+        # Доступ — только cheburnet-admin (см. setup/install.sh::lock-acl).
+        # rpcd сам гейтит по ACL; здесь добавочно проверяем НЕ install-токеном
+        # (post-install метод, токена уже нет): на install-flow update_podkop
+        # бессмыслен (подkop ещё не стоит) — отдаём ошибку.
+        #
+        # Защита от параллельного запуска: тот же PID-файл что у install_start
+        # и replace_awg_conf. Чтобы UI поллил install_progress единообразно.
+        if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+            echo '{"error": "operation already running", "pid": '"$(cat "$PID_FILE")"'}'
+            exit 0
+        fi
+
+        # Pre-flight: подkop должен быть уже установлен. До установки апгрейдить
+        # нечего. Соответствует критерию "vpn" в get_status.install_type.
+        if [ ! -x "$ETC_INIT_D/podkop" ]; then
+            echo '{"error": "podkop не установлен — апгрейд возможен только после установки"}'
+            exit 0
+        fi
+
+        # Чистим артефакты предыдущего apply (install/replace), чтобы
+        # install_progress видел СВЕЖИЙ STATE/DONE/LOG нашего апгрейда.
+        rm -f "$DONE_FILE" "$LOG_FILE"
+        echo "[STEP] podkop-update" > "$STATE_FILE"
+
+        # Apply-скрипт — отдельный файл (как в replace_awg_conf), чтобы:
+        #   - heredoc <<'APPLY' блокировал экспансию переменных при записи
+        #     (никакого ад'а с экранированием $-значений в setsid sh -c '...');
+        #   - тест мог прочитать сгенерированный скрипт.
+        # Env: INSTALL_DIR / RULESETS_DIR / DONE_FILE / LOG_FILE / STATE_FILE /
+        #      ETC_INIT_D — рантаймовые пути. Внутри скрипта только читаются.
+        APPLY_SCRIPT="$STATE_DIR/podkop-update-apply.sh"
+        cat > "$APPLY_SCRIPT" <<'APPLY'
+#!/bin/sh
+# Сгенерирован rpcd-cheburnet (update_podkop). Переустанавливает podkop +
+# sing-box и реаплаит наши UCI-настройки, сохраняя HOME/TRAVEL и юзерские
+# домены/community_lists из exclude_ru.
+#
+# set -eu: любой шаг возвращает non-zero → exit с записью fail в DONE_FILE.
+# Без `-e` мы могли молча писать 'ok' при упавшем apply_home или мёртвом
+# sing-box после restart (юзер видит «✓ обновлено», на деле VPN не работает).
+set -eu
+
+_fail_marker() {
+    printf 'fail\n' > "$DONE_FILE"
+}
+trap _fail_marker EXIT
+
+. "$INSTALL_DIR/lib/podkop-config.sh"
+. "$INSTALL_DIR/lib/cheburnet-utils.sh"
+. "$INSTALL_DIR/lib/install-podkop.sh"
+. "$INSTALL_DIR/lib/net-detect.sh"
+
+# 1. Backup ДО apk del. /etc/config/podkop может быть стёрт upstream-инсталлером,
+# а юзер мог через LuCI добавить .kz/kinopoisk.ru в user_domains или кастомные
+# community_lists. Без сохранения они умирают на каждом клике «🔄 Обновить» —
+# это ломает non-destructive контракт веб-панели.
+SAVED_MODE=$(podkop_current_mode)
+SAVED_DOMAINS=$(podkop_save_user_domains)
+SAVED_LISTS=$(podkop_save_community_lists)
+echo "→ режим перед апгрейдом: $SAVED_MODE" >> "$LOG_FILE"
+echo "→ сохранено user_domains:    $SAVED_DOMAINS" >> "$LOG_FILE"
+echo "→ сохранено community_lists: $SAVED_LISTS" >> "$LOG_FILE"
+
+# 2. Переустановка. Cascading fallback (vendor → upstream → retry → diag) —
+# в lib/install-podkop.sh, та же логика, что для первой установки.
+if ! cheburnet_install_podkop force >> "$LOG_FILE" 2>&1; then
+    echo "✗ переустановка не удалась" >> "$LOG_FILE"
+    exit 1   # trap пишет fail
+fi
+
+# 3. Реаплаим main. apply_main_section destructive — но это OK: после reinstall
+# /etc/config/podkop в свежем состоянии, перетирать нечего.
+#
+# net_lan_cidr внутри source'ит /lib/functions/network.sh — это netifd-хелперы,
+# которые НЕ совместимы с `set -u` (некоторые переменные читаются до инициализации
+# в внутренних под-функциях). Под `set -eu` net_lan_cidr тихо возвращает пусто,
+# а на 02-podkop без LAN CIDR упадёт fully_routed_ips → kill switch блокирует
+# весь LAN. Поэтому временно снимаем -eu только для этого вызова. trap всё ещё
+# активен и `|| true` сохраняется.
+set +eu
+LAN_CIDR=$(net_lan_cidr 2>/dev/null || echo "")
+set -eu
+if [ -z "$LAN_CIDR" ]; then
+    echo "⚠ LAN CIDR не определился — fully_routed_ips НЕ выставлен" >> "$LOG_FILE"
+fi
+podkop_apply_main_section "$LAN_CIDR" >> "$LOG_FILE" 2>&1
+
+# 4. Восстанавливаем режим. apply_home/_travel создаёт секцию exclude_ru с
+# нашими 4 default-доменами + 'russia_outside' community_list. После этого
+# доливаем юзерские добавки из backup'а — naши defaults не дублируются
+# (merge с case-check).
+if [ "$SAVED_MODE" = "travel" ]; then
+    podkop_apply_travel >> "$LOG_FILE" 2>&1
+else
+    # home — дефолт (включая случай, когда SAVED_MODE='travel' из-за
+    # отсутствия секции; наш контракт — HOME by default).
+    podkop_apply_home >> "$LOG_FILE" 2>&1
+fi
+podkop_restore_exclude_ru "$SAVED_DOMAINS" "$SAVED_LISTS" >> "$LOG_FILE" 2>&1
+
+# 5. Стартуем заново. enable — на случай если старая инсталляция была disabled.
+"$ETC_INIT_D/podkop" enable >> "$LOG_FILE" 2>&1
+"$ETC_INIT_D/podkop" restart >> "$LOG_FILE" 2>&1
+
+# 6. КРИТИЧНО: проверяем что sing-box РЕАЛЬНО поднялся. Без этой проверки мы
+# писали 'ok' даже если bin/sing-box не существует или /etc/init.d/podkop
+# вернул 1 — юзер видит «✓ обновлено», но VPN не работает.
+echo "→ жду готовности sing-box (до 30с)..." >> "$LOG_FILE"
+_r=0
+while [ "$_r" -lt 30 ]; do
+    if pidof sing-box >/dev/null 2>&1; then
+        break
+    fi
+    _r=$((_r + 1))
+    sleep 1
+done
+if ! pidof sing-box >/dev/null 2>&1; then
+    echo "✗ sing-box не поднялся за 30с после restart" >> "$LOG_FILE"
+    logread -e sing-box 2>/dev/null | tail -20 >> "$LOG_FILE" || true
+    exit 1   # trap пишет fail
+fi
+
+echo "✓ апгрейд завершён, режим: $SAVED_MODE" >> "$LOG_FILE"
+trap - EXIT
+printf 'ok\n' > "$DONE_FILE"
+APPLY
+        chmod +x "$APPLY_SCRIPT"
+
+        # setsid отвязывает дочерний процесс от controlling terminal rpcd,
+        # чтобы SIGHUP при выходе rpcd-сессии не убил apply до записи done.
+        # Тот же приём, что в install_start и replace_awg_conf.
+        INSTALL_DIR="$INSTALL_DIR" \
+        STATE_DIR="$STATE_DIR" \
+        STATE_FILE="$STATE_FILE" \
+        LOG_FILE="$LOG_FILE" \
+        DONE_FILE="$DONE_FILE" \
+        ETC_INIT_D="$ETC_INIT_D" \
+        setsid sh "$APPLY_SCRIPT" < /dev/null >/dev/null 2>&1 &
+        PID=$!
+        echo "$PID" > "$PID_FILE"
+        echo "{\"status\": \"started\", \"pid\": $PID}"
         ;;
 
     # ------------------------------------------------------------------

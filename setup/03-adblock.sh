@@ -2,13 +2,6 @@
 # 03-adblock.sh — поставить adblock-lean с Hagezi Pro списком.
 set -e
 
-# cheburnet-utils.sh — для cheburnet_apk_fail_advice (диагностика причины
-# фейла, используется в failure-сообщении ниже).
-LIB="${CHEBURNET_LIB:-/opt/cheburnet/lib/cheburnet-utils.sh}"
-[ -f "$LIB" ] || LIB="$(dirname "$0")/../lib/cheburnet-utils.sh"
-# shellcheck source=../lib/cheburnet-utils.sh disable=SC1090,SC1091
-. "$LIB"
-
 echo "== 03. adblock-lean =="
 
 # === 1. Установка ===
@@ -46,11 +39,28 @@ else
         sh /tmp/abl-install.sh -v release || true
     fi
     if [ ! -x /etc/init.d/adblock-lean ]; then
+        # Раньше тут звали cheburnet_apk_fail_advice — но эта функция диагностирует
+        # downloads.openwrt.org, а adblock-lean качается с github.com (api за
+        # тегом релиза + raw за скриптом). Категориальная ошибка: советчик
+        # проверял не тот хост и выдавал нерелевантный вердикт «зеркало
+        # недоступно». Теперь пишем напрямую две реальные причины фейла —
+        # все встречающиеся падения тут укладываются в один из этих двух
+        # сценариев, заводить отдельную diag-функцию ради одного callsite
+        # не имеет смысла.
         echo "✗ Установщик adblock-lean отработал дважды, но /etc/init.d/adblock-lean не появился." >&2
-        # Диагностика — adblock-lean ходит на api.github.com за тегом релиза,
-        # это редко блокируется, но проверить стоит.
-        command -v cheburnet_apk_fail_advice >/dev/null 2>&1 \
-            && cheburnet_apk_fail_advice adblock-lean
+        echo "" >&2
+        echo "  AdBlock качается с github.com (НЕ с зеркала OpenWrt), и установщик" >&2
+        echo "  ходит за тегом последнего релиза в api.github.com. Типичные причины:" >&2
+        echo "" >&2
+        echo "    1. Лимит anonymous-запросов GitHub (60 запросов в час с одного IP)." >&2
+        echo "       Подожди 30-60 минут и запусти установку снова — лимит сбросится." >&2
+        echo "" >&2
+        echo "    2. github.com режется DPI у твоего провайдера." >&2
+        echo "       Решение — установка через VPN-канал:" >&2
+        echo "         /opt/cheburnet/scripts/install-via-tether.sh" >&2
+        echo "       (подробности — docs/install-blocked.md)" >&2
+        echo "" >&2
+        echo "  Полный лог:  cat /tmp/cheburnet/install.log" >&2
         exit 1
     fi
 fi
