@@ -26,3 +26,4 @@ backup/snapshots/
 *.log
 .env
 /.claude/
+.work-debug/

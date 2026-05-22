@@ -271,7 +271,7 @@ if ! with_retry 120 3 "apk update" apk update; then
     echo
     echo "  ── Диагностика (~20с) ───────────────────────────────────"
 
-    PING_OK=0; DNS_OK=0; GH_OK=0; OPENWRT_BLOCKED=0; OPENWRT_OK=0
+    PING_OK=0; DNS_OK=0; GH_OK=0; OPENWRT_OK=0
 
     # Тест 1: общий интернет (ICMP без DNS). 8.8.8.8 — Google DNS, доступен
     # отовсюду где есть IP-связность. -W 2 = timeout 2с на пакет.
@@ -326,10 +326,10 @@ if ! with_retry 120 3 "apk update" apk update; then
     if [ "$OPENWRT_RC" = "0" ]; then
         echo "  ? wget downloads.openwrt.org прошёл СЕЙЧАС (apk упал — транзиент?)"
         OPENWRT_OK=1
-    elif echo "$OPENWRT_ERR" | grep -qiE "Operation not permitted|Connection refused|Connection reset|Connection timed out|Couldn't resolve"; then
-        echo "  ✗ wget downloads.openwrt.org: $OPENWRT_ERR"
-        OPENWRT_BLOCKED=1
     else
+        # Любая ненулевая RC (DPI-сигнатуры или другие сетевые ошибки) → не OK.
+        # Вердикт ниже не различает их: else-ветка покрывает оба случая
+        # рекомендацией VPN-обхода, разделение тут лишний шум.
         echo "  ✗ wget downloads.openwrt.org: $OPENWRT_ERR"
     fi
 
