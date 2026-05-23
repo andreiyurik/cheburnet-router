@@ -114,7 +114,7 @@ podkop_apply_main_section() {
 #
 # Non-destructive: если секция exclude_ru уже существует (юзер настраивал её
 # через LuCI), не пересоздаём — только включаем (enabled='1') и доливаем
-# наши 4 default-домена в user_domains, если их там ещё нет. Юзерские записи
+# наши default-домены в user_domains, если их там ещё нет. Юзерские записи
 # (.kz, kinopoisk.ru/admin, любые добавленные через LuCI) сохраняются.
 podkop_apply_home() {
     podkop_ensure_main_invariants
@@ -136,15 +136,27 @@ podkop_apply_home() {
     # Источник правды режима — enabled. См. podkop_current_mode.
     uci set podkop.exclude_ru.enabled='1'
 
-    # MERGE наших 4 defaults: добавляем по одному, только если домена ещё нет.
+    # MERGE наших defaults: добавляем по одному, только если домена ещё нет.
     # `uci get user_domains` возвращает значения через пробел — обрамляем
     # пробелами по краям и матчим " $domain " (защита от prefix/suffix-коллизий
     # типа 'kinopoisk.ru' ⊇ '.ru'). Если юзер удалил vk.com через LuCI —
     # мы его НЕ возвращаем, потому что merge добавляет только если домена нет
     # И вызывается только при `apply_home`; удаление юзером не отслеживается.
     # Это сознательный trade-off: если юзер явно убрал — значит, ему так надо.
+    #
+    # Состав списка:
+    #   .ru .su .xn--p1ai — российские TLD, поддержка .рф (xn--p1ai = punycode).
+    #   vk.com           — основной домен ВК (поддомены VK CDN покрыты community_list).
+    #   yastatic.net     — primary static CDN Яндекса (JS/CSS/картинки для всех
+    #                      yandex.ru-страниц). БЕЗ него yandex.ru/internet и
+    #                      многие .ru-страницы Яндекса грузятся 5+ сек: статика
+    #                      идёт через VPN, Yandex CDN троттлит non-RU IP до
+    #                      таймаута. Реальный кейс из 2026-05.
+    #   .yandex.net      — суффикс для поддоменов yandex.net (avatars.mds.,
+    #                      api.passport., и т.п.). Apex yandex.net без A-записи,
+    #                      покрывать его не нужно — только поддомены.
     _existing=$(uci -q get podkop.exclude_ru.user_domains 2>/dev/null || true)
-    for _d in .ru .su .xn--p1ai vk.com; do
+    for _d in .ru .su .xn--p1ai vk.com yastatic.net .yandex.net; do
         case " $_existing " in
             *" $_d "*) ;;
             *) uci add_list podkop.exclude_ru.user_domains="$_d" ;;

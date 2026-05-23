@@ -31,7 +31,7 @@
 |---|---|---|
 | `connection_type` | `exclusion` | `exclusion` |
 | `community_lists` | `russia_outside` | *(пусто)* |
-| `user_domains` | `.ru .su .xn--p1ai vk.com` | *(пусто)* |
+| `user_domains` | `.ru .su .xn--p1ai vk.com yastatic.net .yandex.net` | *(пусто)* |
 
 В TRAVEL списки просто пустые — podkop видит «секция без активных списков» и пропускает её. В sing-box'е остаётся **одно** route-правило: `source_ip_cidr=192.168.1.0/24 → main-out (awg0)`.
 

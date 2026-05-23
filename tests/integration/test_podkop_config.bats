@@ -176,15 +176,20 @@ assert_uci_not_called() {
     assert_uci_called "add_list podkop.exclude_ru.community_lists=russia_outside"
 }
 
-@test "apply_home (first time): добавляет все 4 default user_domains" {
+@test "apply_home (first time): добавляет все default user_domains" {
     # Помимо community-листа держим явные TLD-исключения как страховку:
     # community_list может временно не загрузиться (sing-box DNS hiccup),
     # тогда .ru/.su/.рф всё равно резолвятся напрямую.
+    # yastatic.net и .yandex.net добавлены потому, что primary CDN Яндекса
+    # не покрыты russia_outside community-листом — через VPN троттлятся CDN'ом
+    # до таймаута, yandex.ru-страницы грузились 5+ сек.
     podkop_apply_home
     assert_uci_called "add_list podkop.exclude_ru.user_domains=.ru"
     assert_uci_called "add_list podkop.exclude_ru.user_domains=.su"
     assert_uci_called "add_list podkop.exclude_ru.user_domains=.xn--p1ai"
     assert_uci_called "add_list podkop.exclude_ru.user_domains=vk.com"
+    assert_uci_called "add_list podkop.exclude_ru.user_domains=yastatic.net"
+    assert_uci_called "add_list podkop.exclude_ru.user_domains=.yandex.net"
 }
 
 @test "apply_home: ставит enabled=1" {
@@ -239,18 +244,20 @@ assert_uci_not_called() {
     # через LuCI). Повторный apply_home не должен дублировать (реальный uci
     # add_list это сам игнорирует, но мы хотим явный контроль — не дёргать).
     uci set podkop.exclude_ru.connection_type=exclusion
-    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com'
+    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net'
     : > "$CALLS_DIR/uci"
     podkop_apply_home
     assert_uci_not_called "add_list podkop.exclude_ru.user_domains=.ru"
     assert_uci_not_called "add_list podkop.exclude_ru.user_domains=.su"
     assert_uci_not_called "add_list podkop.exclude_ru.user_domains=.xn--p1ai"
     assert_uci_not_called "add_list podkop.exclude_ru.user_domains=vk.com"
+    assert_uci_not_called "add_list podkop.exclude_ru.user_domains=yastatic.net"
+    assert_uci_not_called "add_list podkop.exclude_ru.user_domains=.yandex.net"
 }
 
 @test "apply_home: MERGE — добавляет недостающий .xn--p1ai" {
     # Юзер удалил .xn--p1ai через LuCI (например, не нужен .рф). apply_home,
-    # которое его вернёт — это сознательный trade-off (контракт: «наши 4
+    # которое его вернёт — это сознательный trade-off (контракт: «наши
     # defaults всегда есть в HOME, явное удаление через LuCI не сохраняем»).
     uci set podkop.exclude_ru.connection_type=exclusion
     uci set podkop.exclude_ru.user_domains='.ru .su vk.com'
@@ -359,7 +366,7 @@ assert_uci_not_called() {
     # Юзер добавил .kz через LuCI (uci add_list → строка в user_domains).
     # Симулируем: предустанавливаем секцию + user_domains с .kz и нашими defaults.
     uci set podkop.exclude_ru.connection_type=exclusion
-    uci set podkop.exclude_ru.user_domains='.kz .ru .su .xn--p1ai vk.com'
+    uci set podkop.exclude_ru.user_domains='.kz .ru .su .xn--p1ai vk.com yastatic.net .yandex.net'
     : > "$CALLS_DIR/uci"
 
     podkop_apply_travel
@@ -421,10 +428,10 @@ assert_uci_not_called() {
 }
 
 @test "restore_exclude_ru: добавляет недостающие user_domains, не дублирует существующие" {
-    # Состояние после apply_home: 4 default'а на месте
+    # Состояние после apply_home: все default'ы на месте
     uci set podkop.exclude_ru=section
     uci set podkop.exclude_ru.connection_type=exclusion
-    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com'
+    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net'
     : > "$CALLS_DIR/uci"
 
     # Restore с saved-списком, где .ru уже есть, .kz и kinopoisk.ru — новые
@@ -468,7 +475,7 @@ assert_uci_not_called() {
     uci set podkop.exclude_ru=section
     uci set podkop.exclude_ru.connection_type=exclusion
     uci set podkop.exclude_ru.community_lists='russia_outside'
-    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com .kz kinopoisk.ru'
+    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net .kz kinopoisk.ru'
 
     # Шаг 2: backup ДО apk del
     saved_d=$(podkop_save_user_domains)
@@ -479,9 +486,9 @@ assert_uci_not_called() {
 
     # Шаг 3: симулируем reinstall — upstream-installer стёр секцию exclude_ru,
     # потом наш apply_home создаст её заново. Для теста — выставим только
-    # 4 default'а (как сделал бы apply_home в реальности, через add_list).
+    # default'ы (как сделал бы apply_home в реальности, через add_list).
     uci set podkop.exclude_ru.connection_type=exclusion
-    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com'
+    uci set podkop.exclude_ru.user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net'
     uci set podkop.exclude_ru.community_lists='russia_outside'
 
     # Шаг 4: restore — доливает .kz и kinopoisk.ru, не дублирует default'ы

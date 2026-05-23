@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-**Podkop** — скрипт-обёртка над **sing-box**, который генерирует конфиг sing-box из UCI-настроек и управляет nftables-правилами tproxy. В нашей конфигурации **две секции**: `main` (connection_type=vpn) с `fully_routed_ips='192.168.1.0/24'` — это говорит «весь LAN через AWG», и `exclude_ru` (connection_type=exclusion) с `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com'` — «эти домены напрямую через WAN». Слайдер на корпусе переключает между **HOME** (обе секции активны) и **TRAVEL** (секция exclude_ru «обнуляется», только main).
+**Podkop** — скрипт-обёртка над **sing-box**, который генерирует конфиг sing-box из UCI-настроек и управляет nftables-правилами tproxy. В нашей конфигурации **две секции**: `main` (connection_type=vpn) с `fully_routed_ips='192.168.1.0/24'` — это говорит «весь LAN через AWG», и `exclude_ru` (connection_type=exclusion) с `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net'` — «эти домены напрямую через WAN». Слайдер на корпусе переключает между **HOME** (обе секции активны) и **TRAVEL** (секция exclude_ru «обнуляется», только main).
 
 ## Что такое Podkop
 
@@ -85,13 +85,13 @@ flowchart LR
 - **Цель:** всё иностранное через VPN, RU-сервисы напрямую с реального IP.
 - **Когда пригодится:** повседневно, дома в РФ.
 - **Секция `main`:** активна, `fully_routed_ips='192.168.1.0/24'` — весь LAN через AWG.
-- **Секция `exclude_ru`:** активна, `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com'` — эти домены **вытаскиваются** обратно в direct-out.
+- **Секция `exclude_ru`:** активна, `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net'` — эти домены **вытаскиваются** обратно в direct-out. (`yastatic.net` и `.yandex.net` добавлены потому, что primary CDN Яндекса не покрыты community-листом и через VPN троттлятся CDN'ом до таймаута — yandex.ru-страницы грузились 5+ сек.)
 
 **Правила в sing-box (упрощённо):**
 ```
 1. sniff (tproxy-in, dns-in)           -- определить SNI/host
 2. hijack-dns (protocol=dns)
-3. domain matches russia_outside list OR .ru/.su/.xn--p1ai/vk.com
+3. domain matches russia_outside list OR .ru/.su/.xn--p1ai/vk.com/yastatic.net/.yandex.net
    → outbound=direct-out  (НЕ в туннель)
 4. source_ip_cidr=192.168.1.0/24
    → outbound=main-out    (в туннель)
@@ -285,7 +285,7 @@ cheburnet — это не «всё-в-одном» лочилка, а **слой
 | `podkop.main.user_domain_list_type = 'dynamic'` | каждый mode_switch | без него секция main skip'ается, HOME ломается (был incident) |
 | `podkop.settings.source_network_interfaces` ⊇ `'br-lan'` | каждый mode_switch | без LAN в source-листе пакеты попадают в forward_lan → KillSwitch DROP |
 | `podkop.exclude_ru.enabled = '0'/'1'` | переключение HOME/TRAVEL | источник правды режима |
-| `podkop.exclude_ru.user_domains` — **merge** наших 4 default'ов | apply_home (только если их нет) | страховка на случай если community_list не скачался |
+| `podkop.exclude_ru.user_domains` — **merge** наших default'ов | apply_home (только если их нет) | страховка на случай если community_list не скачался + покрытие yastatic.net/.yandex.net (CDN Яндекса вне russia_outside) |
 | `podkop.main.*` (interface, fully_routed_ips, connection_type) | **ТОЛЬКО** первая установка и update_podkop | при следующих mode_switch не перезатираются |
 
 Всё остальное в `podkop.*` — **ваша территория**, можно настраивать через LuCI / CLI / UCI. Наша панель и `vpn-mode` CLI это не трогают.
@@ -306,7 +306,7 @@ ssh root@192.168.1.1 'uci add_list podkop.exclude_ru.user_domains=.kz && uci com
 ssh root@192.168.1.1 'uci del_list podkop.exclude_ru.user_domains=vk.com && uci commit podkop && /etc/init.d/podkop reload'
 ```
 
-⚠ **Контр-интуитивный момент:** при **следующем** клике «HOME» в web-панели мы доливаем `vk.com` обратно. Это контракт: «наши 4 default'а гарантированно есть в HOME». Если хотите гарантированно убрать — заодно отключите авто-восстановление, добавив `vk.com` в свою custom-секцию с другим `connection_type`.
+⚠ **Контр-интуитивный момент:** при **следующем** клике «HOME» в web-панели мы доливаем `vk.com` обратно. Это контракт: «наши default'ы гарантированно есть в HOME». Если хотите гарантированно убрать — заодно отключите авто-восстановление, добавив `vk.com` в свою custom-секцию с другим `connection_type`.
 
 #### 3. Поменять VPN-интерфейс с awg0 на awg1 (поднял второй VPN)
 
