@@ -118,9 +118,9 @@ nsfw_n="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l'
 [ "$nsfw_n" = "1" ] \
     || { echo "  FAIL: ожидал 1 NSFW URL в raw_block_lists, нашёл $nsfw_n"; vm_ssh 'cat /etc/adblock-lean/config'; exit 1; }
 # Sentinel: forcesafesearch.google.com встречается ровно 2 раза (google.com + www.google.com).
-ss_n="$(vm_ssh 'uci show dhcp.@dnsmasq[0] | grep -o forcesafesearch.google.com | wc -l')"
+ss_n="$(vm_ssh 'uci show dhcp | grep -o forcesafesearch.google.com | wc -l')"
 [ "$ss_n" = "2" ] \
-    || { echo "  FAIL: ожидал 2 forcesafesearch-cname, нашёл $ss_n"; vm_ssh 'uci show dhcp.@dnsmasq[0]'; exit 1; }
+    || { echo "  FAIL: ожидал 2 forcesafesearch-cname, нашёл $ss_n"; vm_ssh 'uci show dhcp'; exit 1; }
 
 echo "→ assert: family-filter — status=true когда обе подсистемы включены"
 st="$(vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_status')"
@@ -132,9 +132,9 @@ vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_on'
 nsfw_n2="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l')"
 [ "$nsfw_n2" = "1" ] \
     || { echo "  FAIL: NSFW URL продублировался после второго on (count=$nsfw_n2, ожидал 1)"; vm_ssh 'cat /etc/adblock-lean/config'; exit 1; }
-ss_n2="$(vm_ssh 'uci show dhcp.@dnsmasq[0] | grep -o forcesafesearch.google.com | wc -l')"
+ss_n2="$(vm_ssh 'uci show dhcp | grep -o forcesafesearch.google.com | wc -l')"
 [ "$ss_n2" = "2" ] \
-    || { echo "  FAIL: cname-список продублировался — count=$ss_n2, ожидал 2"; vm_ssh 'uci show dhcp.@dnsmasq[0]'; exit 1; }
+    || { echo "  FAIL: cname-список продублировался — count=$ss_n2, ожидал 2"; vm_ssh 'uci show dhcp'; exit 1; }
 
 echo "→ assert: family-filter — off вычищает обе подсистемы"
 vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_off' \
@@ -142,9 +142,9 @@ vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_off' \
 nsfw_n_off="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l')"
 [ "$nsfw_n_off" = "0" ] \
     || { echo "  FAIL: после off остались NSFW URL (count=$nsfw_n_off)"; vm_ssh 'cat /etc/adblock-lean/config'; exit 1; }
-ss_n_off="$(vm_ssh 'uci show dhcp.@dnsmasq[0] | grep -o forcesafesearch.google.com | wc -l')"
+ss_n_off="$(vm_ssh 'uci show dhcp | grep -o forcesafesearch.google.com | wc -l')"
 [ "$ss_n_off" = "0" ] \
-    || { echo "  FAIL: после off остались forcesafesearch-cname (count=$ss_n_off)"; vm_ssh 'uci show dhcp.@dnsmasq[0]'; exit 1; }
+    || { echo "  FAIL: после off остались forcesafesearch-cname (count=$ss_n_off)"; vm_ssh 'uci show dhcp'; exit 1; }
 st_off="$(vm_ssh '. /opt/cheburnet/lib/family-filter.sh && family_filter_status')"
 [ "$st_off" = "false" ] \
     || { echo "  FAIL: family_filter_status='$st_off' после off (ожидал false)"; exit 1; }
