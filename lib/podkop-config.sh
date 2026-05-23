@@ -25,7 +25,37 @@
 # наши defaults доливаются через merge, юзерское не трогается.
 #
 # Все мутирующие функции делают `uci commit podkop` сами — вызывающему коду остаётся
-# только дёрнуть `/etc/init.d/podkop reload`.
+# только дёрнуть `/etc/init.d/podkop reload`. Функции, меняющие domain routing
+# (apply_home, apply_travel, restore_exclude_ru), дополнительно зовут
+# podkop_invalidate_fakeip_cache — без него sing-box после рестарта подтянул бы
+# старые fakeip→domain мапинги и продолжал бы маршрутизировать переехавшие
+# домены по предыдущим правилам.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# podkop_invalidate_fakeip_cache
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Удаляет persistent fakeip-кэш sing-box.
+#
+# Зачем. sing-box хранит fakeip→domain мапинги в cache.db и переживает с ним
+# restart. Если мы поменяли routing-правила (добавили домен в exclude_ru,
+# переключили HOME⇄TRAVEL) и дёрнули `podkop reload` — sing-box поднимет
+# старые fakeip-мапинги для уже-известных доменов и продолжит маршрутизировать
+# их по СТАРЫМ правилам, пока кэш сам не протухнет. Реальный кейс из 2026-05:
+# добавил yastatic.net в exclude_ru → reload → трафик всё равно через VPN,
+# 20 мин дебага пока не догадался про этот файл.
+#
+# Безопасность. cache.db — это только perf-кэш, sing-box пересоздаёт его за
+# несколько DNS-запросов. Не трогает routing-правила, nftables, awg, UCI.
+# Уже работающий sing-box продолжает работать (cache читается только при
+# старте процесса); файл удаляется ДО `podkop reload`, который тут же его
+# пере-инициализирует.
+#
+# Путь переопределяется через PODKOP_SINGBOX_CACHE_DB — нужно для тестов
+# (sandbox пишет в свой tmpdir вместо реального /tmp).
+podkop_invalidate_fakeip_cache() {
+    rm -f "${PODKOP_SINGBOX_CACHE_DB:-/tmp/sing-box/cache.db}"
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # podkop_ensure_main_invariants
@@ -164,6 +194,7 @@ podkop_apply_home() {
     done
 
     uci commit podkop
+    podkop_invalidate_fakeip_cache
     unset _existing _d
 }
 
@@ -186,6 +217,9 @@ podkop_apply_travel() {
     if [ -n "$(uci -q get podkop.exclude_ru.connection_type 2>/dev/null)" ]; then
         uci set podkop.exclude_ru.enabled='0'
         uci commit podkop
+        # Все exclude_ru-домены теперь идут в туннель (раньше шли direct):
+        # fakeip-мапинги «domain → direct-out» в кэше уже не валидны.
+        podkop_invalidate_fakeip_cache
     fi
 }
 
@@ -247,6 +281,7 @@ podkop_restore_exclude_ru() {
     done
 
     uci commit podkop
+    podkop_invalidate_fakeip_cache
     unset _saved_domains _saved_lists _existing _d _l
 }
 

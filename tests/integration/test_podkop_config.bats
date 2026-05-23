@@ -36,6 +36,12 @@ load 'helpers/sandbox'
 
 setup() {
     sandbox_init
+    # Изолируем fakeip-кэш от реального /tmp/sing-box/cache.db: lib пишет
+    # «rm -f $PODKOP_SINGBOX_CACHE_DB», тесты проверяют что файл по этому
+    # пути исчезает. Без override apply_home в каждом тесте дёргал бы
+    # rm на реальном файле — на CI обычно нет, но на dev-машине разработчика
+    # с запущенным sing-box это бы убивало его кэш каждый запуск тестов.
+    export PODKOP_SINGBOX_CACHE_DB="$SANDBOX/sing-box-cache.db"
     # shellcheck source=../../lib/podkop-config.sh
     . "$REPO_ROOT/lib/podkop-config.sh"
 }
@@ -63,6 +69,30 @@ assert_uci_not_called() {
         cat "$CALLS_DIR/uci" >&2
         return 1
     fi
+}
+
+# ─── podkop_invalidate_fakeip_cache ──────────────────────────────────────────
+#
+# Sing-box персистит fakeip→domain мапинги в /tmp/sing-box/cache.db и переживает
+# с ним restart. Если мы поменяли domain-routing (добавили в exclude_ru,
+# переключили mode) и не убили cache.db — sing-box после reload подтянет старые
+# мапинги и продолжит маршрутизировать переехавшие домены по СТАРЫМ правилам.
+# Реальный кейс из 2026-05 (yastatic.net, 20 мин дебага). Тесты охраняют
+# контракт: каждая mutating-функция в этом lib зовёт invalidate перед выходом.
+
+@test "invalidate_fakeip_cache: удаляет существующий cache.db" {
+    : > "$PODKOP_SINGBOX_CACHE_DB"
+    [ -f "$PODKOP_SINGBOX_CACHE_DB" ]  # sanity
+    podkop_invalidate_fakeip_cache
+    [ ! -f "$PODKOP_SINGBOX_CACHE_DB" ]
+}
+
+@test "invalidate_fakeip_cache: no-op если файла нет (свежий бут, sing-box не стартовал)" {
+    # rm -f должно молча возвращать 0 — иначе apply_home в first-time-install
+    # сценарии падал бы с non-zero exit.
+    [ ! -f "$PODKOP_SINGBOX_CACHE_DB" ]
+    run podkop_invalidate_fakeip_cache
+    [ "$status" -eq 0 ]
 }
 
 # ─── podkop_apply_main_section ────────────────────────────────────────────────
@@ -203,6 +233,15 @@ assert_uci_not_called() {
     assert_uci_called "commit podkop"
 }
 
+@test "apply_home: чистит fakeip-кэш (новые user_domains сразу применяются после reload)" {
+    # Без invalidate sing-box после reload подтянул бы старые fakeip→domain
+    # мапинги и продолжил маршрутизировать переехавшие домены по СТАРЫМ
+    # правилам. См. шапку секции podkop_invalidate_fakeip_cache.
+    : > "$PODKOP_SINGBOX_CACHE_DB"
+    podkop_apply_home
+    [ ! -f "$PODKOP_SINGBOX_CACHE_DB" ]
+}
+
 # ─── podkop_apply_home (non-destructive поверх существующей секции) ───────────
 
 @test "apply_home: НЕ пересоздаёт секцию если connection_type уже есть" {
@@ -312,6 +351,24 @@ assert_uci_not_called() {
 @test "apply_travel: зовёт ensure_main_invariants" {
     podkop_apply_travel
     assert_uci_called "set podkop.main.user_domain_list_type=dynamic"
+}
+
+@test "apply_travel: чистит fakeip-кэш (exclude_ru-домены теперь идут в туннель)" {
+    # При HOME→TRAVEL все exclude_ru-домены переезжают direct-out → main-out.
+    # Без invalidate sing-box продолжал бы их слать direct ещё ~TTL минут.
+    uci set podkop.exclude_ru.connection_type=exclusion
+    : > "$PODKOP_SINGBOX_CACHE_DB"
+    podkop_apply_travel
+    [ ! -f "$PODKOP_SINGBOX_CACHE_DB" ]
+}
+
+@test "apply_travel: НЕ чистит fakeip-кэш если секции exclude_ru вообще нет" {
+    # Свежий роутер до первого apply_home: секции нет → routing не менялся →
+    # cache.db трогать не за что. Симметрично с тем что apply_travel в этом
+    # случае skip'ит uci set enabled=0.
+    : > "$PODKOP_SINGBOX_CACHE_DB"
+    podkop_apply_travel
+    [ -f "$PODKOP_SINGBOX_CACHE_DB" ]
 }
 
 # ─── podkop_current_mode ──────────────────────────────────────────────────────
@@ -466,6 +523,17 @@ assert_uci_not_called() {
     podkop_restore_exclude_ru ".kz" "extra_list"
 
     assert_uci_called "commit podkop"
+}
+
+@test "restore_exclude_ru: чистит fakeip-кэш (восстановленные user-домены сразу применяются)" {
+    # update_podkop scenario: после reinstall + apply_home + restore юзерские
+    # .kz/kinopoisk.ru снова в exclude_ru. cache.db ещё помнит их fakeip
+    # из предыдущей сессии → без invalidate они продолжали бы идти через VPN.
+    uci set podkop.exclude_ru=section
+    uci set podkop.exclude_ru.connection_type=exclusion
+    : > "$PODKOP_SINGBOX_CACHE_DB"
+    podkop_restore_exclude_ru ".kz" "extra_list"
+    [ ! -f "$PODKOP_SINGBOX_CACHE_DB" ]
 }
 
 @test "сценарий update_podkop: save → reinstall → apply_home → restore — юзерский .kz выживает" {
