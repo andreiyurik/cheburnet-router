@@ -185,8 +185,17 @@ podkop_apply_home() {
     #   .yandex.net      — суффикс для поддоменов yandex.net (avatars.mds.,
     #                      api.passport., и т.п.). Apex yandex.net без A-записи,
     #                      покрывать его не нужно — только поддомены.
+    #
+    # Captive portal / connectivity check — без прямого доступа к этим доменам
+    # ОС считает что WiFi без интернета (Android переключается на мобильную
+    # сеть, Windows показывает «нет подключения»). Через VPN+FakeIP проверка
+    # не проходит: FakeIP возвращает 198.18.x.x вместо реального IP, а
+    # latency через туннель может превышать таймаут connectivity-чекера.
+    #   connectivitycheck.gstatic.com — Android (HTTP 204 check)
+    #   www.msftconnectcheck.com      — Windows 10+ (NCSI HTTP check)
+    #   captive.apple.com             — iOS / macOS
     _existing=$(uci -q get podkop.exclude_ru.user_domains 2>/dev/null || true)
-    for _d in .ru .su .xn--p1ai vk.com yastatic.net .yandex.net; do
+    for _d in .ru .su .xn--p1ai vk.com yastatic.net .yandex.net connectivitycheck.gstatic.com www.msftconnectcheck.com captive.apple.com; do
         case " $_existing " in
             *" $_d "*) ;;
             *) uci add_list podkop.exclude_ru.user_domains="$_d" ;;

@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-**Podkop** — скрипт-обёртка над **sing-box**, который генерирует конфиг sing-box из UCI-настроек и управляет nftables-правилами tproxy. В нашей конфигурации **две секции**: `main` (connection_type=vpn) с `fully_routed_ips='192.168.1.0/24'` — это говорит «весь LAN через AWG», и `exclude_ru` (connection_type=exclusion) с `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net'` — «эти домены напрямую через WAN». Слайдер на корпусе переключает между **HOME** (обе секции активны) и **TRAVEL** (секция exclude_ru «обнуляется», только main).
+**Podkop** — скрипт-обёртка над **sing-box**, который генерирует конфиг sing-box из UCI-настроек и управляет nftables-правилами tproxy. В нашей конфигурации **две секции**: `main` (connection_type=vpn) с `fully_routed_ips='192.168.1.0/24'` — это говорит «весь LAN через AWG», и `exclude_ru` (connection_type=exclusion) с `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net connectivitycheck.gstatic.com www.msftconnectcheck.com captive.apple.com'` — «эти домены напрямую через WAN». Слайдер на корпусе переключает между **HOME** (обе секции активны) и **TRAVEL** (секция exclude_ru «обнуляется», только main).
 
 ## Что такое Podkop
 
@@ -85,13 +85,13 @@ flowchart LR
 - **Цель:** всё иностранное через VPN, RU-сервисы напрямую с реального IP.
 - **Когда пригодится:** повседневно, дома в РФ.
 - **Секция `main`:** активна, `fully_routed_ips='192.168.1.0/24'` — весь LAN через AWG.
-- **Секция `exclude_ru`:** активна, `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net'` — эти домены **вытаскиваются** обратно в direct-out. (`yastatic.net` и `.yandex.net` добавлены потому, что primary CDN Яндекса не покрыты community-листом и через VPN троттлятся CDN'ом до таймаута — yandex.ru-страницы грузились 5+ сек.)
+- **Секция `exclude_ru`:** активна, `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net connectivitycheck.gstatic.com www.msftconnectcheck.com captive.apple.com'` — эти домены **вытаскиваются** обратно в direct-out. (`yastatic.net` и `.yandex.net` добавлены потому, что primary CDN Яндекса не покрыты community-листом и через VPN троттлятся CDN'ом до таймаута — yandex.ru-страницы грузились 5+ сек. Captive portal домены добавлены чтобы ОС не считала WiFi «без интернета» — через VPN+FakeIP connectivity-чеки не проходят.)
 
 **Правила в sing-box (упрощённо):**
 ```
 1. sniff (tproxy-in, dns-in)           -- определить SNI/host
 2. hijack-dns (protocol=dns)
-3. domain matches russia_outside list OR .ru/.su/.xn--p1ai/vk.com/yastatic.net/.yandex.net
+3. domain matches russia_outside list OR .ru/.su/.xn--p1ai/vk.com/yastatic.net/.yandex.net/captive-portal-domains
    → outbound=direct-out  (НЕ в туннель)
 4. source_ip_cidr=192.168.1.0/24
    → outbound=main-out    (в туннель)
@@ -186,6 +186,11 @@ avtodor-tr.ru, emex.ru, fssp.gov.ru, gov.ru, leroymerlin.ru, ...
 - `.xn--p1ai` — punycode для `.рф`
 - `vk.com` — один из крупнейших RU-сервисов на **.com** TLD
 
+Дополнительно — **captive portal / connectivity check** домены. Без прямого доступа к ним ОС считает WiFi «без интернета» (Android переключается на мобильную сеть, Windows показывает предупреждение). Через VPN+FakeIP проверка не проходит:
+- `connectivitycheck.gstatic.com` — Android
+- `www.msftconnectcheck.com` — Windows 10+
+- `captive.apple.com` — iOS / macOS
+
 ## UCI-конфигурация podkop
 
 ```ini
@@ -211,6 +216,9 @@ config section 'exclude_ru'
     list user_domains '.su'
     list user_domains '.xn--p1ai'
     list user_domains 'vk.com'
+    list user_domains 'connectivitycheck.gstatic.com'
+    list user_domains 'www.msftconnectcheck.com'
+    list user_domains 'captive.apple.com'
 ```
 
 В **TRAVEL-режиме** `community_lists` и `user_domains` в `exclude_ru` **удаляются** (список опций пуст → секция неактивна).
