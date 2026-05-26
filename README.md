@@ -313,16 +313,20 @@ VPN, шифрованный DNS, split-routing — стандартные сет
 
 Бывает нужно для банков, госуслуг, локального стриминга или любого сервиса с гео-привязкой к твоей стране. Добавляем домен в исключения podkop через LuCI:
 
-1. Открой `http://192.168.1.1/` (LuCI), логин `root`.
-2. **Services → Podkop**.
-3. Раздел **`exclude_ru`** → поле **«User domains»** → **Add**.
-4. Введи домен: `example.com` — без `https://` и без `/`. Поддомены подхватятся автоматически.
-5. **Save & Apply**.
+**Шаг 1.** Открой `http://192.168.1.1/` в браузере, логин `root`. Перейди в **Services → Podkop**:
+
+<img src="docs/images/luci-podkop-menu.png" alt="LuCI — Services → Podkop" width="700">
+
+**Шаг 2.** Прокрути вниз до секции **EXCLUDE_RU**. В поле **User Domains** введи домен и нажми **`+`** ❶. Затем нажми **Save & Apply** ❷:
+
+<img src="docs/images/luci-podkop-user-domains.png" alt="Секция EXCLUDE_RU — User Domains и Save & Apply" width="700">
+
+> **Формат домена:** пиши без `https://` и без `/` — только домен.
+> Например: `example.com`. Все поддомены (`mail.example.com`, `api.example.com`) подхватятся автоматически.
 
 Применяется сразу, перезагружать ничего не надо.
 
-
-Работает только в HOME-режиме. В TRAVEL все исключения игнорируются — весь трафик идёт через VPN.
+> ⚠️ Работает только в **HOME-режиме**. В TRAVEL все исключения игнорируются — весь трафик идёт через VPN.
 
 </details>
 
