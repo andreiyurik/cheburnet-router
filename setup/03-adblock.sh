@@ -4,6 +4,39 @@ set -e
 
 echo "== 03. adblock-lean =="
 
+# ─── DNS-readiness: ждём пока полная цепочка dnsmasq→sing-box fakeip заработает ───
+#
+# После шага 02 sing-box жив и PodkopTable активна, но fakeip-кэш может быть
+# ещё не прогрет: DNS-запросы возвращают fakeip-адреса, а sing-box при TCP-
+# соединении не находит маппинг → ядро возвращает EPERM ("Operation not
+# permitted"). Это гарантированно роняет uclient-fetch к api.github.com внутри
+# abl-install.sh на медленных роутерах (Cudy WR3000, ~2-5с на прогрев), и
+# воспроизводится в QEMU-тестах.
+#
+# Решение: блокирующий DNS-probe до 30с (по образцу hotplug/30-adblock).
+# Проверяем nslookup через 127.0.0.1 (dnsmasq → sing-box DoH → через VPN) —
+# если резолв прошёл, fakeip-маппинг создан и TCP через tproxy тоже пройдёт.
+# example.com — IANA-reserved, всегда резолвится, не блокируется DPI.
+# На практике probe проходит за 2-5с; 30с — запас для совсем медленного железа.
+# Если не дождались — идём дальше: vendor-fallback + retry дадут шанс, а при
+# полном фейле юзер получит внятную диагностику ниже.
+echo "→ жду готовности DNS через sing-box..."
+_dns_ready=0
+_dns_try=0
+while [ "$_dns_try" -lt 15 ]; do
+    if nslookup example.com 127.0.0.1 >/dev/null 2>&1; then
+        _dns_ready=1
+        break
+    fi
+    _dns_try=$((_dns_try + 1))
+    sleep 2
+done
+if [ "$_dns_ready" = "1" ]; then
+    echo "  ✓ DNS готов (${_dns_try}×2с)"
+else
+    echo "  ⚠ DNS не ответил за 30с — продолжаю, но fetch с github.com может упасть"
+fi
+
 # === 1. Установка ===
 if [ -x /etc/init.d/adblock-lean ]; then
     echo "→ adblock-lean уже установлен"
@@ -27,11 +60,12 @@ else
     fi
 
     # abl-install внутри ходит на api.github.com за тегом последнего релиза.
-    # Этот fetch регулярно падает с "Operation not permitted" (netfilter EPERM
-    # сразу после firewall reload в шагах 01/02) или транзиентным wget-сбоем —
-    # установщик возвращает ненулевой код, наш set -e убивает шаг.
-    # Один повтор после apk update закрывает класс таких сбоев. По образцу
-    # 02-podkop.sh: критерий «успешно» — появился /etc/init.d/adblock-lean.
+    # DNS-probe выше закрывает основной класс EPERM-сбоев (fakeip не прогрет),
+    # но остаются транзиентные: GitHub rate-limit (60 req/час anonymous),
+    # кратковременная недоступность CDN, uclient-fetch timeout на медленном
+    # канале. Один повтор после apk update (который заодно прогревает TCP-стек
+    # через tproxy) закрывает большинство таких случаев.
+    # Критерий «успешно» — появился /etc/init.d/adblock-lean.
     sh /tmp/abl-install.sh -v release || true
     if [ ! -x /etc/init.d/adblock-lean ]; then
         echo "  установщик adblock-lean не оставил /etc/init.d/adblock-lean, повторяю..."
