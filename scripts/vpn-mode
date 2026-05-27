@@ -23,14 +23,12 @@ LIB_DIR="${CHEBURNET_LIB_DIR:-/opt/cheburnet/lib}"
 
 case "$1" in
     home)
-        [ "$(podkop_current_mode)" = home ] && exit 0
         podkop_apply_home
-        log "mode=HOME applied (VPN for all except RU)"
+        log "mode=HOME ensured (VPN for all except RU)"
         reload_podkop ;;
     travel)
-        [ "$(podkop_current_mode)" = travel ] && exit 0
         podkop_apply_travel
-        log "mode=TRAVEL applied (full tunnel)"
+        log "mode=TRAVEL ensured (full tunnel)"
         reload_podkop ;;
     status)
         echo "Режим:   $(podkop_current_mode)"

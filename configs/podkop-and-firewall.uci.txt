@@ -25,7 +25,7 @@ podkop.exclude_ru=section
 podkop.exclude_ru.connection_type='exclusion'
 podkop.exclude_ru.user_domain_list_type='dynamic'
 podkop.exclude_ru.community_lists='russia_outside'
-podkop.exclude_ru.user_domains='.ru' '.su' '.xn--p1ai' 'vk.com'
+podkop.exclude_ru.user_domains='.ru' '.su' '.xn--p1ai' 'vk.com' 'yastatic.net' '.yandex.net' 'connectivitycheck.gstatic.com' 'www.msftconnectcheck.com' 'captive.apple.com'
 ---
 firewall.@rule[9]=rule
 firewall.@rule[9].name='KillSwitch-IPv4-LAN-direct-egress'
