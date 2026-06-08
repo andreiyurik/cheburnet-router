@@ -11,7 +11,8 @@
 #                     Release-gate. Поймал uci/busybox-несовместимости,
 #                     которые mock-тесты T2 пропускают.
 
-.PHONY: lint test test-unit test-integration qemu qemu-http qemu-install hardware
+.PHONY: lint test test-unit test-integration qemu qemu-http qemu-install hardware \
+        test-engine poc-split
 
 BATS := tests/vendor/bats-core/bin/bats
 
@@ -36,6 +37,19 @@ test-integration:
 		echo "✗ bats-core не найден"; exit 1; \
 	fi
 	@$(BATS) tests/integration/
+
+# ── v2 (движок на ucode) ────────────────────────────────────────────────────
+# Отдельно от v1-таргетов: ucode-движок строится по фазам (см. docs/architecture-v2.md),
+# параллельно живому v1. Эти таргеты host-only и не требуют bats/QEMU.
+
+# Юнит-тесты движка (чистая логика на ucode, секунды, без роутера).
+test-engine:
+	@sh engine/run-tests.sh
+
+# Фаза 0 PoC + e2e: split-routing на примитивах И из реального вывода генератора,
+# прогон через network namespace. Нужны nft/ip/unshare; ucode — для фазы B.
+poc-split:
+	@unshare -rn sh tests/poc/split-routing-netns.sh
 
 # T3a — hermetic. Поднимает свежий OpenWrt snapshot в qemu/KVM, кладёт наш
 # rpcd-handler через ssh+cat (без apk, без интернета), проверяет что ubus
