@@ -2,7 +2,7 @@
 //   ucode -R engine/lib/tests/test_uci.uc
 
 import { test, eq, ok, deep_eq, summary } from "../assert.uc";
-import { reconcile_list, ends_with } from "../uci.uc";
+import { reconcile_list, ends_with, starts_with } from "../uci.uc";
 
 test("reconcile_list: пустой текущий → всё в add", () => {
 	let r = reconcile_list([], ["a", "b"]);
@@ -30,6 +30,12 @@ test("ends_with", () => {
 	ok(!ends_with("/x/6#inet#fw4#direct6", "#direct")); // не путаем direct и direct6
 	ok(ends_with("/x/6#inet#fw4#direct6", "#direct6"));
 	ok(!ends_with("ab", "abc"));
+});
+
+test("starts_with", () => {
+	ok(starts_with("127.0.0.1#5053", "127.0.0.1#"));
+	ok(!starts_with("8.8.8.8", "127.0.0.1#"));
+	ok(!starts_with("ab", "abc"));
 });
 
 exit(summary());

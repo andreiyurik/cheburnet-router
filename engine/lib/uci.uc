@@ -31,3 +31,8 @@ export function ends_with(s, suffix) {
 	let n = length(s), m = length(suffix);
 	return n >= m && substr(s, n - m) == suffix;
 }
+
+// starts_with(s, prefix) — true, если строка s начинается с prefix.
+export function starts_with(s, prefix) {
+	return length(s) >= length(prefix) && substr(s, 0, length(prefix)) == prefix;
+}
