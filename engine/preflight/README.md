@@ -35,9 +35,13 @@
 
 - **`preflight.uc`** — `evaluate(facts, req)` + хелперы `cmp_version`, `cidr_overlap`,
   `render_report`. **Чистые функции** → юнит-тесты без роутера ([tests/](tests/)).
-- **gather** (чтение `/proc`, `ubus`, `uci`, `apk --simulate`) — **импурный, router-side**.
-  Его место — следующий шаг этой фазы; проверяется в QEMU, не юнитами. Это **осознанная
-  граница**: мы не делаем вид, что тестируем чтение железа на хосте.
+- **`parse.uc`** — парсеры системного вывода (`parse_meminfo`, `parse_df`, `parse_arch`,
+  `parse_board`, `parse_iface_cidr`). Тоже **чистые** → юнит-тесты на захваченных сэмплах
+  (вкл. busybox-перенос длинного имени ФС в `df`).
+- **`gather.uc`** — **импурный, router-side**: запускает команды (`uname`, `df`, `ubus`,
+  `apk add --simulate`, чтение `/proc/meminfo`) и скармливает их вывод парсерам → facts-JSON.
+  Тонкий, без логики разбора. Проверяется в QEMU, не юнитами — **осознанная граница**.
+  Команда недоступна/упала → поле `null/false` → гейткипер блокирует (fail-closed), не пропускает.
 
 `apk add --simulate <pkg>` (dry-run, ничего не ставит) — то, чем gather узнаёт
 `deps_installable`: доступен ли пакет под текущую arch/feed **до** реальной установки.
@@ -45,7 +49,10 @@
 ## Использование
 
 ```sh
-# Факты собирает gather (router-side) и отдаёт сюда; здесь — только вердикт.
+# Полный путь на роутере: собрать факты → вынести вердикт.
+ucode -R engine/preflight/gather.uc | ucode -R engine/preflight/check.uc
+
+# Или подать факты напрямую (так гоняем на хосте/в тестах):
 echo '{"arch":"aarch64","openwrt_version":"25.12.0","flash_free_mb":100,
        "ram_total_mb":256,"deps_installable":{"kmod-amneziawg":true,
        "https-dns-proxy":true,"dnsmasq":true,"adblock-lean":true},

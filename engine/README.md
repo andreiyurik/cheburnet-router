@@ -11,7 +11,7 @@ Control-plane на [ucode](https://ucode.mediatek.org/): настраивает 
 | Модуль | Роль | Статус |
 |---|---|---|
 | `routing/` | генерация конфигов split-routing (dnsmasq-nftset + nft + ip rule) | ✅ есть |
-| `preflight/` | гейткипер железа/версии/зависимостей (чистая оценка + router-side gather) | ✅ есть (gather — next) |
+| `preflight/` | гейткипер железа/версии/зависимостей (чистая оценка + парсеры + router-side gather) | ✅ есть |
 | `lib/` | общие хелперы (тест-раннер `assert.uc` и т.п.) | ✅ есть |
 | `steps/` | идемпотентные шаги по компонентам | ⏳ следующая фаза |
 | `rollback/` | snapshot/restore UCI там, где откат чистый | ⏳ |

@@ -30,6 +30,12 @@ function resolve_req(req) {
 	return r;
 }
 
+// default_requirements() — копия дефолтных требований (для gather/UI; источник правды списка
+// зависимостей и порогов — здесь, чтобы не разъезжалось между модулями).
+export function default_requirements() {
+	return resolve_req(null);
+}
+
 // cmp_version(a, b) → -1|0|1. Точечные числовые версии; SNAPSHOT новее любого релиза.
 export function cmp_version(a, b) {
 	if (a == b) return 0;
