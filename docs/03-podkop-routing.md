@@ -1,5 +1,8 @@
 # 🧭 03. Podkop и маршрутизация
 
+> [!note]
+> **Документация текущей реализации (v1)** — то, что работает сегодня. Целевая архитектура проекта: [architecture-v2.md](architecture-v2.md) · [база знаний v2](v2/README.md). См. [индекс документации](README.md).
+
 ## TL;DR
 
 **Podkop** — скрипт-обёртка над **sing-box**, который генерирует конфиг sing-box из UCI-настроек и управляет nftables-правилами tproxy. В нашей конфигурации **две секции**: `main` (connection_type=vpn) с `fully_routed_ips='192.168.1.0/24'` — это говорит «весь LAN через AWG», и `exclude_ru` (connection_type=exclusion) с `community_lists='russia_outside'` + `user_domains='.ru .su .xn--p1ai vk.com yastatic.net .yandex.net connectivitycheck.gstatic.com www.msftconnectcheck.com captive.apple.com'` — «эти домены напрямую через WAN». Слайдер на корпусе переключает между **HOME** (обе секции активны) и **TRAVEL** (секция exclude_ru «обнуляется», только main).

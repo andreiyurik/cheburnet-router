@@ -1,5 +1,8 @@
 # 🌐 02. AmneziaWG — VPN-туннель
 
+> [!note]
+> **Документация текущей реализации (v1)** — то, что работает сегодня. Целевая архитектура проекта: [architecture-v2.md](architecture-v2.md) · [база знаний v2](v2/README.md). См. [индекс документации](README.md).
+
 ## TL;DR
 
 Устанавливаем **ядерный модуль** `kmod-amneziawg` и пользовательский пакет `amneziawg-tools` из репозитория [Slava-Shchipunov/awg-openwrt](https://github.com/Slava-Shchipunov/awg-openwrt). Создаём UCI-интерфейс `awg0` с `proto='amneziawg'`, заполняем AWG-параметрами (`Jc`, `Jmin`, `Jmax`, `S1`, `S2`, `H1..H4`) и peer-секцию ключами/endpoint'ом из `.conf`-файла Amnezia. Включаем `route_allowed_ips='0'` — маршрутизацией займётся podkop, не netifd.

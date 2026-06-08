@@ -9,7 +9,7 @@
 
 Главная ставка — **минимум поддержки для соло-разработчика** и **работа на слабом железе**.
 Поэтому: **отказываемся от sing-box** в пользу классического лёгкого split-routing на
-**dnsmasq-nftset + policy routing** — то, чем на OpenWrt делали обход по доменам годами.
+**dnsmasq-nftset + policy routing** — то, чем на OpenWrt делали раздельную маршрутизацию по доменам годами.
 Оркестрация и логика — на **ucode** (родной язык OpenWrt, нулевой footprint, едет на любой
 архитектуре без кросс-компиляции). Распространение — **пакет в OpenWrt-feed**, `apk` сам
 подбирает arch и зависимости → установщик **универсален**. Надёжность держат **три простых
@@ -59,13 +59,13 @@ flowchart TB
             preflight[Preflight-гейткипер<br/>arch / RAM / флеш / версия / зависимости]
             steps[Идемпотентные шаги<br/>по компонентам]
             rollback[Точечный rollback<br/>snapshot UCI там, где откат чистый]
-            list[Импорт community-списка<br/>RU-домены]
+            list[Импорт community-списка<br/>доменов]
         end
 
         subgraph L3["3️⃣ Data-plane (лёгкий, без sing-box)"]
-            dnsmasq[dnsmasq :53<br/>+ adblock-lean<br/>+ nftset → ru_direct]
+            dnsmasq[dnsmasq :53<br/>+ adblock-lean<br/>+ nftset → direct]
             doh[https-dns-proxy<br/>шифрованный DoH]
-            nft[nftables: mark пакетов<br/>к адресам из ru_direct]
+            nft[nftables: mark пакетов<br/>к адресам из direct]
             iprule[policy routing<br/>ip rule fwmark]
             awg0[awg0<br/>AmneziaWG туннель]
         end
@@ -78,7 +78,7 @@ flowchart TB
     subgraph Cloud["☁️ GitHub + community"]
         repo[(репозиторий = источник правды)]
         feed[(OpenWrt package feed)]
-        rulelist[(community RU-список)]
+        rulelist[(community-список доменов)]
     end
 
     ssh -->|одна команда| boot
@@ -120,16 +120,16 @@ boilerplate (удобно поддерживать соло), встроенны
 
 ## 🚦 Data-plane: лёгкий split-routing без sing-box
 
-Это сердце упрощения. Задача — **«.ru напрямую, всё остальное через туннель»** — решается
-классическим способом OpenWrt, который легче и неприхотливее sing-box.
+Это сердце упрощения. Задача — **«домены из direct-списка напрямую, всё остальное через
+туннель»** — решается классическим способом OpenWrt, который легче и неприхотливее sing-box.
 
 ```mermaid
 flowchart TB
     client[LAN-клиент] -->|DNS-запрос| dnsmasq
     dnsmasq[dnsmasq :53<br/>+ adblock-lean] -->|зашифрованно| doh[https-dns-proxy → upstream DoH]
-    dnsmasq -->|домен из RU-списка?<br/>→ добавить IP в| set[(nftables set<br/>ru_direct)]
+    dnsmasq -->|домен из direct-списка?<br/>→ добавить IP в| set[(nftables set<br/>direct)]
 
-    client -->|трафик| nft{nftables:<br/>daddr ∈ ru_direct?}
+    client -->|трафик| nft{nftables:<br/>daddr ∈ direct?}
     nft -->|да → mark| direct[policy route → WAN<br/>напрямую]
     nft -->|нет → дефолт| tunnel[awg0<br/>AmneziaWG туннель]
 ```
@@ -137,17 +137,17 @@ flowchart TB
 **Как это работает по шагам:**
 
 1. **Туннель по умолчанию.** `awg0` — дефолтный маршрут: весь трафик идёт через VPN.
-2. **dnsmasq заполняет сет.** Для доменов из RU-списка dnsmasq сам кладёт резолвнутый IP
-   в nftables-сет `ru_direct`:
+2. **dnsmasq заполняет сет.** Для доменов из direct-списка dnsmasq сам кладёт резолвнутый IP
+   в nftables-сет `direct`:
    ```
    # /etc/config/dhcp (dnsmasq)
-   list nftset '/ru/4#inet#fw4#ru_direct'
-   list nftset '/xn--p1ai/4#inet#fw4#ru_direct'   # .рф (punycode)
+   list nftset '/example.com/4#inet#fw4#direct'
+   list nftset '/example.org/4#inet#fw4#direct'   # любой домен/TLD из вашего списка
    # + импортированный community-список доменов
    ```
 3. **nftables метит «прямые» пакеты:**
    ```
-   nft add rule inet fw4 mangle_prerouting ip daddr @ru_direct meta mark set 0x1
+   nft add rule inet fw4 mangle_prerouting ip daddr @direct meta mark set 0x1
    ```
 4. **policy routing разводит:**
    ```
@@ -163,7 +163,7 @@ flowchart TB
 всё в туннель (тривиально).
 
 **Почему это надёжно именно здесь:** направление *fail-safe*. Клиент в обход DNS (Chrome
-с DoH, смарт-ТВ) просто не попадёт в `ru_direct` → пойдёт **через туннель** (работает, чуть
+с DoH, смарт-ТВ) просто не попадёт в `direct` → пойдёт **через туннель** (работает, чуть
 медленнее), а не утечёт. Промах списка = тоже через туннель. Это снимает главный риск DIY.
 
 ---
@@ -171,10 +171,11 @@ flowchart TB
 ## 📋 Список маршрутизации — импортируем, не владеем
 
 Самая дорогая часть split-routing — **не код, а актуальный список** «что считать RU».
-`.ru`/`.рф` как TLD — тривиально. Но реальные RU-сервисы есть и на `.com`, плюс CDN-диапазоны.
+Конкретные домены и целые TLD матчатся тривиально. Но один сервис может жить на нескольких
+доменах в разных зонах, плюс CDN-диапазоны — поэтому простого списка TLD не всегда достаточно.
 
 **Решение, экономящее время:** не поддерживать список вручную, а **импортировать
-maintained community-список** (подписка на обновляемый набор RU-доменов/IP). Движок
+maintained community-список** (подписка на обновляемый набор доменов/IP). Движок
 периодически тянет его и регенерит конфиг dnsmasq/nftset. Получаем актуальность без
 вечной ручной работы — прямой вклад в «минимум поддержки».
 
@@ -261,7 +262,7 @@ GitHub Actions:
   3. boot в QEMU × {x86_64, mips, armvirt}
         × {OpenWrt 25.12, snapshot}
      └─ apk add cheburnet → интеграционные тесты:
-        • split реально работает (.ru → WAN, прочее → awg0)
+        • split реально работает (домен из списка → WAN, прочее → awg0)
         • preflight КОРРЕКТНО ОТКАЗЫВАЕТ на негодном железе
   4. при git-теге: публикация feed + GitHub Release
 ```
@@ -341,8 +342,8 @@ flowchart LR
    Если footprint вдруг перестанет быть критичным — пересмотреть в пользу Go (ИИ-friendly,
    лучшие тесты), ценой нескольких МБ.
 3. **DIY split-routing слабее sing-box против обхода DNS.** Клиент с хардкодным DoH не
-   попадёт в `ru_direct`. Для нас это **fail-safe** (уйдёт в туннель), но «.ru напрямую»
-   для такого клиента не сработает. Осознанный размен ради лёгкости.
+   попадёт в `direct`. Для нас это **fail-safe** (уйдёт в туннель), но прямой путь для
+   доменов из списка для такого клиента не сработает. Осознанный размен ради лёгкости.
 4. **Архитектура чинит установщик, а не весь мир.** Стабильность VPN/DNS, доступность
    пакетов под arch, дрейф версий OpenWrt, провайдер пользователя — вне её контроля.
 5. **CDN и IPv6** — общий IP для RU и не-RU сервисов чисто по IP не делится. Деление по
