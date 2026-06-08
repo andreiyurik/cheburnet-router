@@ -1,0 +1,98 @@
+name: engine
+
+# Движок v2 на ucode: юнит-тесты (на каждый PR/push) + сборка пакета через OpenWrt SDK.
+#
+# Юнит-тесты — чистая логика, гоняются за секунды, но нужен интерпретатор ucode (в CI его нет
+# готового — собираем из исходников, кэшируем). Это та самая фаза, где ucode-тесты ВХОДЯТ в CI.
+# Сборка пакета через SDK пока ручная (workflow_dispatch/тег): её реальная проверка — фаза QEMU,
+# отложенная мейнтейнером. До тех пор не гейтим ею master, чтобы не краснить непроверенным.
+
+on:
+  push:
+    branches: [master, feat/v2]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ── Юнит-тесты движка (ucode) — быстрые, на каждый PR/push ───────────────────
+  engine-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ucode собирается из исходников (рецепт — engine/routing/tests/README.md). Кэшируем
+      # ~/.local, чтобы не пересобирать каждый прогон.
+      - name: Cache ucode toolchain
+        id: cache-ucode
+        uses: actions/cache@v4
+        with:
+          path: ~/.local
+          key: ucode-toolchain-${{ runner.os }}-v1
+
+      - name: Install build deps
+        if: steps.cache-ucode.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              build-essential cmake pkg-config git
+
+      - name: Build ucode (json-c + ucode, без UCI/UBUS — тесты чистые)
+        if: steps.cache-ucode.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          PREFIX="$HOME/.local"
+          git clone --depth 1 https://github.com/json-c/json-c
+          ( cd json-c && mkdir build && cd build && \
+            cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -DBUILD_SHARED_LIBS=ON \
+                  -DCMAKE_C_FLAGS="-Wno-error" .. && \
+            make -j"$(nproc)" install )
+          git clone --depth 1 https://github.com/jow-/ucode
+          ( cd ucode && mkdir build && cd build && \
+            cmake -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_PREFIX_PATH="$PREFIX" \
+                  -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DRTNL_SUPPORT=OFF -DNL80211_SUPPORT=OFF \
+                  -DCMAKE_C_FLAGS="-Wno-error" .. && \
+            make -j"$(nproc)" install )
+
+      - name: Run engine unit tests
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
+          ucode -e 'print("ucode ok\n")'
+          make test-engine
+
+  # ── Сборка пакета через OpenWrt SDK (матрица arch) ──────────────────────────
+  # Ручная/по тегу: реальная проверка сборки и установки — фаза QEMU (отложена). Точные
+  # идентификаторы arch и обвязку feed'а финализируем при первом прогоне в той фазе.
+  package-build:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x86_64
+          - aarch64_generic
+          - mipsel_24kc
+          - arm_cortex-a9_neon
+    steps:
+      - uses: actions/checkout@v4
+
+      # Официальный SDK-экшен OpenWrt: монтирует репозиторий как feed и собирает пакет под arch.
+      - name: Build cheburnet via OpenWrt SDK
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: ${{ matrix.arch }}
+          FEEDNAME: cheburnet
+          PACKAGES: cheburnet
+          V: s
+
+      - name: Upload .apk/.ipk artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cheburnet-${{ matrix.arch }}
+          path: |
+            bin/packages/*/cheburnet/*.apk
+            bin/packages/*/cheburnet/*.ipk
+          if-no-files-found: warn
+          retention-days: 7

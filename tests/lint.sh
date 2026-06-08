@@ -53,6 +53,7 @@ POSIX_FILES=(
     # v2 (POSIX glue движка; логика — на ucode, его shellcheck не проверяет)
     engine/run-tests.sh
     bootstrap/bootstrap.sh
+    package/cheburnet/files/rpcd-cheburnet.sh
     tests/poc/split-routing-netns.sh
 )
 
