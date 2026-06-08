@@ -24,10 +24,22 @@ let raw = trim(stdin.read("all") ?? "");
 if (substr(raw, 0, 1) != "{")
 	die("firewall/apply: ожидаю JSON {domains, routing_opts{wan_if}} со stdin");
 let req = json(raw);
-let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
+let arg = (length(ARGV) > 0) ? ARGV[0] : "";
+let dry = (arg == "--dry-run");
+let teardown_only = (arg == "--teardown"); // снять наши правила (откат грязного шага оркестратором)
 
 let routing_plan = build_plan(req.domains ?? [], req.routing_opts);
 let plan = build_firewall_plan(routing_plan, req.fw_opts);
+
+// teardown-only: убрать наши nft-цепочки и ip-правила, ничего не ставя (safe-fail при rollback).
+if (teardown_only) {
+	for (let i = 0; i < length(plan.nft_teardown); i++)
+		run("nft " + plan.nft_teardown[i]);
+	for (let i = 0; i < length(plan.ip_teardown); i++)
+		run(plan.ip_teardown[i]);
+	print("firewall: teardown выполнен (правила сняты)\n");
+	exit(0);
+}
 
 if (!plan.ok) {
 	for (let i = 0; i < length(plan.errors); i++)
