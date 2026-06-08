@@ -52,6 +52,7 @@ POSIX_FILES=(
     backup/restore.sh
     # v2 (POSIX glue движка; логика — на ucode, его shellcheck не проверяет)
     engine/run-tests.sh
+    bootstrap/bootstrap.sh
     tests/poc/split-routing-netns.sh
 )
 
