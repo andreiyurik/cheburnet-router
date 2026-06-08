@@ -121,25 +121,43 @@ export function render_dnsmasq_uci(plan) {
 	return out;
 }
 
-// render_nft(plan) — nft-команды: объявления сетов (всегда) + правила пометки (только home).
-// Таблица inet fw4 предполагается существующей (её держит firewall4). Сеты объявляем сами;
-// dnsmasq наполняет их на резолве. mangle_prerouting — штатная цепочка fw4 для форвард-трафика;
-// hook=output (mangle_output, type route) нужен для локального трафика — это путь netns-теста.
-export function render_nft(plan) {
+// render_sets(plan) — объявления nft-сетов (IPv4 + опц. IPv6). От доменов не зависят: ядро
+// работает с сетом по ссылке (@direct), наполняет dnsmasq. Идемпотентны (add set — no-op,
+// если есть). Таблица inet fw4 предполагается существующей (её держит firewall4).
+export function render_sets(plan) {
 	let o = plan.opts, out = [];
 	push(out, sprintf("add set %s %s %s { type ipv4_addr; flags interval; }",
 		o.family, o.fw_table, o.set4));
 	if (o.ipv6)
 		push(out, sprintf("add set %s %s %s { type ipv6_addr; flags interval; }",
 			o.family, o.fw_table, o.set6));
+	return out;
+}
+
+// render_mark_rules(plan, chain) — правила пометки «daddr ∈ direct → mark» в указанной цепочке.
+// В travel-режиме пусто (нечего метить → всё в туннель). Цепочку выбирает вызывающий: для
+// production это наша prerouting-цепочка (engine/steps/firewall), для netns-теста — mangle_output.
+export function render_mark_rules(plan, chain) {
+	let o = plan.opts, out = [];
 	if (o.mode == "travel")
-		return out; // нет пометки → нечего разводить → всё в туннель
-	let chain = (o.hook == "output") ? "mangle_output" : "mangle_prerouting";
+		return out;
 	push(out, sprintf("add rule %s %s %s ip daddr @%s meta mark set %s",
 		o.family, o.fw_table, chain, o.set4, o.mark));
 	if (o.ipv6)
 		push(out, sprintf("add rule %s %s %s ip6 daddr @%s meta mark set %s",
 			o.family, o.fw_table, chain, o.set6, o.mark));
+	return out;
+}
+
+// render_nft(plan) — сеты + правила пометки в цепочке, выбранной по hook: prerouting (форвард-
+// трафик на роутере) или output (локальный трафик — путь netns-теста). Композиция из кирпичей
+// выше, чтобы engine/steps/firewall переиспользовал их в своей (owned) цепочке без дублей.
+export function render_nft(plan) {
+	let chain = (plan.opts.hook == "output") ? "mangle_output" : "mangle_prerouting";
+	let out = render_sets(plan);
+	let marks = render_mark_rules(plan, chain);
+	for (let i = 0; i < length(marks); i++)
+		push(out, marks[i]);
 	return out;
 }
 
