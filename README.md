@@ -2,7 +2,7 @@
 
 <img src="assets/cheburashka.png" alt="cheburnet-router" width="160">
 
-# cheburnet-router (beta)
+# cheburnet-router
 
 ### Готовый OpenWrt-роутер за вечер. Настройка — 5 минут.
 
