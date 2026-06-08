@@ -1,0 +1,63 @@
+// snapshot.uc — снимок/восстановление UCI-конфигов (импурно, router-side).
+//
+//   ucode -R snapshot.uc save     [dir]   # сохранить /etc/config/<c> защищаемых конфигов
+//   ucode -R snapshot.uc restore  [dir]   # вернуть их из снимка + reload сервисов
+//   ucode -R snapshot.uc commit   [dir]   # успех: выбросить снимок
+//
+// Транзакция кирпича 3 (см. reliability): save → (применить шаг) → health-check → restore при
+// сбое / commit при успехе. Только ЧИСТЫЕ uci-конфиги (политику даёт rollback.uc). Грязный
+// откат (kmod/линк/сервис) сюда не входит — для него safe-fail на стороне шага.
+// Проверяется в QEMU; политика (что чистое) — под юнит-тестами (rollback/tests).
+
+import { readfile, writefile, mkdir, unlink, rmdir, popen } from "fs";
+import { protected_configs } from "./rollback.uc";
+
+// sh(cmd) — запустить команду, вернуть stdout (для reload сервисов).
+function sh(cmd) {
+	let p = popen(cmd, "r");
+	if (!p) return "";
+	let out = p.read("all") ?? "";
+	p.close();
+	return out;
+}
+
+let action = (length(ARGV) > 0) ? ARGV[0] : "";
+let dir = (length(ARGV) > 1) ? ARGV[1] : "/tmp/cheburnet-rollback";
+let configs = protected_configs();
+
+if (action == "save") {
+	mkdir(dir, 0700); // существует — вернёт ошибку, игнорируем
+	let saved = [];
+	for (let i = 0; i < length(configs); i++) {
+		let c = configs[i];
+		let text = readfile("/etc/config/" + c);
+		if (text != null) {
+			writefile(dir + "/" + c, text);
+			push(saved, c);
+		}
+	}
+	printf("snapshot: сохранено в %s — %s\n", dir, join(", ", saved));
+} else if (action == "restore") {
+	let restored = [];
+	for (let i = 0; i < length(configs); i++) {
+		let c = configs[i];
+		let text = readfile(dir + "/" + c);
+		if (text != null) {
+			writefile("/etc/config/" + c, text);
+			push(restored, c);
+		}
+	}
+	// Перечитать конфиги сервисами (uci читает файлы заново).
+	sh("/etc/init.d/network reload >/dev/null 2>&1");
+	sh("/etc/init.d/firewall reload >/dev/null 2>&1");
+	sh("/etc/init.d/dnsmasq reload >/dev/null 2>&1 || /etc/init.d/dnsmasq restart >/dev/null 2>&1");
+	sh("/etc/init.d/https-dns-proxy restart >/dev/null 2>&1");
+	printf("snapshot: восстановлено из %s — %s\n", dir, join(", ", restored));
+} else if (action == "commit") {
+	for (let i = 0; i < length(configs); i++)
+		unlink(dir + "/" + configs[i]); // нет файла — вернёт ошибку, игнорируем
+	rmdir(dir);
+	printf("snapshot: снимок %s выброшен (commit)\n", dir);
+} else {
+	die("snapshot: действие save|restore|commit обязательно (ucode -R snapshot.uc save [dir])");
+}
