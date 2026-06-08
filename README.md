@@ -2,7 +2,7 @@
 
 <img src="assets/cheburashka.png" alt="cheburnet-router" width="160">
 
-# cheburnet-router
+# cheburnet-router(СЕЙЧАС ПРОИСХОДИТ РАЗРАБОТКА ОБНОВЛЕНИЯ НА V2 - БОЛЕЕ НАДЕЖНУЮ И ЛЕГКУЮ ДЛЯ СЛАБЫХ РОУТЕРОВ...)
 
 ### Готовый OpenWrt-роутер за вечер. Настройка — 5 минут.
 
