@@ -15,7 +15,8 @@ Control-plane на [ucode](https://ucode.mediatek.org/): настраивает 
 | `rollback/` | snapshot/restore UCI там, где откат чистый (политика clean/dirty + router-side snapshot) | ✅ есть |
 | `lib/` | общие хелперы (`assert.uc`, `uci.uc` list-reconcile, `conf.uc` shell-конфиг) | ✅ есть |
 | `steps/` | идемпотентные шаги по компонентам | 🟢 `dns/`, `firewall/`, `vpn/`, `doh/`, `adblock/` есть |
-| `list/` | импорт и обновление community-списка доменов | ⏳ |
+| `list/` | импорт и обновление community-списка доменов (чистая сборка + router-side fetch) | ✅ есть |
+| `ubus/` | RPC-обработчик для web-мастера | ⏳ следующая фаза |
 
 ## Запуск тестов
 
