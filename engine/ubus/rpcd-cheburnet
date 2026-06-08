@@ -1,0 +1,276 @@
+#!/usr/bin/ucode -R
+// rpcd-cheburnet — ubus-RPC обработчик движка v2 для веб-мастера (ИМПУРНЫЙ слой, наследник
+// v1 web/rpcd-cheburnet). Ставится в /usr/libexec/rpcd/cheburnet, rpcd подхватывает сам.
+//
+// Протокол rpcd: вызывается как `list` (печатает дескриптор методов) или `call <method>`
+// (аргументы метода приходят JSON'ом на stdin). В shebang `-R` — иначе ucode на OpenWrt
+// читает файл как ШАБЛОН (default там — template-режим) и печатает код буквально.
+//
+// РОЛЬ: тонкий фасад. Валидация входа и роутинг — ЧИСТОЕ ядро ubus.uc (под юнит-тестами,
+// граница доверия). Здесь — только I/O: запуск движковых CLI (preflight/install/run/list/
+// шаги) и фон+poll установки. Логику НЕ дублируем — переиспользуем install/run.uc,
+// preflight, list, steps. Проверяется в QEMU (живой ubus/uci), не юнитами.
+
+import { popen, stdin, readfile, writefile, unlink, access, chmod } from "fs";
+import { list_descriptor, validate_request, requires_token, make_error } from "./ubus.uc";
+
+// engine/ — относительно этого файла (engine/ubus/rpcd-cheburnet). Тот же приём, что в run.uc.
+const ENGINE = sourcepath(0, true) + "/..";
+
+// Пути роутера. env-override — чтобы integration-тесты гоняли скрипт в sandbox без реальных
+// /etc и /tmp (тот же приём, что в v1).
+const STATE_DIR     = getenv("STATE_DIR")     ?? "/tmp/cheburnet";
+const ETC_CHEBURNET = getenv("ETC_CHEBURNET") ?? "/etc/cheburnet";
+const TOKEN_FILE    = ETC_CHEBURNET + "/install-token";
+const CFG_FILE      = ETC_CHEBURNET + "/install.json"; // воспроизводимая конфигурация (без секретов)
+const PAYLOAD_FILE  = STATE_DIR + "/install-payload.json"; // вход для run.uc (содержит awg_conf → 600)
+const LOG_FILE      = STATE_DIR + "/install.log";
+const STATE_FILE    = STATE_DIR + "/state";
+const DONE_FILE     = STATE_DIR + "/done";
+const PID_FILE      = STATE_DIR + "/pid";
+
+// === I/O-хелперы ===
+
+// sh(cmd) → stdout строкой (пусто при сбое). Команда идёт через /bin/sh -c (popen).
+function sh(cmd) {
+	let p = popen(cmd, "r");
+	if (!p) return "";
+	let out = p.read("all") ?? "";
+	p.close();
+	return out;
+}
+
+// run_stdin(cmd, text) → код выхода; подаёт text на stdin команды.
+function run_stdin(cmd, text) {
+	let w = popen(cmd, "w");
+	if (!w) return -1;
+	w.write(text ?? "");
+	return w.close();
+}
+
+// shellquote(s) — одинарные кавычки для безопасной передачи JSON в `printf '%s'`.
+function shellquote(s) {
+	return "'" + replace(s ?? "", "'", "'\\''") + "'";
+}
+
+// respond(obj) — напечатать JSON-ответ RPC и выйти 0 (rpcd ждёт один JSON-объект в stdout).
+function respond(obj) {
+	print(sprintf("%J\n", obj));
+	exit(0);
+}
+
+// pid_alive() — идёт ли уже фоновая операция (install/run.uc). kill -0 через shell.
+function pid_alive() {
+	let pid = trim(readfile(PID_FILE) ?? "");
+	if (length(pid) == 0) return false;
+	return trim(sh(sprintf("kill -0 %s 2>/dev/null; echo $?", pid))) == "0";
+}
+
+function engine_cli(rel) { return sprintf("ucode -R %s/%s", ENGINE, rel); }
+
+// load_cfg() — воспроизводимая конфигурация (domains/user_domains/routing_opts), сохранённая
+// при установке. Нет файла → пустой дефолт (set_mode/update_list тогда работают по home-дефолту).
+function load_cfg() {
+	let raw = readfile(CFG_FILE);
+	let c = (raw && substr(trim(raw), 0, 1) == "{") ? json(raw) : {};
+	if (type(c.routing_opts) != "object") c.routing_opts = {};
+	if (type(c.domains) != "array") c.domains = [];
+	if (type(c.user_domains) != "array") c.user_domains = [];
+	return c;
+}
+
+function save_cfg(c) {
+	writefile(CFG_FILE, sprintf("%J\n", { user_domains: c.user_domains, domains: c.domains, routing_opts: c.routing_opts }));
+}
+
+// imported_text() — кэш community-списка (заполняет list/fetch.uc). Нет файла → пусто.
+function imported_text() {
+	return readfile(ETC_CHEBURNET + "/direct-list") ?? "";
+}
+
+// assemble_domains(user) — финальный direct-список: user + community-кэш, через чистое ядро
+// list/assemble.uc (валидация/дедуп там). Возврат — массив доменов (пустой при сбое: fail-safe,
+// промах → трафик в туннель).
+function assemble_domains(user) {
+	let req = sprintf("%J", { user: user ?? [], imported_text: imported_text() });
+	let out = sh(sprintf("printf '%%s' %s | %s", shellquote(req), engine_cli("list/assemble.uc")));
+	let r = (substr(trim(out), 0, 1) == "{") ? json(out) : {};
+	return (type(r.domains) == "array") ? r.domains : [];
+}
+
+// reapply_dns(cfg) / reapply_firewall(cfg) — переприменить mode-зависимые шаги их же apply.uc
+// (идемпотентно). Вход — {domains, routing_opts}.
+function reapply_step(name, cfg) {
+	let payload = sprintf("%J", { domains: cfg.domains, routing_opts: cfg.routing_opts });
+	return run_stdin(engine_cli(sprintf("steps/%s/apply.uc", name)), payload);
+}
+
+// === методы ===
+
+function m_preflight() {
+	// gather (router-side факты) → check --json (чистый вердикт). Возвращаем отчёт как есть.
+	let report = sh(sprintf("%s | %s --json", engine_cli("preflight/gather.uc"), engine_cli("preflight/check.uc")));
+	if (substr(trim(report), 0, 1) != "{")
+		respond(make_error("preflight: не удалось собрать факты"));
+	respond(json(report));
+}
+
+function m_status() {
+	let cfg = load_cfg();
+	let mode = cfg.routing_opts.mode ?? "home";
+
+	let installed = access(ETC_CHEBURNET + "/install.json") ? true : false;
+
+	// Кол-во direct-доменов: наши nftset-строки в dnsmasq, целящиеся в @direct (IPv4 — /4#).
+	let nft = sh("uci -q get dhcp.@dnsmasq[0].nftset 2>/dev/null");
+	let direct_count = 0;
+	let toks = split(trim(nft), /[ \t\n]+/);
+	for (let i = 0; i < length(toks); i++)
+		if (index(toks[i], "/4#") >= 0 && index(toks[i], "#direct") >= 0) direct_count++;
+
+	// AWG handshake: возраст последнего рукопожатия (сек) или null.
+	let hs_age = null;
+	let hs = trim(sh("awg show awg0 latest-handshakes 2>/dev/null | awk '{print $2}'"));
+	if (match(hs, /^[0-9]+$/) && int(hs) > 0)
+		hs_age = int(trim(sh("date +%s"))) - int(hs);
+
+	let svc = (name) => trim(sh(sprintf("/etc/init.d/%s status 2>/dev/null | grep -qi running && echo up || echo down", name))) == "up";
+
+	respond({
+		installed: installed,
+		installing: pid_alive(),
+		mode: mode,
+		direct_domains: direct_count,
+		awg_handshake_age: hs_age,
+		dns_up: svc("dnsmasq"),
+		doh_up: svc("https-dns-proxy"),
+	});
+}
+
+function m_install(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+
+	// Токен-гейт (защита от LAN-сквоттинга): чистое ядро уже проверило, что token — непустая
+	// строка; здесь сверяем ЗНАЧЕНИЕ с файлом, выданным bootstrap'ом. Сравнение — импурно (файл).
+	let expected = trim(readfile(TOKEN_FILE) ?? "");
+	if (length(expected) == 0)
+		respond(make_error("install-токен не найден — запустите bootstrap по SSH (или роутер уже настроен)"));
+	if (trim(v.token) != expected)
+		respond(make_error("неверный install-токен — см. вывод bootstrap"));
+
+	// Финальный direct-список: пользовательский + community-кэш (если уже подтянут).
+	let domains = assemble_domains(v.domains);
+	let routing_opts = (type(v.routing_opts) == "object") ? v.routing_opts : {};
+
+	// Воспроизводимая конфигурация (для set_mode/update_list) — БЕЗ awg_conf (секрет).
+	let cfg = { user_domains: v.domains ?? [], domains: domains, routing_opts: routing_opts };
+	save_cfg(cfg);
+
+	// Полезная нагрузка для run.uc: его stdin-контракт {awg_conf, domains, routing_opts}.
+	// Содержит awg_conf (приватный ключ) → пишем и тут же сужаем права до 600.
+	writefile(PAYLOAD_FILE, sprintf("%J", { awg_conf: v.awg_conf, domains: domains, routing_opts: routing_opts }));
+	chmod(PAYLOAD_FILE, 0o600);
+
+	// Чистим артефакты прошлого запуска, помечаем старт.
+	unlink(DONE_FILE); unlink(LOG_FILE);
+	writefile(STATE_FILE, "starting\n");
+
+	// Фон: run.uc — длинная операция (apk + шаги), не держим RPC. setsid отвязывает от
+	// rpcd-сессии (SIGHUP при её закрытии иначе убьёт установку до записи done). После run.uc
+	// пишем его код выхода в done — install_progress по нему отдаёт ok/fail (тот же приём, что v1).
+	let spawn = sprintf(
+		"setsid sh -c '%s < %s >> %s 2>&1; echo $? > %s' </dev/null >/dev/null 2>&1 & echo $!",
+		engine_cli("install/run.uc"), PAYLOAD_FILE, LOG_FILE, DONE_FILE);
+	let pid = trim(sh(spawn));
+	writefile(PID_FILE, pid + "\n");
+	respond({ status: "started", pid: int(pid) });
+}
+
+function m_install_progress() {
+	let step = trim(readfile(STATE_FILE) ?? "idle");
+	let running = pid_alive();
+
+	// done-маркер = код выхода run.uc ("0" = ok). Процесс мёртв без маркера → упал (crashed).
+	let done = false, result = "unknown";
+	let dm = readfile(DONE_FILE);
+	if (dm != null) {
+		done = true;
+		result = (trim(dm) == "0") ? "ok" : "fail";
+	} else if (!running && access(LOG_FILE)) {
+		done = true; result = "crashed";
+	}
+
+	// Хвост лога (~12 КБ): держим в окне строку «шаг X упал» + причину (как v1).
+	let log = sh(sprintf("tail -c 12000 %s 2>/dev/null", LOG_FILE));
+	respond({ step: step, running: running, done: done, result: result, log: log });
+}
+
+function m_set_mode(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+	let cfg = load_cfg();
+	cfg.routing_opts.mode = v.mode;
+	save_cfg(cfg);
+
+	// Mode-зависимы только DNS (в travel nftset пуст) и firewall (kill-switch строже + ip rule).
+	// VPN/DoH/adblock от режима не зависят — не трогаем. Идемпотентно: повтор того же режима = no-op.
+	let rc_dns = reapply_step("dns", cfg);
+	let rc_fw  = reapply_step("firewall", cfg);
+	if (rc_dns != 0 || rc_fw != 0)
+		respond(make_error(sprintf("не удалось применить режим %s", v.mode), { dns: rc_dns, firewall: rc_fw }));
+	respond({ status: "ok", mode: v.mode });
+}
+
+function m_update_list(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+
+	// Подтянуть свежий community-список (fetch.uc сам гейтит мусор и атомарно меняет кэш;
+	// при сбое кэш не тронут → остаётся старый рабочий список). url необязателен — есть дефолт.
+	let url = v.url ?? "";
+	let fetch = engine_cli("list/fetch.uc") + (length(url) ? " " + shellquote(url) : "");
+	let rc = int(trim(sh(fetch + " >/dev/null 2>&1; echo $?")));
+	if (rc != 0)
+		respond(make_error("не удалось обновить список — кэш не тронут (см. logread)"));
+
+	// Пересобрать финальные домены (user + новый кэш) и переприменить DNS-шаг.
+	let cfg = load_cfg();
+	cfg.domains = assemble_domains(cfg.user_domains);
+	save_cfg(cfg);
+	let rc_dns = reapply_step("dns", cfg);
+	if (rc_dns != 0)
+		respond(make_error("список обновлён, но DNS-шаг не применился", { dns: rc_dns }));
+	respond({ status: "ok", direct_domains: length(cfg.domains) });
+}
+
+// === точка входа: rpcd `list` / `call <method>` ===
+
+let action = (length(ARGV) > 0) ? ARGV[0] : "";
+
+if (action == "list") {
+	print(sprintf("%J\n", list_descriptor()));
+	exit(0);
+}
+if (action != "call") {
+	warn('{"error":"unknown action"}\n');
+	exit(1);
+}
+
+let method = (length(ARGV) > 1) ? ARGV[1] : "";
+let raw = trim(stdin.read("all") ?? "");
+let args = (substr(raw, 0, 1) == "{") ? json(raw) : {};
+
+// Граница доверия: валидируем вход чистым ядром ДО любого I/O.
+let vr = validate_request(method, args);
+if (!vr.ok)
+	respond(make_error(vr.error));
+let v = vr.value;
+
+if (method == "preflight")             m_preflight();
+else if (method == "status")           m_status();
+else if (method == "install")          m_install(v);
+else if (method == "install_progress") m_install_progress();
+else if (method == "set_mode")         m_set_mode(v);
+else if (method == "update_list")      m_update_list(v);
+else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

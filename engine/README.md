@@ -17,7 +17,7 @@ Control-plane на [ucode](https://ucode.mediatek.org/): настраивает 
 | `steps/` | идемпотентные шаги по компонентам | 🟢 `dns/`, `firewall/`, `vpn/`, `doh/`, `adblock/` есть |
 | `list/` | импорт и обновление community-списка доменов (чистая сборка + router-side fetch) | ✅ есть |
 | `install/` | оркестратор: preflight→snapshot→шаги→health→commit/rollback (политика + router-side run) | ✅ есть |
-| `ubus/` | RPC-обработчик для web-мастера | ⏳ следующая фаза |
+| `ubus/` | RPC-фасад для web-мастера (чистая валидация/роутинг + rpcd-обработчик + ACL из реестра) | ✅ есть |
 
 ## Запуск тестов
 
