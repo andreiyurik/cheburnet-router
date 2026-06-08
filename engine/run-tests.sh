@@ -21,7 +21,10 @@ fi
 
 fails=0
 total=0
-for t in engine/*/tests/test_*.uc; do
+# find, а не glob: тест-файлы лежат на разной глубине (engine/<m>/tests, engine/steps/<c>/tests).
+# Пути тестов без пробелов (наш репозиторий) → намеренное word-splitting результата find.
+# shellcheck disable=SC2046
+for t in $(find engine -type f -path '*/tests/test_*.uc' | sort); do
 	[ -f "$t" ] || continue
 	total=$((total + 1))
 	printf '\n\033[1m▶ %s\033[0m\n' "$t"

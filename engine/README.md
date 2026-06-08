@@ -12,8 +12,8 @@ Control-plane на [ucode](https://ucode.mediatek.org/): настраивает 
 |---|---|---|
 | `routing/` | генерация конфигов split-routing (dnsmasq-nftset + nft + ip rule) | ✅ есть |
 | `preflight/` | гейткипер железа/версии/зависимостей (чистая оценка + парсеры + router-side gather) | ✅ есть |
-| `lib/` | общие хелперы (тест-раннер `assert.uc` и т.п.) | ✅ есть |
-| `steps/` | идемпотентные шаги по компонентам | ⏳ следующая фаза |
+| `lib/` | общие хелперы (`assert.uc`, `uci.uc` — идемпотентный list-reconcile) | ✅ есть |
+| `steps/` | идемпотентные шаги по компонентам | 🟡 `dns/` есть; firewall/vpn/adblock — ⏳ |
 | `rollback/` | snapshot/restore UCI там, где откат чистый | ⏳ |
 | `list/` | импорт и обновление community-списка доменов | ⏳ |
 
