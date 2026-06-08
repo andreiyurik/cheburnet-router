@@ -1,0 +1,165 @@
+// preflight.uc — гейткипер железа/версии/зависимостей (чистая логика, без роутера).
+//
+// Перед ЛЮБЫМИ изменениями движок проверяет, потянет ли железо стек, и честно отказывает
+// с понятным сообщением (см. docs/v2/architecture/reliability.md, hardware-requirements.md).
+//
+// Разделение ради тестируемости:
+//   • evaluate(facts, req) — ЧИСТАЯ оценка: на вход факты о системе → структурный отчёт.
+//     Юнит-тестируется без роутера (engine/preflight/tests).
+//   • сбор фактов (чтение /proc, ubus, uci, apk --simulate) — НЕ здесь: это router-side
+//     companion (gather), он импурный и проверяется в QEMU. Граница честная, не пропуск.
+
+// Требования по умолчанию. Пороги ориентировочные — уточняются по QEMU-замерам (Фаза 0).
+const REQUIREMENTS = {
+	arch: [ "arm", "aarch64", "mips", "mipsel", "x86_64" ],
+	min_openwrt: "25.12",   // apk-based ветка OpenWrt
+	min_flash_mb: 32,       // пакеты + конфиги влезут
+	min_ram_mb: 128,        // dnsmasq + awg + adblock-списки не упадут
+	deps: [ "kmod-amneziawg", "https-dns-proxy", "dnsmasq", "adblock-lean" ],
+};
+
+// resolve_req(req) — REQUIREMENTS, перекрытые переданными значениями (известные ключи).
+function resolve_req(req) {
+	let r = {};
+	for (let k in REQUIREMENTS)
+		r[k] = REQUIREMENTS[k];
+	if (req)
+		for (let k in req)
+			if (exists(REQUIREMENTS, k))
+				r[k] = req[k];
+	return r;
+}
+
+// cmp_version(a, b) → -1|0|1. Точечные числовые версии; SNAPSHOT новее любого релиза.
+export function cmp_version(a, b) {
+	if (a == b) return 0;
+	if (a == "SNAPSHOT") return 1;
+	if (b == "SNAPSHOT") return -1;
+	let pa = split(a, "."), pb = split(b, ".");
+	let n = (length(pa) > length(pb)) ? length(pa) : length(pb);
+	for (let i = 0; i < n; i++) {
+		let x = int(pa[i] ?? "0"); // отсутствующий сегмент → 0 (25.12 vs 25.12.0)
+		let y = int(pb[i] ?? "0");
+		if (x > y) return 1;
+		if (x < y) return -1;
+	}
+	return 0;
+}
+
+// ip4_to_int(ip) → целое или null, если не валидный IPv4-литерал.
+function ip4_to_int(ip) {
+	let p = split(ip, ".");
+	if (length(p) != 4) return null;
+	let n = 0;
+	for (let i = 0; i < 4; i++) {
+		if (!match(p[i], /^[0-9]+$/)) return null;
+		let o = int(p[i]);
+		if (o < 0 || o > 255) return null;
+		n = n * 256 + o; // без bitwise: 64-бит ucode-int держит 2^32 точно
+	}
+	return n;
+}
+
+function parse_cidr(c) {
+	let parts = split(c, "/");
+	if (length(parts) != 2) return null;
+	let ip = ip4_to_int(parts[0]);
+	if (ip == null || !match(parts[1], /^[0-9]+$/)) return null;
+	let pfx = int(parts[1]);
+	if (pfx < 0 || pfx > 32) return null;
+	return { ip: ip, pfx: pfx };
+}
+
+// cidr_overlap(a, b) → true, если две IPv4-подсети пересекаются. Сравниваем сетевые части
+// по меньшему префиксу: если совпали — одна вложена в другую (или равны) → пересечение.
+// Непарсимый вход → false: не выдаём ложный «конфликт» из-за неизвестного формата.
+export function cidr_overlap(a, b) {
+	let A = parse_cidr(a), B = parse_cidr(b);
+	if (!A || !B) return false;
+	let p = (A.pfx < B.pfx) ? A.pfx : B.pfx;
+	let div = 1;
+	for (let i = 0; i < 32 - p; i++) div = div * 2; // 2^(host-битов)
+	return int(A.ip / div) == int(B.ip / div);       // int(x/div) = обнуление младших битов
+}
+
+// check(id, ok, detail, fix) — один результат проверки. fix показываем только при провале.
+function check(id, ok, detail, fix) {
+	return { id: id, ok: ok, detail: detail, fix: ok ? null : fix };
+}
+
+// evaluate(facts, req) — собрать отчёт preflight. passed=false, если хоть одна проверка
+// (блокирующая) провалена. Это гейткипер: при passed=false движок НЕ трогает систему.
+//
+// facts: { arch, openwrt_version, flash_free_mb, ram_total_mb,
+//          deps_installable: {pkg: bool}, lan_cidr, wan_cidr }
+export function evaluate(facts, req) {
+	let r = resolve_req(req);
+	let checks = [];
+
+	// arch
+	push(checks, check("arch", index(r.arch, facts.arch) >= 0,
+		sprintf("arch = %s", facts.arch ?? "?"),
+		sprintf("нужна одна из поддерживаемых: %s", join(", ", r.arch))));
+
+	// версия OpenWrt
+	let ver = facts.openwrt_version ?? "";
+	push(checks, check("openwrt", ver != "" && cmp_version(ver, r.min_openwrt) >= 0,
+		sprintf("OpenWrt %s", ver != "" ? ver : "?"),
+		sprintf("нужна версия ≥ %s (apk-based)", r.min_openwrt)));
+
+	// флеш
+	let flash = facts.flash_free_mb ?? -1;
+	push(checks, check("flash", flash >= r.min_flash_mb,
+		sprintf("свободный флеш ≈ %d МБ", flash),
+		sprintf("нужно ≥ %d МБ свободно", r.min_flash_mb)));
+
+	// RAM
+	let ram = facts.ram_total_mb ?? -1;
+	push(checks, check("ram", ram >= r.min_ram_mb,
+		sprintf("RAM ≈ %d МБ", ram),
+		sprintf("нужно ≥ %d МБ", r.min_ram_mb)));
+
+	// зависимости устанавливаются — ГЛАВНЫЙ чек: иначе install упрётся на середине
+	let di = facts.deps_installable ?? {};
+	let missing = [];
+	for (let i = 0; i < length(r.deps); i++) {
+		let d = r.deps[i];
+		if (di[d] !== true)
+			push(missing, d);
+	}
+	push(checks, check("deps", length(missing) == 0,
+		length(missing) == 0 ? sprintf("все зависимости ставятся (%d)", length(r.deps))
+		                      : sprintf("не ставятся: %s", join(", ", missing)),
+		"проверьте feed/arch — нужные пакеты не доступны под эту платформу"));
+
+	// конфликт LAN/WAN — только если обе подсети известны (иначе нечего сравнивать)
+	if (facts.lan_cidr && facts.wan_cidr) {
+		let clash = cidr_overlap(facts.lan_cidr, facts.wan_cidr);
+		push(checks, check("lan_wan", !clash,
+			sprintf("LAN %s / WAN %s", facts.lan_cidr, facts.wan_cidr),
+			"LAN и WAN пересекаются — смените подсеть LAN, иначе потеряете доступ"));
+	}
+
+	let failed = 0;
+	for (let i = 0; i < length(checks); i++)
+		if (!checks[i].ok) failed++;
+
+	return { passed: failed == 0, failed: failed, total: length(checks), checks: checks };
+}
+
+// render_report(report) — человекочитаемые строки для CLI/лога.
+export function render_report(report) {
+	let out = [];
+	for (let i = 0; i < length(report.checks); i++) {
+		let c = report.checks[i];
+		let mark = c.ok ? "✓" : "✗";
+		let line = sprintf("%s %-8s %s", mark, c.id, c.detail);
+		if (!c.ok && c.fix)
+			line += sprintf("  → %s", c.fix);
+		push(out, line);
+	}
+	push(out, report.passed
+		? sprintf("preflight OK — железо подходит (%d проверок)", report.total)
+		: sprintf("preflight ОТКАЗ — провалено %d из %d", report.failed, report.total));
+	return out;
+}
