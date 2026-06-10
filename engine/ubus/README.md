@@ -27,11 +27,19 @@
 | Метод | Тип | Доступ | Что делает |
 |---|---|---|---|
 | `preflight` | read | anon | `gather.uc \| check.uc --json` → отчёт гейткипера |
-| `status` | read | anon | режим, кол-во direct-доменов, AWG-handshake, сервисы |
+| `status` | read | anon | режим, кол-во direct-доменов, AWG-handshake, сервисы, наличие Wi-Fi (`wireless_present`) + текущий `ssid` |
+| `check_lan_conflict` | read | anon | пересечение LAN/WAN-подсетей (`cidr_overlap`) + `suggest_ip` для замены |
+| `apply_lan_ip` | write | anon + **токен** | сменить LAN-IP: строгая `valid_lan_ip`, маска сохраняется, отложенный network restart |
 | `install` | write | anon + **токен** | фон `install/run.uc` (preflight→snapshot→шаги→health→commit/rollback) |
-| `install_progress` | read | anon | шаг + хвост лога + done/result (для poll'а мастера) |
+| `install_progress` | read | anon | шаг + хвост лога + done/result (для poll'а мастера и фоновых операций) |
+| `install_cancel` | write | anon + **токен** | прервать установку: kill process-group → дождаться смерти → маркер `cancelled` → откат через `run.uc --rollback` |
 | `set_mode` | write | admin | переключить HOME/TRAVEL — переприменить mode-зависимые шаги (dns+firewall) |
 | `update_list` | write | admin | `list/fetch.uc` свежий community-список → переприменить dns |
+| `service_restart` | write | admin | перезапуск v2-сервиса: `vpn` (ifdown/ifup awg0) / `dns` / `doh` / `adblock` |
+| `set_blocklist_tier` | write | admin | hagezi-тир adblock-lean через идемпотентный adblock-шаг (family-URL сохраняется) |
+| `set_family_filter` | write | admin | семейный режим (NSFW-блок + SafeSearch) — шаг `steps/family` |
+| `replace_awg_conf` | write | admin | замена AWG-конфига: sync-валидация → фон `install/replace_vpn.uc` (авто-rollback) |
+| `factory_reset` | write | admin | `confirm:"RESET"` → фон `install/reset.uc` (teardown cheburnet-конфигурации, НЕ firstboot) |
 
 ## ACL: два тира
 
@@ -42,16 +50,27 @@
 - **`cheburnet-admin`** — пост-установочное управление (`set_mode`, `update_list`), выдаётся
   авторизованной сессии. Видит все методы (анонимные + admin-only).
 
+Расширенный `status` (анонимный read): режим, домены, handshake, сервисы, `wireless_present`/`ssid`,
+`tier`, `family_filter`, `direct_list_loaded`+`imported_domains` (здоровье импортированного списка —
+пустой кэш → баннер в UI: direct-домены поедут через туннель, fail-safe).
+
 ## Установка: фон + poll
 
 `install` — длинная операция (apk + шаги), держать RPC нельзя. Обработчик пишет полезную
-нагрузку (`{awg_conf, domains, routing_opts}`, режим 600 — содержит приватный ключ) и запускает
+нагрузку (`{awg_conf, root_password, ssid, wifi_key, domains, routing_opts}`, режим 600 —
+содержит секреты: приватный ключ AWG + пароль root + ключ Wi-Fi) и запускает
 `run.uc` через `setsid` в фоне, возвращая `{status:"started", pid}`. `setsid` отвязывает от
 rpcd-сессии (иначе SIGHUP при её закрытии убьёт установку до записи `done`). Мастер поллит
 `install_progress`: `done` = run.uc записал код выхода, `result` ∈ `ok`/`fail`/`crashed`.
 Проверенный паттерн v1.
 
-Воспроизводимая конфигурация (`/etc/cheburnet/install.json`, **без** awg_conf) сохраняется при
+Тот же канал фон+poll переиспользуют `replace_awg_conf` (state `replacing-vpn`) и
+`factory_reset` (state `resetting`); общий PID-файл — взаимное исключение длинных операций.
+`install_cancel` убивает **process-group** (setsid сделал фон лидером группы) и пишет
+done-маркер `cancelled`.
+
+Воспроизводимая конфигурация (`/etc/cheburnet/install.json`, **без секретов** — awg_conf и
+root_password туда не пишутся) сохраняется при
 установке — из неё `set_mode`/`update_list` переприменяют шаги, не требуя повторного ввода.
 
 ## Использование

@@ -14,7 +14,9 @@
 // и права не разъезжаются между кодом и rpcd-acl.json (тест сверяет файл с выводом отсюда).
 
 // Реестр методов RPC. Один метод = одна запись (порядок стабилен → стабильны list/ACL).
-//   args  — спецификации аргументов: { name, type, required?, enum? }. type ∈ string|array|object|bool.
+//   args  — спецификации аргументов: { name, type, required?, enum?, minlen?, maxlen? }.
+//           type ∈ string|array|object|bool. minlen/maxlen — границы длины строки (граница доверия:
+//           короткий пароль/SSID режем синхронно ДО фоновой установки, как install_start в v1).
 //   access— read | write (ubus-разделение прав в ACL).
 //   auth  — anon  = доступен из LAN до установки (мутации гейтятся install-токеном на импурном слое);
 //           admin = только авторизованной сессии (post-install управление).
@@ -23,18 +25,58 @@
 const REGISTRY = [
 	{ name: "preflight", access: "read",  auth: "anon",  token: false, args: [] },
 	{ name: "status",    access: "read",  auth: "anon",  token: false, args: [] },
+	// Пред-инсталл безопасность: детект пересечения LAN/WAN-подсетей (read) и смена LAN-IP.
+	// apply_lan_ip — anon+токен (как install): до установки пароля root ещё нет, токен из
+	// bootstrap — единственный идентификатор «это владелец, а не сосед по LAN». Деструктивно
+	// (рвёт соединения LAN-клиентов) → строгая валидация значения ip на импурном слое.
+	{ name: "check_lan_conflict", access: "read", auth: "anon", token: false, args: [] },
+	{ name: "apply_lan_ip", access: "write", auth: "anon", token: true, args: [
+		{ name: "ip",    type: "string", required: true },
+		{ name: "token", type: "string", required: true },
+	] },
 	{ name: "install_progress", access: "read", auth: "anon", token: false, args: [] },
 	{ name: "install",   access: "write", auth: "anon",  token: true, args: [
-		{ name: "awg_conf",     type: "string", required: true },
-		{ name: "domains",      type: "array" },
-		{ name: "routing_opts", type: "object" },
-		{ name: "token",        type: "string", required: true },
+		{ name: "awg_conf",      type: "string", required: true },
+		{ name: "root_password", type: "string", required: true, minlen: 8 }, // секрет → payload 600, не install.json
+		// Wi-Fi необязателен: wired-only роутеры (x86/мини-ПК) ставятся без него. UI просит поля
+		// только при наличии радио (status.wireless_present); шаг wifi делает no-op без них.
+		{ name: "ssid",          type: "string", minlen: 1, maxlen: 32 },
+		{ name: "wifi_key",      type: "string", minlen: 8, maxlen: 63 }, // секрет → payload 600
+		{ name: "domains",       type: "array" },
+		{ name: "routing_opts",  type: "object" },
+		{ name: "token",         type: "string", required: true },
+	] },
+	// install_cancel — anon+токен (как install): отмену контролирует тот же человек, что запускал
+	// установку (у него токен из bootstrap); admin-сессии при установке ещё нет.
+	{ name: "install_cancel", access: "write", auth: "anon", token: true, args: [
+		{ name: "token", type: "string", required: true },
 	] },
 	{ name: "set_mode",  access: "write", auth: "admin", token: false, args: [
 		{ name: "mode", type: "string", required: true, enum: [ "home", "travel" ] },
 	] },
 	{ name: "update_list", access: "write", auth: "admin", token: false, args: [
 		{ name: "url", type: "string" },
+	] },
+	{ name: "service_restart", access: "write", auth: "admin", token: false, args: [
+		// v2-сервисы data-plane (без podkop/sing-box — вырезаны в v2)
+		{ name: "service", type: "string", required: true, enum: [ "vpn", "dns", "doh", "adblock" ] },
+	] },
+	{ name: "set_blocklist_tier", access: "write", auth: "admin", token: false, args: [
+		// hagezi-тиры adblock-lean (тот же набор, что в v1 valid_tier)
+		{ name: "tier", type: "string", required: true, enum: [
+			"light", "normal", "pro", "pro.plus", "ultimate",
+			"tif", "tif.medium", "tif.mini", "multi.pro", "fake",
+		] },
+	] },
+	{ name: "set_family_filter", access: "write", auth: "admin", token: false, args: [
+		{ name: "enabled", type: "bool", required: true },
+	] },
+	{ name: "replace_awg_conf", access: "write", auth: "admin", token: false, args: [
+		{ name: "awg_conf", type: "string", required: true },
+	] },
+	{ name: "factory_reset", access: "write", auth: "admin", token: false, args: [
+		// защитное слово; значение ("RESET") сверяет импурный слой — здесь лишь обязательность
+		{ name: "confirm", type: "string", required: true },
 	] },
 ];
 
@@ -111,6 +153,15 @@ export function validate_request(method, args) {
 
 		if (p.enum && index(p.enum, v) < 0)
 			return { ok: false, error: sprintf("%s must be one of: %s", p.name, join(", ", p.enum)) };
+
+		// Границы длины строки (только для строк): синхронная отбраковка слишком коротких/длинных
+		// значений (пароль, SSID) — пользователь получает ответ сразу, а не на середине установки.
+		if (p.type == "string") {
+			if (p.minlen != null && length(v) < p.minlen)
+				return { ok: false, error: sprintf("%s must be at least %d chars", p.name, p.minlen) };
+			if (p.maxlen != null && length(v) > p.maxlen)
+				return { ok: false, error: sprintf("%s must be at most %d chars", p.name, p.maxlen) };
+		}
 
 		value[p.name] = v;
 	}

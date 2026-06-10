@@ -6,6 +6,7 @@
                 "cheburnet": [
                     "preflight",
                     "status",
+                    "check_lan_conflict",
                     "install_progress"
                 ]
             }
@@ -13,7 +14,9 @@
         "write": {
             "ubus": {
                 "cheburnet": [
-                    "install"
+                    "apply_lan_ip",
+                    "install",
+                    "install_cancel"
                 ]
             }
         }
@@ -25,6 +28,7 @@
                 "cheburnet": [
                     "preflight",
                     "status",
+                    "check_lan_conflict",
                     "install_progress"
                 ]
             }
@@ -32,9 +36,16 @@
         "write": {
             "ubus": {
                 "cheburnet": [
+                    "apply_lan_ip",
                     "install",
+                    "install_cancel",
                     "set_mode",
-                    "update_list"
+                    "update_list",
+                    "service_restart",
+                    "set_blocklist_tier",
+                    "set_family_filter",
+                    "replace_awg_conf",
+                    "factory_reset"
                 ]
             }
         }

@@ -17,7 +17,7 @@ test("list_descriptor: все методы реестра присутствую
 	ok(exists(d, "install"), "install в дескрипторе");
 	ok(exists(d, "set_mode"), "set_mode в дескрипторе");
 	// install объявляет свои аргументы; типы — образцы (string→"", array→[], object→{})
-	deep_eq(d.install, { awg_conf: "", domains: [], routing_opts: {}, token: "" }, "сигнатура install");
+	deep_eq(d.install, { awg_conf: "", root_password: "", ssid: "", wifi_key: "", domains: [], routing_opts: {}, token: "" }, "сигнатура install");
 	deep_eq(d.set_mode, { mode: "" }, "сигнатура set_mode");
 	deep_eq(d.preflight, {}, "preflight без аргументов");
 });
@@ -49,29 +49,53 @@ test("validate: пустая строка в обязательном строк
 });
 
 test("validate: неверный тип → ошибка must be <type>", () => {
-	let r = validate_request("install", { awg_conf: "x", domains: "notarray", token: "t" });
+	let r = validate_request("install", { awg_conf: "x", root_password: "longenough", domains: "notarray", token: "t" });
 	eq(r.ok, false, "ok=false");
 	eq(r.error, "domains must be array", "тип domains");
-	let r2 = validate_request("install", { awg_conf: "x", routing_opts: [1], token: "t" });
+	let r2 = validate_request("install", { awg_conf: "x", root_password: "longenough", routing_opts: [1], token: "t" });
 	eq(r2.error, "routing_opts must be object", "тип routing_opts");
+});
+
+test("validate: root_password — обязателен и не короче 8 символов", () => {
+	let miss = validate_request("install", { awg_conf: "c", token: "t" });
+	eq(miss.error, "root_password required", "без пароля → required");
+	let short = validate_request("install", { awg_conf: "c", root_password: "short7!", token: "t" });
+	eq(short.ok, false, "7 символов не проходят");
+	eq(short.error, "root_password must be at least 8 chars", "сообщение minlen");
+	eq(validate_request("install", { awg_conf: "c", root_password: "12345678", token: "t" }).ok, true, "ровно 8 — ок");
+});
+
+test("validate: Wi-Fi необязателен, но при наличии — в границах длины", () => {
+	eq(validate_request("install", { awg_conf: "c", root_password: "s3cretpass", token: "t" }).ok,
+		true, "без ssid/wifi_key — ок (wired-only)");
+	let short_key = validate_request("install",
+		{ awg_conf: "c", root_password: "s3cretpass", token: "t", ssid: "Home", wifi_key: "short7!" });
+	eq(short_key.error, "wifi_key must be at least 8 chars", "короткий ключ Wi-Fi");
+	let long_ssid = "X"; for (let i = 0; i < 6; i++) long_ssid += long_ssid; // 2^6 = 64 символа
+	let big = validate_request("install",
+		{ awg_conf: "c", root_password: "s3cretpass", token: "t", ssid: long_ssid });
+	eq(big.error, "ssid must be at most 32 chars", "слишком длинный SSID");
+	eq(validate_request("install",
+		{ awg_conf: "c", root_password: "s3cretpass", token: "t", ssid: "Home", wifi_key: "password123" }).ok,
+		true, "валидный Wi-Fi");
 });
 
 test("validate: install со всеми полями → ok, value содержит только объявленные", () => {
 	let r = validate_request("install", {
-		awg_conf: "[Interface]\n", domains: [ "example.com" ],
+		awg_conf: "[Interface]\n", root_password: "s3cretpass", domains: [ "example.com" ],
 		routing_opts: { mode: "home" }, token: "abc", junk: "drop-me",
 	});
 	eq(r.ok, true, "ok=true");
 	deep_eq(r.value, {
-		awg_conf: "[Interface]\n", domains: [ "example.com" ],
+		awg_conf: "[Interface]\n", root_password: "s3cretpass", domains: [ "example.com" ],
 		routing_opts: { mode: "home" }, token: "abc",
 	}, "value без junk");
 });
 
 test("validate: необязательные поля можно опускать", () => {
-	let r = validate_request("install", { awg_conf: "c", token: "t" });
+	let r = validate_request("install", { awg_conf: "c", root_password: "s3cretpass", token: "t" });
 	eq(r.ok, true, "ok без domains/routing_opts");
-	deep_eq(r.value, { awg_conf: "c", token: "t" }, "только переданное");
+	deep_eq(r.value, { awg_conf: "c", root_password: "s3cretpass", token: "t" }, "только переданное");
 });
 
 test("validate: enum mode — только home|travel", () => {
@@ -88,26 +112,65 @@ test("validate: update_list — url необязателен", () => {
 	eq(validate_request("update_list", { url: 5 }).ok, false, "url не строка → ошибка");
 });
 
+// --- валидация: admin-методы Фазы B ---
+
+test("validate: service_restart — только v2-сервисы (без podkop)", () => {
+	eq(validate_request("service_restart", { service: "vpn" }).ok, true, "vpn ок");
+	eq(validate_request("service_restart", { service: "doh" }).ok, true, "doh ок");
+	eq(validate_request("service_restart", { service: "podkop" }).ok, false, "podkop вырезан в v2");
+	eq(validate_request("service_restart", {}).ok, false, "service обязателен");
+});
+
+test("validate: set_blocklist_tier — enum hagezi-тиров", () => {
+	eq(validate_request("set_blocklist_tier", { tier: "pro" }).ok, true, "pro ок");
+	eq(validate_request("set_blocklist_tier", { tier: "pro.plus" }).ok, true, "pro.plus ок");
+	eq(validate_request("set_blocklist_tier", { tier: "aggressive" }).ok, false, "чужой тир отвергнут");
+});
+
+test("validate: set_family_filter — bool обязателен, false проходит", () => {
+	eq(validate_request("set_family_filter", { enabled: true }).ok, true, "true ок");
+	eq(validate_request("set_family_filter", { enabled: false }).ok, true, "false — валидное значение, не «отсутствует»");
+	eq(validate_request("set_family_filter", { enabled: "yes" }).ok, false, "строка не bool");
+	eq(validate_request("set_family_filter", {}).ok, false, "enabled обязателен");
+});
+
+test("validate: replace_awg_conf и factory_reset — обязательные строки", () => {
+	eq(validate_request("replace_awg_conf", { awg_conf: "[Interface]\n" }).ok, true);
+	eq(validate_request("replace_awg_conf", {}).ok, false, "awg_conf обязателен");
+	eq(validate_request("factory_reset", { confirm: "RESET" }).ok, true);
+	eq(validate_request("factory_reset", {}).ok, false, "confirm обязателен");
+});
+
 // --- токен ---
 
-test("requires_token: только pre-install мутация install", () => {
+test("requires_token: pre-install мутации install, install_cancel, apply_lan_ip", () => {
 	eq(requires_token("install"), true, "install требует токен");
+	eq(requires_token("install_cancel"), true, "отмена — тем же токеном");
+	eq(requires_token("apply_lan_ip"), true, "смена LAN-IP — деструктив, токен");
 	eq(requires_token("set_mode"), false, "set_mode — admin, без токена");
 	eq(requires_token("status"), false, "status — read, без токена");
 	eq(requires_token("nope"), false, "неизвестный — false");
+});
+
+test("validate: apply_lan_ip — ip и token обязательны", () => {
+	eq(validate_request("apply_lan_ip", { ip: "192.168.2.1", token: "t" }).ok, true);
+	eq(validate_request("apply_lan_ip", { token: "t" }).error, "ip required", "без ip");
+	eq(validate_request("check_lan_conflict", {}).ok, true, "детект — без аргументов");
 });
 
 // --- ACL выводится из реестра ---
 
 test("acl_split: тиры выведены из реестра", () => {
 	let s = acl_split();
-	deep_eq(s.unauth.read, [ "preflight", "status", "install_progress" ], "anon read");
-	deep_eq(s.unauth.write, [ "install" ], "anon write (токен-гейт)");
+	deep_eq(s.unauth.read, [ "preflight", "status", "check_lan_conflict", "install_progress" ], "anon read");
+	deep_eq(s.unauth.write, [ "apply_lan_ip", "install", "install_cancel" ], "anon write (токен-гейт)");
 	// admin видит все методы
 	ok(index(s.admin.write, "set_mode") >= 0, "set_mode в admin write");
 	ok(index(s.admin.write, "update_list") >= 0, "update_list в admin write");
 	ok(index(s.admin.write, "install") >= 0, "install тоже доступен admin");
-	deep_eq(s.admin.read, [ "preflight", "status", "install_progress" ], "admin read = все read");
+	ok(index(s.admin.write, "service_restart") >= 0, "service_restart в admin write");
+	ok(index(s.admin.write, "factory_reset") >= 0, "factory_reset в admin write");
+	deep_eq(s.admin.read, [ "preflight", "status", "check_lan_conflict", "install_progress" ], "admin read = все read");
 });
 
 test("rpcd-acl.json синхронен с реестром (build_acl)", () => {
