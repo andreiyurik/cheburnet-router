@@ -2,7 +2,8 @@
 //   ucode -R engine/preflight/tests/test_preflight.uc
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
-import { cmp_version, cidr_overlap, evaluate, render_report } from "../preflight.uc";
+import { cmp_version, cidr_overlap, evaluate, render_report,
+         suggest_lan, valid_lan_ip } from "../preflight.uc";
 
 // Хорошие факты — каждый тест портит одно поле, чтобы проверить ровно его проверку.
 function good_facts() {
@@ -109,6 +110,28 @@ test("render_report: отказ помечает провал и итог", () =
 	let joined = join("\n", lines);
 	ok(index(joined, "✗ arch") >= 0, "провал arch виден");
 	ok(index(joined, "ОТКАЗ") >= 0, "итог — отказ");
+});
+
+// --- LAN-конфликт: подбор замены и валидация нового IP (граница apply_lan_ip) ---
+
+test("suggest_lan: первый кандидат вне WAN-подсети, пересекающийся пропущен", () => {
+	eq(suggest_lan("10.0.0.0/24"), "192.168.2.1", "WAN не из 192.168 → первый кандидат");
+	eq(suggest_lan("192.168.2.0/24"), "192.168.3.1", "192.168.2 занят WAN'ом → следующий");
+	// широкий WAN /16 накрывает ВСЕ кандидаты 192.168.X
+	eq(suggest_lan("192.168.0.0/16"), null, "некуда — честный null");
+	eq(suggest_lan("мусор"), "192.168.2.1", "непарсимый WAN → overlap=false → первый кандидат");
+});
+
+test("valid_lan_ip: только 192.168.X.Y, октеты в диапазоне, host 1..254", () => {
+	ok(valid_lan_ip("192.168.2.1"), "кандидат проходит");
+	ok(valid_lan_ip("192.168.255.254"), "граница диапазона");
+	ok(!valid_lan_ip("192.168.2.0"), "host .0 — адрес сети");
+	ok(!valid_lan_ip("192.168.2.255"), "host .255 — broadcast");
+	ok(!valid_lan_ip("192.168.999.1"), "октет >255 (v1 такое пускал)");
+	ok(!valid_lan_ip("10.0.0.1"), "не 192.168 — отказ");
+	ok(!valid_lan_ip("0.0.0.0"), "нулевой адрес");
+	ok(!valid_lan_ip(""), "пусто");
+	ok(!valid_lan_ip(null), "null");
 });
 
 exit(summary());

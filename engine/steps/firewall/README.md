@@ -2,10 +2,13 @@
 
 Production-применение split-routing для форвард-трафика LAN-клиентов:
 
-1. **Пометка** — наша prerouting-цепочка метит пакеты с `daddr ∈ direct`
+1. **NAT-зона туннеля** — uci firewall: зона `vpn` (awg0, masq + mtu_fix) и forwarding
+   `lan→vpn`. Без неё трафик LAN-клиентов уходит в туннель без SNAT/forwarding и не
+   возвращается — роутер «зелёный, но не везёт».
+2. **Пометка** — наша prerouting-цепочка метит пакеты с `daddr ∈ direct`
    ([policy-routing](../../../docs/v2/concepts/policy-routing.md)).
-2. **Policy routing** — `ip rule`/`ip route` разводят помеченное в WAN, остальное в туннель.
-3. **Kill-switch** — роняет непрямой трафик, утекающий в WAN мимо туннеля
+3. **Policy routing** — `ip rule`/`ip route` разводят помеченное в WAN, остальное в туннель.
+4. **Kill-switch** — роняет непрямой трафик, утекающий в WAN мимо туннеля
    ([kill-switch](../../../docs/v2/concepts/kill-switch.md)).
 
 ## Kill-switch — ключевые решения (threat model)
@@ -26,21 +29,31 @@ Production-применение split-routing для форвард-трафик
 
 ## Чистое ядро vs импурный apply
 
-- **`firewall.uc`** — `build_firewall_plan(routing_plan, opts)` → `{nft_teardown, nft_setup,
-  ip_teardown, ip_setup, killswitch, ok, errors}`. **Чистая функция**; переиспользует
+- **`firewall.uc`** — `build_firewall_plan(routing_plan, opts)` → `{uci_teardown, uci_setup,
+  nft_teardown, nft_setup, ip_teardown, ip_setup, killswitch, ok, errors}` + `build_nat_ops(opts)`
+  (uci-операции NAT-зоны). **Чистые функции**; переиспользует
   `render_sets`/`render_mark_rules`/`render_iprules` из routing (единый источник). Тесты — [tests/](tests/).
-- **`apply.uc`** — **router-side, импурно**: teardown (удалить наши цепочки/правила, `|| true`)
-  → setup (`nft -f -`, `ip`). Проверяется в QEMU.
+- **`apply.uc`** — **router-side, импурно**: NAT-зона (uci batch + commit + fw4 reload) →
+  teardown (удалить наши цепочки/правила, `|| true`) → setup (`nft -f -`, `ip`). Проверяется в QEMU.
 - **`plan.uc`** — CLI чистого ядра: facts → команды, без применения (локально/в тестах).
+
+> **Порядок критичен:** uci-часть и `fw4 reload` идут **до** nft-инъекции — reload пересобирает
+> таблицу `inet fw4` и стёр бы наши цепочки, если бы шёл после них.
 
 ## Идемпотентность и откат — честно
 
-Состояние ядра (nft/ip) **не откатывается чисто, как UCI**. Поэтому сходимся
-**пере-применением** (teardown+setup), а не минимальным diff: на повторе конечное состояние то
-же. Свои hooked-цепочки (`cheburnet_mark`, `cheburnet_ks`) удаляются целиком, не задевая правил
-fw4; **сеты не удаляем** — в них живут адреса от dnsmasq (удаление = транзиентная потеря
-direct-маршрутов). Это прямая реализация «грязный откат не маскируем под транзакцию»
-([reliability](../../../docs/v2/architecture/reliability.md)).
+Шаг **гибридный**. NAT-зона — uci firewall (именованные секции `cheburnet_vpn`/`cheburnet_lan_vpn`,
+delete-before-set): откатывается **чисто** snapshot'ом установки (`firewall ∈ CLEAN_CONFIGS`,
+входит в `snapshot_scope`). Состояние ядра (nft/ip) **не откатывается чисто, как UCI**. Поэтому
+сходимся **пере-применением** (teardown+setup), а не минимальным diff: на повторе конечное
+состояние то же. Свои hooked-цепочки (`cheburnet_mark`, `cheburnet_ks`) удаляются целиком, не
+задевая правил fw4; **сеты не удаляем** — в них живут адреса от dnsmasq (удаление = транзиентная
+потеря direct-маршрутов). Это прямая реализация «грязный откат не маскируем под транзакцию»
+([reliability](../../../docs/v2/architecture/reliability.md)). `--teardown` (standalone-откат
+оркестратором) снимает и nft/ip, и NAT-зону.
+
+**Forwarding по имени зоны (`lan→vpn`), не по CIDR** — LAN-подсеть в правилах не фигурирует
+(урок v1: хардкод подсети = тихая дыра на нестандартных конфигурациях).
 
 ## Использование
 

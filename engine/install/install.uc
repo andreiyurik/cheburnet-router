@@ -18,8 +18,11 @@ const STEPS = [
 	{ name: "dns",      configs: [ "dhcp" ],                     rollback: "clean", needs: "domains" },
 	{ name: "doh",      configs: [ "https-dns-proxy", "dhcp" ],  rollback: "clean", needs: "none" },
 	{ name: "adblock",  configs: [ "dhcp" ],                     rollback: "clean", needs: "none" },
-	// firewall — последним: пометка/ip rule/kill-switch поверх поднятого awg0. Runtime nft/ip → dirty.
-	{ name: "firewall", configs: [],                             rollback: "dirty", needs: "domains" },
+	// wifi — перед firewall: настройка радио независима от split-routing. Нет радио/ключа → no-op.
+	{ name: "wifi",     configs: [ "wireless" ],                 rollback: "clean", needs: "wifi" },
+	// firewall — последним: пометка/ip rule/kill-switch поверх поднятого awg0. Гибрид: NAT-зона —
+	// uci firewall (чистый откат snapshot'ом), цепочки/ip rule — runtime → шаг dirty (teardown).
+	{ name: "firewall", configs: [ "firewall" ],                 rollback: "dirty", needs: "domains" },
 ];
 
 function copy_step(s) {
@@ -45,14 +48,14 @@ export function enabled_steps(opts) {
 	return out;
 }
 
-// snapshot_scope(steps) → uci-конфиги для snapshot: объединение configs ЧИСТЫХ шагов,
-// только реально откатываемые (is_clean_config), без дублей, в порядке встречи. Грязные шаги
-// в snapshot не входят — их безопасный откат это их собственный teardown.
+// snapshot_scope(steps) → uci-конфиги для snapshot: объединение configs всех шагов, только
+// реально откатываемые (is_clean_config), без дублей, в порядке встречи. Классификация шага
+// dirty НЕ исключает его uci-configs: у гибридного шага (firewall) uci-часть (NAT-зона)
+// откатывается snapshot'ом, а runtime-часть (nft/ip) — его собственным teardown'ом.
 export function snapshot_scope(steps) {
 	let seen = {}, out = [];
 	for (let i = 0; i < length(steps); i++) {
 		let s = steps[i];
-		if (s.rollback != "clean") continue;
 		for (let j = 0; j < length(s.configs); j++) {
 			let c = s.configs[j];
 			if (is_clean_config(c) && !seen[c]) { seen[c] = true; push(out, c); }

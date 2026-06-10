@@ -2,7 +2,7 @@
 //   ucode -R engine/steps/doh/tests/test_doh.uc
 
 import { test, eq, ok, deep_eq, summary } from "../../../lib/assert.uc";
-import { build_doh_plan } from "../doh.uc";
+import { build_doh_plan, listen_prefix } from "../doh.uc";
 
 function has(arr, s) {
 	for (let i = 0; i < length(arr); i++) if (arr[i] == s) return true;
@@ -96,6 +96,10 @@ test("валидация: дубль порта → ok=false", () => {
 		],
 	});
 	ok(!p.ok);
+});
+
+test("listen_prefix: префикс наших dnsmasq-upstream (источник для reset)", () => {
+	eq(listen_prefix(), "127.0.0.1#");
 });
 
 exit(summary());

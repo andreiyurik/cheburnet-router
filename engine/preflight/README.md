@@ -34,7 +34,9 @@
 ```
 
 - **`preflight.uc`** — `evaluate(facts, req)` + хелперы `cmp_version`, `cidr_overlap`,
-  `render_report`. **Чистые функции** → юнит-тесты без роутера ([tests/](tests/)).
+  `render_report`, `suggest_lan` (кандидат LAN-IP вне WAN-подсети — для ubus
+  `check_lan_conflict`) и `valid_lan_ip` (граница доверия `apply_lan_ip`: строго 192.168.X.Y,
+  host 1..254). **Чистые функции** → юнит-тесты без роутера ([tests/](tests/)).
 - **`parse.uc`** — парсеры системного вывода (`parse_meminfo`, `parse_df`, `parse_arch`,
   `parse_board`, `parse_iface_cidr`). Тоже **чистые** → юнит-тесты на захваченных сэмплах
   (вкл. busybox-перенос длинного имени ФС в `df`).

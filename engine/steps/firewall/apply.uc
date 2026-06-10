@@ -10,14 +10,12 @@
 // wan_if обязателен в routing_opts (его даёт gather). Нет → план.ok=false → отказ без изменений.
 
 import { stdin, popen } from "fs";
+import { sh, uci_batch } from "../../lib/proc.uc";
 import { build_plan } from "../../routing/routing.uc";
 import { build_firewall_plan } from "./firewall.uc";
 
 function run(cmd) { // запустить, вернуть код выхода
-	let out = "";
-	let p = popen(cmd + " >/dev/null 2>&1; echo $?", "r");
-	if (p) { out = p.read("all") ?? ""; p.close(); }
-	return int(trim(out));
+	return int(trim(sh(cmd + " >/dev/null 2>&1; echo $?")));
 }
 
 let raw = trim(stdin.read("all") ?? "");
@@ -31,13 +29,19 @@ let teardown_only = (arg == "--teardown"); // снять наши правила
 let routing_plan = build_plan(req.domains ?? [], req.routing_opts);
 let plan = build_firewall_plan(routing_plan, req.fw_opts);
 
-// teardown-only: убрать наши nft-цепочки и ip-правила, ничего не ставя (safe-fail при rollback).
+// teardown-only: убрать наши nft-цепочки, ip-правила и NAT-зону, ничего не ставя (safe-fail при
+// rollback; на rollback uci firewall и так вернёт snapshot — здесь для standalone-teardown).
+// Код uci_batch здесь НЕ проверяем намеренно: teardown толерантен (отсутствие секций — норма).
 if (teardown_only) {
 	for (let i = 0; i < length(plan.nft_teardown); i++)
 		run("nft " + plan.nft_teardown[i]);
 	for (let i = 0; i < length(plan.ip_teardown); i++)
 		run(plan.ip_teardown[i]);
-	print("firewall: teardown выполнен (правила сняты)\n");
+	for (let i = 0; i < length(plan.uci_teardown); i++)
+		run("uci -q " + plan.uci_teardown[i]);
+	run("uci commit firewall");
+	run("/etc/init.d/firewall reload"); // пересобрать fw4 без нашей зоны
+	print("firewall: teardown выполнен (правила и NAT-зона сняты)\n");
 	exit(0);
 }
 
@@ -48,12 +52,26 @@ if (!plan.ok) {
 }
 
 if (dry) {
+	print("# uci teardown (NAT, || true)\n"); for (let i = 0; i < length(plan.uci_teardown); i++) print("  " + plan.uci_teardown[i] + "\n");
+	print("# uci setup (uci batch) + commit firewall + fw4 reload\n"); for (let i = 0; i < length(plan.uci_setup); i++) print("  " + plan.uci_setup[i] + "\n");
 	print("# nft teardown\n");  for (let i = 0; i < length(plan.nft_teardown); i++) print("  " + plan.nft_teardown[i] + "\n");
 	print("# nft setup\n");     for (let i = 0; i < length(plan.nft_setup); i++)    print("  " + plan.nft_setup[i] + "\n");
 	print("# ip teardown\n");   for (let i = 0; i < length(plan.ip_teardown); i++)  print("  " + plan.ip_teardown[i] + "\n");
 	print("# ip setup\n");      for (let i = 0; i < length(plan.ip_setup); i++)     print("  " + plan.ip_setup[i] + "\n");
 	exit(0);
 }
+
+// NAT-зона (uci firewall) ПЕРЕД nft: fw4 reload пересобирает таблицу inet fw4 и стёр бы наши
+// цепочки, если бы шёл ПОСЛЕ nft-инъекции. teardown (-q, отсутствие — норма) → batch setup →
+// commit → reload. Это чистый uci-конфиг (откат через snapshot), в отличие от nft/ip ниже.
+for (let i = 0; i < length(plan.uci_teardown); i++)
+	run("uci -q " + plan.uci_teardown[i]);
+// Код batch ОБЯЗАТЕЛЬНО проверяем: без NAT-зоны kill-switch + default через awg0 = «зелёная»
+// установка без интернета у LAN-клиентов (health-check локален и этого не видит).
+let uci_rc = uci_batch(plan.uci_setup, "firewall");
+if (uci_rc != 0)
+	die(sprintf("firewall/apply: uci batch (NAT-зона) завершился кодом %d", uci_rc));
+run("/etc/init.d/firewall reload");
 
 // nft teardown: удаление наших цепочек; отсутствие — норма (|| true внутри run, код игнорим).
 for (let i = 0; i < length(plan.nft_teardown); i++)

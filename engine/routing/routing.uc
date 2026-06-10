@@ -28,6 +28,12 @@ const DEFAULTS = {
 	wan_gw: null,       // шлюз WAN (если есть); не хардкодим — приходит из steps/preflight
 };
 
+// set_names() → имена наших nft-сетов [v4, v6]. Единственный источник для всех, кто матчит
+// «наши» nftset-записи dnsmasq (#<set>): dns-шаг, status, reset — не дрейфует при переименовании.
+export function set_names() {
+	return [ DEFAULTS.set4, DEFAULTS.set6 ];
+}
+
 // resolve_opts(opts) — DEFAULTS, перекрытые переданными opts. Неизвестные ключи пропускаем.
 function resolve_opts(opts) {
 	let o = {};

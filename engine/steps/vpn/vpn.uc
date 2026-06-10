@@ -32,6 +32,13 @@ function resolve_opts(opts) {
 	return o;
 }
 
+// owned_sections(opts?) → имена uci-секций network, которыми владеет шаг (интерфейс + peer).
+// Единственный источник для тех, кто их сносит (install/reset.uc) — не дрейфует при переименовании.
+export function owned_sections(opts) {
+	let o = resolve_opts(opts);
+	return [ o.interface, o.interface + "_peer" ];
+}
+
 // split_endpoint(ep) → { host, port } или null. Поддерживает host:port и [ipv6]:port.
 export function split_endpoint(ep) {
 	let s = trim(ep ?? "");

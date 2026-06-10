@@ -3,7 +3,7 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../../lib/assert.uc";
 import { build_plan } from "../../../routing/routing.uc";
-import { build_firewall_plan } from "../firewall.uc";
+import { build_firewall_plan, build_nat_ops } from "../firewall.uc";
 
 // routing-план с заданным WAN (v4-only для краткости, если не сказано иначе).
 function rp(extra) {
@@ -101,6 +101,37 @@ test("killswitch=false: ks-цепочки/правил нет, mark и ip ост
 	eq(length(p.killswitch), 0);
 	ok(index(join("\n", p.nft_setup), "cheburnet_ks") < 0);
 	ok(has(p.nft_setup, "add rule inet fw4 cheburnet_mark ip daddr @direct meta mark set 0x1"));
+});
+
+// --- NAT-зона awg0: masq + forwarding lan→vpn (uci firewall, чистый откат) ---
+test("build_nat_ops: именованные секции, masq, mtu_fix, forwarding lan→vpn", () => {
+	let n = build_nat_ops({});
+	// delete-before-set по именованным секциям → идемпотентность
+	deep_eq(n.teardown, [ "delete firewall.cheburnet_vpn", "delete firewall.cheburnet_lan_vpn" ]);
+	ok(has(n.setup, "set firewall.cheburnet_vpn=zone"));
+	ok(has(n.setup, "set firewall.cheburnet_vpn.name='vpn'"));
+	ok(has(n.setup, "add_list firewall.cheburnet_vpn.network='awg0'"));
+	ok(has(n.setup, "set firewall.cheburnet_vpn.masq='1'"), "SNAT туннеля");
+	ok(has(n.setup, "set firewall.cheburnet_vpn.mtu_fix='1'"), "MSS-clamp");
+	ok(has(n.setup, "set firewall.cheburnet_lan_vpn=forwarding"));
+	ok(has(n.setup, "set firewall.cheburnet_lan_vpn.src='lan'"));
+	ok(has(n.setup, "set firewall.cheburnet_lan_vpn.dest='vpn'"));
+});
+
+test("build_nat_ops: имена интерфейса/зон переопределяемы (не хардкод)", () => {
+	let n = build_nat_ops({ tunnel_if: "wg0", lan_zone: "guest", vpn_zone: "tun" });
+	ok(has(n.setup, "add_list firewall.cheburnet_tun.network='wg0'"));
+	ok(has(n.setup, "set firewall.cheburnet_guest_tun.src='guest'"));
+	ok(has(n.setup, "set firewall.cheburnet_guest_tun.dest='tun'"));
+});
+
+test("build_firewall_plan: NAT включён по умолчанию, выключаем fw_opts.nat=false", () => {
+	let on = build_firewall_plan(rp(null), null);
+	ok(has(on.uci_setup, "set firewall.cheburnet_vpn.masq='1'"), "NAT в плане по умолчанию");
+	deep_eq(on.uci_teardown, [ "delete firewall.cheburnet_vpn", "delete firewall.cheburnet_lan_vpn" ]);
+	let off = build_firewall_plan(rp(null), { nat: false });
+	deep_eq(off.uci_setup, [], "nat=false → нет uci-операций");
+	deep_eq(off.uci_teardown, []);
 });
 
 exit(summary());

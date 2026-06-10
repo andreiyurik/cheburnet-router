@@ -10,25 +10,13 @@
 //
 // Откат честный: чистые шаги возвращает snapshot restore; грязный (firewall) — его --teardown.
 
-import { popen, stdin } from "fs";
+import { stdin } from "fs";
+import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome } from "./install.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
 
-function sh(cmd) {                       // запустить, вернуть stdout
-	let p = popen(cmd, "r");
-	if (!p) return "";
-	let out = p.read("all") ?? "";
-	p.close();
-	return out;
-}
-function run_stdin(cmd, text) {           // запустить, подать text на stdin, вернуть код выхода
-	let w = popen(cmd, "w");
-	if (!w) return -1;
-	w.write(text ?? "");
-	return w.close();
-}
 function step_cmd(name, extra) {
 	return sprintf("ucode -R %s/steps/%s/apply.uc%s", ENGINE, name, extra ?? "");
 }
@@ -37,6 +25,8 @@ function step_stdin(s, cfg) {
 	if (s.needs == "awg_conf") return cfg.awg_conf ?? "";
 	if (s.needs == "domains")
 		return sprintf("%J", { domains: cfg.domains ?? [], routing_opts: cfg.routing_opts });
+	if (s.needs == "wifi")
+		return sprintf("%J", { ssid: cfg.ssid, key: cfg.wifi_key }); // нет полей → шаг сделает no-op
 	return "{}";
 }
 
@@ -51,6 +41,16 @@ function healthcheck(cfg) {
 	return dns_ok && awg_ok;
 }
 
+// rollback_all(steps, cfg) — ЕДИНСТВЕННАЯ реализация отката: вернуть чистые конфиги из снимка
+// + снять правила грязных шагов (safe-fail). Зовётся отсюда (упавшая установка) и ubus-слоем
+// через `run.uc --rollback` (отмена установки) — знание «как откатывать» не дрейфует по слоям.
+function rollback_all(steps, cfg) {
+	sh(sprintf("ucode -R %s/rollback/snapshot.uc restore", ENGINE));
+	let dirty = dirty_steps(steps);
+	for (let i = 0; i < length(dirty); i++)
+		run_stdin(step_cmd(dirty[i], " --teardown"), step_stdin({ name: dirty[i], needs: "domains" }, cfg));
+}
+
 // --- вход ---
 let raw = trim(stdin.read("all") ?? "");
 let cfg = (substr(raw, 0, 1) == "{") ? json(raw) : {};
@@ -58,6 +58,13 @@ let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
 let steps = enabled_steps({ disable: cfg.disable });
 let scope = snapshot_scope(steps);
+
+// --rollback: только откат, без установки. stdin — {domains?, routing_opts?} для teardown'ов.
+if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
+	rollback_all(steps, cfg);
+	warn("install: откат выполнен (--rollback)\n");
+	exit(0);
+}
 
 // --- 1. preflight (гейткипер) ---
 let facts = sh(sprintf("ucode -R %s/preflight/gather.uc", ENGINE));
@@ -104,15 +111,20 @@ let health = all_ok ? { ok: healthcheck(cfg) } : null;
 let outcome = decide_outcome({ preflight: preflight, steps: results, health: health });
 if (outcome.action == "commit") {
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
+	// Пароль root — не транзакция (см. steps/rootpass): применяем на успешном пути, отдельно от
+	// uci-снимка. Сбой passwd не валит установку — честный warning, пароль вторичен к data-plane.
+	if (cfg.root_password) {
+		let rc = run_stdin(sprintf("ucode -R %s/steps/rootpass/apply.uc", ENGINE),
+			sprintf("%J", { root_password: cfg.root_password }));
+		if (rc != 0)
+			warn("install: пароль root не применился — установите вручную по SSH\n");
+	}
 	printf("install: успешно — %s\n", outcome.reason);
 	exit(0);
 }
 
-// rollback: вернуть чистые конфиги из снимка + снять правила грязных шагов (safe-fail).
+// rollback: единая реализация (см. rollback_all выше).
 warn(sprintf("install: откат — %s\n", outcome.reason));
-sh(sprintf("ucode -R %s/rollback/snapshot.uc restore", ENGINE));
-let dirty = dirty_steps(steps);
-for (let i = 0; i < length(dirty); i++)
-	run_stdin(step_cmd(dirty[i], " --teardown"), step_stdin({ name: dirty[i], needs: "domains" }, cfg));
+rollback_all(steps, cfg);
 warn("install: откат выполнен — система возвращена к состоянию до установки\n");
 exit(1);

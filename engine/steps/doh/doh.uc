@@ -30,6 +30,12 @@ function resolve_opts(opts) {
 	return o;
 }
 
+// listen_prefix() → префикс НАШИХ dnsmasq-upstream-записей ("127.0.0.1#"). По нему шаг (и
+// reset.uc) отличает свои server-записи от чужих — единственный источник, не дрейфует.
+export function listen_prefix() {
+	return DOH_DEFAULTS.listen_addr + "#";
+}
+
 // build_doh_plan(current, opts) → { ok, errors, hdp_teardown, hdp_setup, dnsmasq_ops, servers }.
 //   current — снимок из apply: { hdp_sections: [имена секций], servers: [server-записи dnsmasq] }.
 // Идемпотентность: https-dns-proxy секции пересоздаём (delete-before-set, плюс сносим ВСЕ

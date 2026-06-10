@@ -2,7 +2,7 @@
 //   ucode -R engine/steps/vpn/tests/test_vpn.uc
 
 import { test, eq, ok, deep_eq, summary } from "../../../lib/assert.uc";
-import { parse_awg_conf, split_endpoint, build_vpn_plan } from "../vpn.uc";
+import { parse_awg_conf, split_endpoint, build_vpn_plan, owned_sections } from "../vpn.uc";
 
 // Типовой .conf с обфускацией и PSK (значения-заглушки, не настоящие ключи).
 const CONF = "[Interface]\n" +
@@ -124,6 +124,11 @@ test("build_vpn_plan: кастомный interface → секции и тип pe
 	ok(has(plan.setup, "set network.awg1=interface"));
 	ok(has(plan.setup, "set network.awg1_peer=amneziawg_awg1"));
 	ok(has(plan.setup, "set network.awg1_peer.route_allowed_ips='0'"));
+});
+
+test("owned_sections: имена секций шага (источник для reset), уважает opts", () => {
+	deep_eq(owned_sections(null), [ "awg0", "awg0_peer" ]);
+	deep_eq(owned_sections({ interface: "awg1" }), [ "awg1", "awg1_peer" ]);
 });
 
 exit(summary());

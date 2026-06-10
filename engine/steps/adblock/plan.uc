@@ -3,7 +3,8 @@
 //   echo '{"current":{"config":"raw_block_lists=\"old\"\n","addnmount":[]}}' | ucode -R plan.uc
 //   echo '{}' | ucode -R plan.uc --json
 //
-// current подаём вручную (тест без роутера). opts — переопределение списка/addnmount.
+// current подаём вручную (тест без роутера). opts — { tier?, dnsmasq_section?, addnmount?,
+// config_vars? }; легаси-ключ blocklists больше НЕ принимается (тиром владеет opts.tier).
 
 import { stdin } from "fs";
 import { build_adblock_plan } from "./adblock.uc";

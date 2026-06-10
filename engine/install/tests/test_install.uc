@@ -11,13 +11,13 @@ function names(steps) {
 	return out;
 }
 
-test("порядок шагов: vpn → dns → doh → adblock → firewall (firewall последним)", () => {
-	deep_eq(names(all_steps()), [ "vpn", "dns", "doh", "adblock", "firewall" ]);
+test("порядок шагов: vpn → dns → doh → adblock → wifi → firewall (firewall последним)", () => {
+	deep_eq(names(all_steps()), [ "vpn", "dns", "doh", "adblock", "wifi", "firewall" ]);
 });
 
 test("enabled_steps: disable убирает шаг, порядок сохраняется", () => {
 	let s = enabled_steps({ disable: [ "adblock", "doh" ] });
-	deep_eq(names(s), [ "vpn", "dns", "firewall" ]);
+	deep_eq(names(s), [ "vpn", "dns", "wifi", "firewall" ]);
 });
 
 test("all_steps возвращает копию (мутация не ломает реестр)", () => {
@@ -29,15 +29,16 @@ test("all_steps возвращает копию (мутация не ломае�
 	deep_eq(b[0].configs, [ "network" ]);
 });
 
-test("snapshot_scope: объединение чистых конфигов, дедуп, firewall (dirty) исключён", () => {
+test("snapshot_scope: объединение чистых конфигов, дедуп; uci-часть dirty-шага входит", () => {
 	let scope = snapshot_scope(all_steps());
-	// dhcp встречается у dns/doh/adblock → один раз; firewall (dirty, configs=[]) не вносит
-	deep_eq(scope, [ "network", "dhcp", "https-dns-proxy" ]);
+	// dhcp встречается у dns/doh/adblock → один раз; wifi вносит wireless; firewall (dirty)
+	// вносит uci 'firewall' (NAT-зона — чистый откат), его nft/ip-часть — teardown, не snapshot
+	deep_eq(scope, [ "network", "dhcp", "https-dns-proxy", "wireless", "firewall" ]);
 });
 
 test("snapshot_scope: при отключённом vpn нет network", () => {
 	let scope = snapshot_scope(enabled_steps({ disable: [ "vpn" ] }));
-	deep_eq(scope, [ "dhcp", "https-dns-proxy" ]);
+	deep_eq(scope, [ "dhcp", "https-dns-proxy", "wireless", "firewall" ]);
 });
 
 test("dirty_steps: только firewall (runtime nft/ip → safe-fail teardown)", () => {

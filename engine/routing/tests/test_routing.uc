@@ -5,7 +5,7 @@
 // дедуп, и три рендера в каждом режиме (home/travel, ipv6 on/off, hook prerouting/output).
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
-import { normalize_domain, is_valid_domain, build_plan,
+import { normalize_domain, is_valid_domain, build_plan, set_names,
          render_dnsmasq, render_dnsmasq_uci, render_nft, render_iprules,
          render_all } from "../routing.uc";
 
@@ -123,6 +123,10 @@ test("opts: кастомные mark/table/set прокидываются в ре
 		"add rule inet fw4 mangle_prerouting ip daddr @vpn_direct meta mark set 0x10",
 	]);
 	deep_eq(render_iprules(plan), [ "ip rule add fwmark 0x10 lookup 200" ]);
+});
+
+test("set_names: имена сетов [v4, v6] — источник для dns/status/reset", () => {
+	deep_eq(set_names(), [ "direct", "direct6" ]);
 });
 
 exit(summary());

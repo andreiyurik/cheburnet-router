@@ -88,6 +88,31 @@ export function cidr_overlap(a, b) {
 	return int(A.ip / div) == int(B.ip / div);       // int(x/div) = обнуление младших битов
 }
 
+// suggest_lan(wan_cidr) → "192.168.X.1" — кандидат нового LAN-IP, чья /24 НЕ пересекается с
+// WAN (проверка той же cidr_overlap — никаких префикс-сравнений «на глаз», урок v1). Набор
+// кандидатов из v1 (частые домашние, но не дефолтные у провайдерских модемов). null —
+// практически недостижимо (WAN-подсеть накрывает максимум один кандидат).
+const LAN_CANDIDATES = [ 2, 3, 4, 8, 9, 10, 11 ];
+
+export function suggest_lan(wan_cidr) {
+	for (let i = 0; i < length(LAN_CANDIDATES); i++) {
+		let net = sprintf("192.168.%d.0/24", LAN_CANDIDATES[i]);
+		if (!cidr_overlap(net, wan_cidr))
+			return sprintf("192.168.%d.1", LAN_CANDIDATES[i]);
+	}
+	return null;
+}
+
+// valid_lan_ip(ip) → bool. Граница доверия apply_lan_ip: принимаем ТОЛЬКО 192.168.X.Y с
+// валидными октетами и host-частью 1..254 — подделанный запрос не уронит роутер в
+// 0.0.0.0/255.255.255.255 (safety guard из v1, ужесточённый: v1 пускал октеты до 999).
+export function valid_lan_ip(ip) {
+	let m = match(ip ?? "", /^192\.168\.([0-9]{1,3})\.([0-9]{1,3})$/);
+	if (!m) return false;
+	let x = int(m[1]), y = int(m[2]);
+	return x >= 0 && x <= 255 && y >= 1 && y <= 254;
+}
+
 // check(id, ok, detail, fix) — один результат проверки. fix показываем только при провале.
 function check(id, ok, detail, fix) {
 	return { id: id, ok: ok, detail: detail, fix: ok ? null : fix };

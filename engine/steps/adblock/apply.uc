@@ -1,13 +1,15 @@
 // apply.uc — применение adblock-шага на роутере (импурно, router-side).
 //
-//   ucode -R apply.uc               # прочитать состояние, записать конфиг, применить addnmount
-//   ucode -R apply.uc --dry-run     # только показать план
+//   echo '{}' | ucode -R apply.uc               # дефолтный тир (hagezi:pro)
+//   echo '{"tier":"light"}' | ucode -R apply.uc # сменить тир (raw-URL'ы family-фильтра сохраняются)
+//   ... | ucode -R apply.uc --dry-run           # только показать план
 //
 // Читает /etc/adblock-lean/config и dnsmasq addnmount из uci, строит план (чистое ядро),
 // пишет конфиг (если изменился), применяет addnmount (uci batch + commit), затем запускает
 // adblock-lean и перезапускает dnsmasq, чтобы подхватить блок-лист. Проверяется в QEMU.
+// Вход опционален (пустой stdin/"{}" → дефолты): валидность тира гарантирует ubus-граница (enum).
 
-import { popen, readfile, writefile } from "fs";
+import { stdin, popen, readfile, writefile } from "fs";
 import { build_adblock_plan } from "./adblock.uc";
 
 const ABL_CONFIG = "/etc/adblock-lean/config";
@@ -20,13 +22,16 @@ function sh(cmd) {
 	return out;
 }
 
+let raw = trim(stdin.read("all") ?? "");
+let req = (substr(raw, 0, 1) == "{") ? json(raw) : {};
 let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
 let cfg = readfile(ABL_CONFIG) ?? "";
 let am_raw = trim(sh("uci -q get dhcp.@dnsmasq[0].addnmount 2>/dev/null"));
 let addnmount = length(am_raw) > 0 ? split(am_raw, /[ \t]+/) : [];
 
-let plan = build_adblock_plan({ config: cfg, addnmount: addnmount }, {});
+let opts = (type(req.tier) == "string" && length(req.tier) > 0) ? { tier: req.tier } : {};
+let plan = build_adblock_plan({ config: cfg, addnmount: addnmount }, opts);
 
 if (dry) {
 	printf("# config %s\n", plan.config_changed ? "изменится" : "без изменений");

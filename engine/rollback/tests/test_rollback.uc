@@ -10,6 +10,7 @@ test("is_clean_config: наши uci-конфиги чистые, прочее �
 	ok(is_clean_config("dhcp"));
 	ok(is_clean_config("firewall"));
 	ok(is_clean_config("https-dns-proxy"));
+	ok(is_clean_config("wireless"));
 	ok(!is_clean_config("kmod-amneziawg"));
 	ok(!is_clean_config("awg0-link"));
 });
@@ -31,7 +32,7 @@ test("protected_configs: возвращает копию (мутация не л
 test("plan_snapshot: по умолчанию — все защищаемые, ok", () => {
 	let p = plan_snapshot(null);
 	ok(p.ok);
-	deep_eq(p.configs, [ "network", "dhcp", "firewall", "https-dns-proxy" ]);
+	deep_eq(p.configs, [ "network", "dhcp", "firewall", "https-dns-proxy", "wireless" ]);
 });
 
 test("plan_snapshot: грязная цель → ok=false с причиной, в configs не попадает", () => {

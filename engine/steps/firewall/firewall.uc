@@ -18,6 +18,12 @@ const FW_DEFAULTS = {
 	mark_chain: "cheburnet_mark", // type filter hook prerouting priority mangle
 	ks_chain: "cheburnet_ks",     // type filter hook forward   priority filter
 	killswitch: true,
+	// NAT-зона туннеля (uci firewall): masq на awg0 + forwarding lan→vpn. Без неё LAN-трафик
+	// уходит в туннель без SNAT/forwarding и не возвращается (роутер «зелёный, но не везёт»).
+	nat: true,
+	tunnel_if: "awg0", // интерфейс туннеля (совпадает с vpn-шагом)
+	lan_zone: "lan",   // имя LAN-зоны fw4 (стандартное); forwarding по ИМЕНИ зоны, не по CIDR
+	vpn_zone: "vpn",   // имя создаваемой зоны туннеля
 };
 
 function resolve_opts(opts) {
@@ -25,6 +31,41 @@ function resolve_opts(opts) {
 	for (let k in FW_DEFAULTS) o[k] = FW_DEFAULTS[k];
 	if (opts) for (let k in opts) if (exists(FW_DEFAULTS, k)) o[k] = opts[k];
 	return o;
+}
+
+// build_nat_ops(opts) → { teardown, setup } — uci firewall: зона туннеля (masq + mtu_fix) и
+// forwarding lan→vpn. Именованные секции (cheburnet_<zone>) → идемпотентность через delete-before-set
+// (как peer-секция в vpn-шаге). Это ЧИСТЫЙ uci-конфиг: откатывается snapshot'ом (firewall ∈
+// CLEAN_CONFIGS), в отличие от nft/ip ниже. Применять ДО nft-инъекции: fw4 reload пересобирает
+// таблицу inet fw4 и стёр бы наши цепочки, если бы шёл после них (см. apply.uc).
+//   masq=1   — SNAT трафика LAN-клиентов, ушедшего в awg0 (без него обратный путь не находится);
+//   mtu_fix=1 — MSS-clamp под MTU туннеля; input REJECT — извне в роутер по туннелю не лезут.
+export function build_nat_ops(opts) {
+	let o = opts ?? {};
+	let tif  = o.tunnel_if ?? "awg0";
+	let lan  = o.lan_zone ?? "lan";
+	let zone = o.vpn_zone ?? "vpn";
+	let zsect = "cheburnet_" + zone;            // именованная секция zone
+	let fsect = "cheburnet_" + lan + "_" + zone; // именованная секция forwarding
+
+	let teardown = [
+		sprintf("delete firewall.%s", zsect),
+		sprintf("delete firewall.%s", fsect),
+	];
+	let setup = [
+		sprintf("set firewall.%s=zone", zsect),
+		sprintf("set firewall.%s.name='%s'", zsect, zone),
+		sprintf("add_list firewall.%s.network='%s'", zsect, tif),
+		sprintf("set firewall.%s.masq='1'", zsect),
+		sprintf("set firewall.%s.mtu_fix='1'", zsect),
+		sprintf("set firewall.%s.input='REJECT'", zsect),
+		sprintf("set firewall.%s.output='ACCEPT'", zsect),
+		sprintf("set firewall.%s.forward='REJECT'", zsect),
+		sprintf("set firewall.%s=forwarding", fsect),
+		sprintf("set firewall.%s.src='%s'", fsect, lan),
+		sprintf("set firewall.%s.dest='%s'", fsect, zone),
+	];
+	return { teardown: teardown, setup: setup };
 }
 
 // build_firewall_plan(routing_plan, opts) → структурный план.
@@ -85,9 +126,14 @@ export function build_firewall_plan(routing_plan, opts) {
 			push(ip_teardown, sprintf("ip -6 route flush table %d", ro.table));
 	}
 
+	// NAT-зона туннеля (uci firewall, чистый откат). Выключаемо через fw_opts.nat=false.
+	let nat = o.nat ? build_nat_ops(o) : { teardown: [], setup: [] };
+
 	return {
 		ok: length(errors) == 0,
 		errors: errors,
+		uci_teardown: nat.teardown,
+		uci_setup: nat.setup,
 		nft_teardown: nft_teardown,
 		nft_setup: nft_setup,
 		ip_teardown: ip_teardown,
