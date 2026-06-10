@@ -1,6 +1,10 @@
 #!/bin/sh
 # install.sh — единственный оркестратор установки. Всегда запускается НА РОУТЕРЕ.
 #
+# ⚠️ V1 ЗАМОРОЖЕН (strangler-fig миграция на v2 — см. CLAUDE.md и docs/architecture-v2.md).
+# Сюда — только фиксы стабильности для работающих установок. Новые фичи — ТОЛЬКО в v2
+# (engine/ + web-v2/). План вывода v1 — docs/architecture-v2.md, раздел «Sunset v1».
+#
 # Точки входа:
 #   • Веб-мастер: rpcd-cheburnet → setsid /opt/cheburnet/setup/install.sh (фоном).
 #   • CLI с ноутбука: setup.sh scp'шит репо в /opt/cheburnet/ и делает
