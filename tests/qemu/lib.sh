@@ -16,7 +16,7 @@
 
 # ─── конфиг по умолчанию (можно переопределить ДО vm_lib_init) ───────────────
 : "${IMG_URL:=https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-x86-64-generic-ext4-combined.img.gz}"
-: "${IMG_SHA256:=37c9a61aee6ae324cd528747e593cad05161f3778b47c687aa5da8845f2eee10}"
+: "${IMG_SHA256:=106c38f7b9750325cbe5b9788f09adf0f0820e340961ae913db1c89ea001ed4b}"
 : "${SSH_PORT:=2222}"
 : "${HTTP_PORT:=8080}"      # для smoke-http (port-forward 8080→80)
 : "${VM_RAM_MB:=512}"

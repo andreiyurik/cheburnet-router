@@ -11,7 +11,7 @@
 #                     Release-gate. Поймал uci/busybox-несовместимости,
 #                     которые mock-тесты T2 пропускают.
 
-.PHONY: lint test test-unit test-integration qemu qemu-http qemu-install hardware \
+.PHONY: lint test test-unit test-integration qemu qemu-v2 qemu-http qemu-install hardware \
         test-engine poc-split
 
 BATS := tests/vendor/bats-core/bin/bats
@@ -57,6 +57,13 @@ poc-split:
 # busybox-ash несовместимостей, которые mock-уровень T2 не видит.
 qemu:
 	@./tests/qemu/smoke.sh
+
+# T3a-v2 — hermetic VM smoke для ДВИЖКА v2 (ucode). Деплоит движок как пакет
+# (shim + engine без tests/, ACL из реестра) и проверяет на живом OpenWrt:
+# 14 ubus-методов, границу доверия сквозь rpcd, rootpass→session.login,
+# family on/off на реальном uci, NAT-зону + nft-цепочки + teardown на реальном fw4.
+qemu-v2:
+	@./tests/qemu/smoke-v2.sh
 
 # T3b — расширенный. Дополнительно ставит uhttpd-mod-ubus (apk update/add —
 # нужен интернет!) и тестирует то, что РЕАЛЬНО делают кнопки в UI: HTTP-POST
