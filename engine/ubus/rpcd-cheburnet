@@ -146,7 +146,10 @@ function m_status() {
 		"echo \"radios=$(uci -q show wireless 2>/dev/null | grep -c '=wifi-device')\"; " +
 		"echo \"ssid=$(uci -q get wireless.@wifi-iface[0].ssid 2>/dev/null)\"; " +
 		sprintf("echo \"sent=$(uci -q get dhcp.%s 2>/dev/null)\"; ", sent) +
-		sprintf("kill -0 \"$(cat %s 2>/dev/null)\" 2>/dev/null && echo alive=1", PID_FILE);
+		// Пустой pid ОБЯЗАТЕЛЬНО отсекаем ДО kill: busybox парсит "" как 0 → kill(0,0) —
+		// сигнал собственной process-группе → всегда успех → ложный installing=true.
+		// Хостовый shell на "" отвечает ошибкой — юниты этот gap не видят (поймано в QEMU).
+		sprintf("p=$(cat %s 2>/dev/null); [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null && echo alive=1", PID_FILE);
 	let facts = {};
 	let plines = split(sh(probe), "\n");
 	for (let i = 0; i < length(plines); i++) {
