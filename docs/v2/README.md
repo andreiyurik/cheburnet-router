@@ -20,7 +20,7 @@ updated: 2026-06-08
 - 🧭 **[[conventions]]** — как устроен этот vault и как кормить его ИИ.
 - 🎓 Новичку — иди по концепциям: [[split-routing]] → [[dnsmasq-nftset]] → [[policy-routing]].
 - 🏗 Инженеру — [[data-plane]], [[engine-ucode]], [[reliability]].
-- 🤔 «Почему так?» — решения в `decisions/`: [[0001-why-not-singbox]], [[0002-ucode-over-go]].
+- 🤔 «Почему так?» — решения в `decisions/`: [[0001-why-not-singbox]], [[0002-ucode-over-go]], [[0004-multi-protocol-tiers]].
 
 ## Как открыть
 

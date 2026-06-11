@@ -78,10 +78,16 @@
 |---|---|---|
 | Bootstrap | тонкий shell (~30 строк) | универсален на OpenWrt; вся хрупкая логика — не здесь |
 | Движок | **ucode** | нулевой footprint (слабое железо), нативные uci/ubus, любая arch без кросс-компиляции |
-| Data-plane | **dnsmasq-nftset + nftables + policy routing + AmneziaWG** | без sing-box: легче и **наглядно для обучения** |
+| Data-plane (Light-тир) | **dnsmasq-nftset + nftables + policy routing + AmneziaWG** | в ядре: легче, наглядно, едет на слабом железе |
+| Data-plane (Full-тир, **план**) | **+ sing-box** (VLESS+Reality, Hysteria2) опционально | устойчивость к DPI; гейтится preflight'ом по железу |
 | Шифрованный DNS | https-dns-proxy | лёгкая замена DoH из sing-box |
 | Веб-мастер | **Svelte** → Vite в статику | малый бандл, мало кода, поддержка соло |
 | Дистрибуция | OpenWrt package feed, `apk` | универсально: apk сам решает arch + зависимости |
+
+**Многопротокольность по тирам** — [docs/v2/decisions/0004-multi-protocol-tiers.md](docs/v2/decisions/0004-multi-protocol-tiers.md):
+Light (AmneziaWG, ядро) = дефолт и текущая реализация; Full (sing-box) = опциональный фолбэк для
+устойчивости к DPI, **будущая фаза, начинается с PoC**. Не «меню из 3 протоколов», а две оси
+покрытия (UDP/лёгкий ↔ TCP-mimicry/тяжёлый) + автофолбэк. Текущий код = только Light.
 
 **Надёжность — три простых кирпича** (не generic-движок): строгий **preflight** (гейткипер
 железа), **идемпотентные шаги**, **точечный rollback** только там, где откат чистый.
