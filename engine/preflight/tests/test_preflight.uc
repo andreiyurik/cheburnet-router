@@ -14,7 +14,7 @@ function good_facts() {
 		ram_total_mb: 256,
 		deps_installable: {
 			"kmod-amneziawg": true, "https-dns-proxy": true,
-			"dnsmasq": true, "adblock-lean": true,
+			"dnsmasq": true,
 		},
 		lan_cidr: "192.168.1.0/24",
 		wan_cidr: "10.0.0.0/24",

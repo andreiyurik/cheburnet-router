@@ -3,7 +3,8 @@
   // onBack — вернуться на preflight. wirelessPresent — есть ли радио (из status): false → скрыть
   // Wi-Fi; true → обязателен; null (статус не ответил) → показать как необязательный.
   // initial — ранее собранные args («Назад» с экрана подтверждения не теряет введённое).
-  let { onSubmit, onBack, wirelessPresent = null, initial = null } = $props();
+  // dnsProviders — каталог фильтрующих DNS (из status); dnsProviderDefault — дефолтный id.
+  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', initial = null } = $props();
 
   const MIN_PASS = 8; // минимум на ubus-границе (install.root_password.minlen)
   const SSID_MAX = 32; // IEEE 802.11
@@ -29,6 +30,9 @@
   let domainsText = $state(initial?.domains?.join('\n') ?? '');
   // svelte-ignore state_referenced_locally
   let token = $state(initial?.token ?? '');
+  // DNS-фильтрация: выбранный провайдер (initial → ранее выбранный → дефолт каталога).
+  // svelte-ignore state_referenced_locally
+  let dnsProvider = $state(initial?.dns_provider ?? dnsProviderDefault ?? '');
   let error = $state('');
 
   // Загрузка AWG-конфига файлом (вставить нормису тяжело — даём три пути: файл/вставка/—).
@@ -90,6 +94,7 @@
       awg_conf: awgConf,
       root_password: rootPass,
       ...wifiArgs,
+      ...(dnsProvider ? { dns_provider: dnsProvider } : {}),
       domains: parseDomains(domainsText),
       token: token.trim(),
     });
@@ -147,6 +152,19 @@
     {#if wirelessPresent === null}
       <small class="muted">Не удалось узнать, есть ли у роутера Wi-Fi — заполните, если он есть; иначе оставьте пустым.</small>
     {/if}
+  {/if}
+
+  {#if dnsProviders.length > 0}
+    <h3>Фильтрация (DNS)</h3>
+    <label>
+      <span>Блокировка рекламы / взрослого контента</span>
+      <select bind:value={dnsProvider}>
+        {#each dnsProviders as p}
+          <option value={p.id}>{p.name} — {p.description}</option>
+        {/each}
+      </select>
+      <small class="muted">«Семейный» провайдер дополнительно блокирует сайты 18+ и форсит безопасный поиск. Менять можно позже.</small>
+    </label>
   {/if}
 
   <label>

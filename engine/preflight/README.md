@@ -12,8 +12,8 @@
 | `arch` | arch ∈ {arm, aarch64, mips, mipsel, x86_64} | под неё есть бинари зависимостей |
 | `openwrt` | версия ≥ 25.12 | apk-based, API/пакеты совместимы |
 | `flash` | свободно ≥ 32 МБ | пакеты + конфиги влезут |
-| `ram` | ≥ 128 МБ | dnsmasq + awg + adblock-списки не упадут |
-| `deps` | `kmod-amneziawg`, `https-dns-proxy`, `dnsmasq`, `adblock-lean` **ставятся** | **главный чек** — иначе install упрётся на середине |
+| `ram` | ≥ 128 МБ | dnsmasq + awg не упадут под нагрузкой |
+| `deps` | `kmod-amneziawg`, `https-dns-proxy`, `dnsmasq` **ставятся** | **главный чек** — иначе install упрётся на середине |
 | `lan_wan` | LAN и WAN не пересекаются | не отрезать себе доступ |
 
 Пороги ориентировочные — уточняются по QEMU-замерам (Фаза 0). Переопределяются полем
@@ -57,7 +57,7 @@ ucode -R engine/preflight/gather.uc | ucode -R engine/preflight/check.uc
 # Или подать факты напрямую (так гоняем на хосте/в тестах):
 echo '{"arch":"aarch64","openwrt_version":"25.12.0","flash_free_mb":100,
        "ram_total_mb":256,"deps_installable":{"kmod-amneziawg":true,
-       "https-dns-proxy":true,"dnsmasq":true,"adblock-lean":true},
+       "https-dns-proxy":true,"dnsmasq":true},
        "lan_cidr":"192.168.1.0/24","wan_cidr":"10.0.0.0/24"}' \
   | ucode -R engine/preflight/check.uc          # exit 0 = подходит, 1 = отказ
 #   --json → машинный отчёт для ubus/UI

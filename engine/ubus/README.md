@@ -35,9 +35,8 @@
 | `install_cancel` | write | anon + **токен** | прервать установку: kill process-group → дождаться смерти → маркер `cancelled` → откат через `run.uc --rollback` |
 | `set_mode` | write | admin | переключить HOME/TRAVEL — переприменить mode-зависимые шаги (dns+firewall) |
 | `update_list` | write | admin | `list/fetch.uc` свежий community-список → переприменить dns |
-| `service_restart` | write | admin | перезапуск v2-сервиса: `vpn` (ifdown/ifup awg0) / `dns` / `doh` / `adblock` |
-| `set_blocklist_tier` | write | admin | hagezi-тир adblock-lean через идемпотентный adblock-шаг (family-URL сохраняется) |
-| `set_family_filter` | write | admin | семейный режим (NSFW-блок + SafeSearch) — шаг `steps/family` |
+| `service_restart` | write | admin | перезапуск v2-сервиса: `vpn` (ifdown/ifup awg0) / `dns` / `doh` |
+| `set_dns_provider` | write | admin | сменить DNS-провайдера (= уровень фильтрации) — переприменить `steps/doh` |
 | `replace_awg_conf` | write | admin | замена AWG-конфига: sync-валидация → фон `install/replace_vpn.uc` (авто-rollback) |
 | `factory_reset` | write | admin | `confirm:"RESET"` → фон `install/reset.uc` (teardown cheburnet-конфигурации, НЕ firstboot) |
 
@@ -51,7 +50,7 @@
   авторизованной сессии. Видит все методы (анонимные + admin-only).
 
 Расширенный `status` (анонимный read): режим, домены, handshake, сервисы, `wireless_present`/`ssid`,
-`tier`, `family_filter`, `direct_list_loaded`+`imported_domains` (здоровье импортированного списка —
+`family_filter`, `direct_list_loaded`+`imported_domains` (здоровье импортированного списка —
 пустой кэш → баннер в UI: direct-домены поедут через туннель, fail-safe).
 
 ## Установка: фон + poll

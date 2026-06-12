@@ -7,10 +7,13 @@
 
 import { stdin } from "fs";
 import { build_doh_plan } from "./doh.uc";
+import { resolvers_for } from "./providers.uc";
 
 let raw = trim(stdin.read("all") ?? "");
 let req = (substr(raw, 0, 1) == "{") ? json(raw) : {};
-let plan = build_doh_plan(req.current, req.opts);
+// opts напрямую (тесты) ИЛИ provider-id → резолверы из каталога.
+let opts = req.opts ?? (req.provider ? { resolvers: resolvers_for(req.provider) } : null);
+let plan = build_doh_plan(req.current, opts);
 
 if (length(ARGV) > 0 && ARGV[0] == "--json") {
 	print(sprintf("%J\n", plan));

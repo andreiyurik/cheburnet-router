@@ -8,6 +8,7 @@
 |---|---|---|---|
 | `make qemu` | T3a — hermetic smoke **v1** (заморожен): bringup VM + ubus-вызовы | ~90с | нет |
 | `make qemu-v2` | T3a-v2 — hermetic smoke **движка v2** (ucode): 14 методов, граница доверия, rootpass→session.login, family, NAT-зона+nft+teardown | ~2мин | нет* |
+| `make qemu-install-v2` | T3c-v2 — **установка через apk** + data-plane против реальных сервисов (dnsmasq-full/https-dns-proxy) | ~5-8мин | **да** (apk) |
 | `make qemu-http` | T3b — то же + uhttpd + HTTP/UI-кнопки (v1) | ~3мин | да (apk add) |
 | `make qemu-install` | T3c — полный прогон `setup/install.sh` на VM (v1) | ~5-10мин | да (apk + github) |
 
@@ -23,6 +24,16 @@
 реальном busybox-uci, NAT-зону + nft-цепочки + `--teardown` на реальном fw4. Не покрывает:
 HTTP-слой `/ubus` с ACL-инфорсментом (нужен uhttpd-mod-ubus → интернет, уровень T3b) и полный
 install (apk, AWG-сервер).
+
+### T3c-v2 — `install-v2.sh` (установка через apk, нужен интернет)
+
+Ставит DEPENDS пакета из **реального apk-feed** на живой OpenWrt и гоняет data-plane против
+**настоящих** сервисов (а не подсунутых руками): проверяет, что `package/cheburnet/Makefile`
+DEPENDS вообще резолвятся под arch; `dnsmasq` → `dnsmasq-full` swap; `dns`-шаг (реальный
+dnsmasq-full перечитывает наш nftset); `doh`-шаг (реальный https-dns-proxy стартует с нашими
+резолверами); preflight на живом `apk --simulate` даёт вердикт. `adblock-lean` (не feed-пакет)
+и `kmod-amneziawg` (нет под x86-ядро snapshot) — best-effort с репортом. Туннель/handshake и
+adblock-списки — на железе/T3b.
 
 ## Что покрывает каждый уровень
 

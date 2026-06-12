@@ -11,7 +11,7 @@
 #                     Release-gate. Поймал uci/busybox-несовместимости,
 #                     которые mock-тесты T2 пропускают.
 
-.PHONY: lint test test-unit test-integration qemu qemu-v2 qemu-http qemu-install hardware \
+.PHONY: lint test test-unit test-integration qemu qemu-v2 qemu-http qemu-install qemu-install-v2 hardware \
         test-engine poc-split
 
 BATS := tests/vendor/bats-core/bin/bats
@@ -64,6 +64,12 @@ qemu:
 # family on/off на реальном uci, NAT-зону + nft-цепочки + teardown на реальном fw4.
 qemu-v2:
 	@./tests/qemu/smoke-v2.sh
+
+# T3c-v2 — установка зависимостей через apk + data-plane против РЕАЛЬНЫХ сервисов
+# (dnsmasq-full/https-dns-proxy). Единственная проверка DEPENDS пакета из живого
+# feed'а. Нужен интернет для apk. ~5-8 мин с KVM.
+qemu-install-v2:
+	@./tests/qemu/install-v2.sh
 
 # T3b — расширенный. Дополнительно ставит uhttpd-mod-ubus (apk update/add —
 # нужен интернет!) и тестирует то, что РЕАЛЬНО делают кнопки в UI: HTTP-POST

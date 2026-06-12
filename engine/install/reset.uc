@@ -9,7 +9,7 @@
 // Это НЕ firstboot v1: сбрасывается cheburnet, не роутер.
 //
 // «Что считать нашим» НЕ хардкодим: имена секций/записей приходят из шагов-владельцев
-// (vpn.owned_sections / routing.set_names / doh.listen_prefix / adblock.addnmount_paths) —
+// (vpn.owned_sections / routing.set_names / doh.listen_prefix) —
 // переименование в шаге автоматически подхватывается здесь, дрейфа нет.
 //
 // Идемпотентно: повторный запуск на уже чистой системе — no-op (uci -q семантика).
@@ -20,7 +20,6 @@ import { sh, run_stdin, uci_batch } from "../lib/proc.uc";
 import { owned_sections } from "../steps/vpn/vpn.uc";
 import { set_names } from "../routing/routing.uc";
 import { listen_prefix } from "../steps/doh/doh.uc";
-import { addnmount_paths } from "../steps/adblock/adblock.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -35,9 +34,6 @@ print("reset: снимаю data-plane (nft/ip/NAT-зона)\n");
 run_stdin(sprintf("ucode -R %s/steps/firewall/apply.uc --teardown", ENGINE),
 	sprintf("%J", { domains: [], routing_opts: ro }));
 
-print("reset: выключаю семейный режим\n");
-run_stdin(sprintf("ucode -R %s/steps/family/apply.uc", ENGINE), '{"enabled":false}');
-
 // network: секции туннеля — имена даёт vpn-шаг.
 print("reset: убираю туннель из network\n");
 let net = owned_sections(null);
@@ -46,8 +42,8 @@ for (let i = 0; i < length(net); i++)
 	push(nops, "delete network." + net[i]);
 uci_batch(nops, "network");
 
-// dhcp: наши nftset (#<set> из routing), DoH-upstream'ы (префикс из doh), addnmount (из adblock),
-// noresolv. Teardown толерантен — код batch не проверяем (отсутствие записей — норма).
+// dhcp: наши nftset (#<set> из routing), DoH-upstream'ы (префикс из doh), noresolv.
+// Teardown толерантен — код batch не проверяем (отсутствие записей — норма).
 print("reset: чищу dnsmasq-привязки\n");
 let markers = [];
 let sets = set_names();
@@ -68,9 +64,6 @@ let stoks = length(srv) > 0 ? split(srv, /[ \t]+/) : [];
 for (let i = 0; i < length(stoks); i++)
 	if (substr(stoks[i], 0, length(pfx)) == pfx)
 		push(ops, sprintf("del_list dhcp.@dnsmasq[0].server='%s'", stoks[i]));
-let am = addnmount_paths();
-for (let i = 0; i < length(am); i++)
-	push(ops, sprintf("del_list dhcp.@dnsmasq[0].addnmount='%s'", am[i]));
 push(ops, "delete dhcp.@dnsmasq[0].noresolv");
 uci_batch(ops, "dhcp");
 
@@ -84,8 +77,6 @@ for (let i = 0; i < length(hsects); i++)
 	push(hops, sprintf("delete https-dns-proxy.%s", hsects[i]));
 if (length(hops) > 0)
 	uci_batch(hops, "https-dns-proxy");
-
-sh("/etc/init.d/adblock-lean stop >/dev/null 2>&1");
 
 // /etc/cheburnet: конфигурация, install-токен, кэш импортированного списка.
 print("reset: удаляю /etc/cheburnet\n");

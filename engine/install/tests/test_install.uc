@@ -11,8 +11,8 @@ function names(steps) {
 	return out;
 }
 
-test("порядок шагов: vpn → dns → doh → adblock → wifi → firewall (firewall последним)", () => {
-	deep_eq(names(all_steps()), [ "vpn", "dns", "doh", "adblock", "wifi", "firewall" ]);
+test("порядок шагов: vpn → dns → doh → wifi → firewall (firewall последним)", () => {
+	deep_eq(names(all_steps()), [ "vpn", "dns", "doh", "wifi", "firewall" ]);
 });
 
 test("enabled_steps: disable убирает шаг, порядок сохраняется", () => {

@@ -27,13 +27,14 @@ define Package/cheburnet
   TITLE:=cheburnet — образовательный split-tunnel роутер (мастер настройки)
   URL:=https://github.com/
   PKGARCH:=all
-  # Движок и data-plane. dnsmasq-full — ради nftset; https-dns-proxy — шифрованный DNS;
-  # kmod-amneziawg + amneziawg-tools — туннель; adblock-lean — блок-лист; nftables/ip-full —
-  # пометка и policy routing; uhttpd-mod-ubus — мост браузер→ubus для веб-мастера.
+  # Движок и data-plane. dnsmasq-full — ради nftset; https-dns-proxy — шифрованный DNS
+  # (и блокировка рекламы/контента — через выбор фильтрующего DoH-резолвера, не локальным
+  # списком); kmod-amneziawg + amneziawg-tools — туннель; nftables/ip-full — пометка и policy
+  # routing; uhttpd-mod-ubus — мост браузер→ubus для веб-мастера.
   DEPENDS:= \
 	+ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus \
 	+rpcd +rpcd-mod-file \
-	+dnsmasq-full +https-dns-proxy +adblock-lean \
+	+dnsmasq-full +https-dns-proxy \
 	+kmod-amneziawg +amneziawg-tools \
 	+nftables +ip-full \
 	+uhttpd +uhttpd-mod-ubus

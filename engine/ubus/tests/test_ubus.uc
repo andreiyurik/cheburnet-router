@@ -17,7 +17,7 @@ test("list_descriptor: все методы реестра присутствую
 	ok(exists(d, "install"), "install в дескрипторе");
 	ok(exists(d, "set_mode"), "set_mode в дескрипторе");
 	// install объявляет свои аргументы; типы — образцы (string→"", array→[], object→{})
-	deep_eq(d.install, { awg_conf: "", root_password: "", ssid: "", wifi_key: "", domains: [], routing_opts: {}, token: "" }, "сигнатура install");
+	deep_eq(d.install, { awg_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, token: "" }, "сигнатура install");
 	deep_eq(d.set_mode, { mode: "" }, "сигнатура set_mode");
 	deep_eq(d.preflight, {}, "preflight без аргументов");
 });
@@ -114,24 +114,26 @@ test("validate: update_list — url необязателен", () => {
 
 // --- валидация: admin-методы Фазы B ---
 
-test("validate: service_restart — только v2-сервисы (без podkop)", () => {
+test("validate: service_restart — только v2-сервисы (без podkop/adblock)", () => {
 	eq(validate_request("service_restart", { service: "vpn" }).ok, true, "vpn ок");
 	eq(validate_request("service_restart", { service: "doh" }).ok, true, "doh ок");
 	eq(validate_request("service_restart", { service: "podkop" }).ok, false, "podkop вырезан в v2");
+	eq(validate_request("service_restart", { service: "adblock" }).ok, false, "adblock убран (фильтрация через DNS)");
 	eq(validate_request("service_restart", {}).ok, false, "service обязателен");
 });
 
-test("validate: set_blocklist_tier — enum hagezi-тиров", () => {
-	eq(validate_request("set_blocklist_tier", { tier: "pro" }).ok, true, "pro ок");
-	eq(validate_request("set_blocklist_tier", { tier: "pro.plus" }).ok, true, "pro.plus ок");
-	eq(validate_request("set_blocklist_tier", { tier: "aggressive" }).ok, false, "чужой тир отвергнут");
-});
-
-test("validate: set_family_filter — bool обязателен, false проходит", () => {
-	eq(validate_request("set_family_filter", { enabled: true }).ok, true, "true ок");
-	eq(validate_request("set_family_filter", { enabled: false }).ok, true, "false — валидное значение, не «отсутствует»");
-	eq(validate_request("set_family_filter", { enabled: "yes" }).ok, false, "строка не bool");
-	eq(validate_request("set_family_filter", {}).ok, false, "enabled обязателен");
+test("validate: set_dns_provider — enum из каталога; dns_provider в install опционален", () => {
+	eq(validate_request("set_dns_provider", { provider: "adguard" }).ok, true, "каталожный id ок");
+	eq(validate_request("set_dns_provider", { provider: "adguard-family" }).ok, true, "семейный ок");
+	eq(validate_request("set_dns_provider", { provider: "nonsense" }).ok, false, "чужой id отвергнут");
+	eq(validate_request("set_dns_provider", {}).ok, false, "provider обязателен");
+	// в install dns_provider опционален (дефолт подставит handler), но при наличии — из enum
+	eq(validate_request("install",
+		{ awg_conf: "c", root_password: "s3cretpass", token: "t", dns_provider: "quad9" }).ok,
+		true, "валидный провайдер в install");
+	eq(validate_request("install",
+		{ awg_conf: "c", root_password: "s3cretpass", token: "t", dns_provider: "bad" }).ok,
+		false, "невалидный провайдер в install");
 });
 
 test("validate: replace_awg_conf и factory_reset — обязательные строки", () => {

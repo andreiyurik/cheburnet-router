@@ -16,8 +16,7 @@ import { is_clean_config } from "../rollback/rollback.uc";
 const STEPS = [
 	{ name: "vpn",      configs: [ "network" ],                  rollback: "clean", needs: "awg_conf" },
 	{ name: "dns",      configs: [ "dhcp" ],                     rollback: "clean", needs: "domains" },
-	{ name: "doh",      configs: [ "https-dns-proxy", "dhcp" ],  rollback: "clean", needs: "none" },
-	{ name: "adblock",  configs: [ "dhcp" ],                     rollback: "clean", needs: "none" },
+	{ name: "doh",      configs: [ "https-dns-proxy", "dhcp" ],  rollback: "clean", needs: "doh" },
 	// wifi — перед firewall: настройка радио независима от split-routing. Нет радио/ключа → no-op.
 	{ name: "wifi",     configs: [ "wireless" ],                 rollback: "clean", needs: "wifi" },
 	// firewall — последним: пометка/ip rule/kill-switch поверх поднятого awg0. Гибрид: NAT-зона —

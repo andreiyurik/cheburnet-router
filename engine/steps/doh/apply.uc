@@ -9,8 +9,9 @@
 //
 // Зависит от dnsmasq noresolv='1' (его ставит DNS-шаг): без него dnsmasq утечёт в ISP-resolv.conf.
 
-import { popen } from "fs";
+import { stdin, popen } from "fs";
 import { build_doh_plan } from "./doh.uc";
+import { resolvers_for } from "./providers.uc";
 
 function sh(cmd) {
 	let p = popen(cmd, "r");
@@ -21,6 +22,12 @@ function sh(cmd) {
 }
 
 let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
+
+// Вход (опционально): {provider:"<id>"} — выбранный DNS-провайдер. Нет/неизвестный → дефолт
+// каталога (fail-safe в resolvers_for). Валидность id гарантирует ubus-граница (enum).
+let raw = trim(stdin.read("all") ?? "");
+let req = (substr(raw, 0, 1) == "{") ? json(raw) : {};
+let resolvers = resolvers_for(req.provider);
 
 // Текущие секции https-dns-proxy: строки вида `https-dns-proxy.<name>=https-dns-proxy`.
 let hdp_sections = [];
@@ -35,7 +42,7 @@ for (let i = 0; i < length(lines); i++) {
 let srv_raw = trim(sh("uci -q get dhcp.@dnsmasq[0].server 2>/dev/null"));
 let servers = length(srv_raw) > 0 ? split(srv_raw, /[ \t]+/) : [];
 
-let plan = build_doh_plan({ hdp_sections: hdp_sections, servers: servers }, {});
+let plan = build_doh_plan({ hdp_sections: hdp_sections, servers: servers }, { resolvers: resolvers });
 if (!plan.ok) {
 	for (let i = 0; i < length(plan.errors); i++) warn("doh: " + plan.errors[i] + "\n");
 	exit(1);
@@ -59,7 +66,11 @@ for (let i = 0; i < length(plan.hdp_setup); i++) w.write(plan.hdp_setup[i] + "\n
 for (let i = 0; i < length(plan.dnsmasq_ops); i++) w.write(plan.dnsmasq_ops[i] + "\n");
 w.write("commit https-dns-proxy\n");
 w.write("commit dhcp\n");
-w.close();
+// Код ОБЯЗАТЕЛЬНО проверяем: иначе сбой uci (например, нет секции 'config' пакета
+// https-dns-proxy) проглатывается, и шаг отчитывается успехом без применённого резолвера.
+let rc = w.close();
+if (rc != 0)
+	die(sprintf("doh/apply: uci batch завершился кодом %d (установлен ли https-dns-proxy?)", rc));
 
 sh("/etc/init.d/https-dns-proxy restart >/dev/null 2>&1");
 sh("/etc/init.d/dnsmasq reload >/dev/null 2>&1 || /etc/init.d/dnsmasq restart >/dev/null 2>&1");

@@ -5,20 +5,10 @@
   // onReinstall — запустить мастер заново (с preflight).
   let { onReinstall } = $props();
 
-  // Тиры hagezi для dropdown'а (основные; движок принимает и расширенный набор — см. REGISTRY).
-  const TIERS = [
-    { value: 'light',    label: 'Light — минимум, ничего не ломает' },
-    { value: 'normal',   label: 'Normal — сбалансированный' },
-    { value: 'pro',      label: 'Pro — рекомендуемый (по умолчанию)' },
-    { value: 'pro.plus', label: 'Pro Plus — строже' },
-    { value: 'ultimate', label: 'Ultimate — максимум (возможны ложные блокировки)' },
-  ];
-
   let s = $state(null);
   let error = $state('');
   let action = $state(''); // текст результата/ошибки управляющего действия
   let busy = $state(false);
-  let tierSel = $state('');
   let awgConf = $state('');
   let awgPhase = $state('idle'); // idle | running | ok | fail
   let awgLog = $state('');
@@ -38,7 +28,7 @@
   async function refresh() {
     try {
       s = await cheburnet('status');
-      if (!tierSel && s.tier) tierSel = s.tier;
+      if (!providerSel && s.dns_provider) providerSel = s.dns_provider;
       error = '';
     } catch (e) {
       error = e.message;
@@ -100,10 +90,10 @@
     });
   const restart = (service, label) =>
     admin(`Перезапуск: ${label}`, () => cheburnet('service_restart', { service }));
-  const applyTier = () => admin(`Тир «${tierSel}»`, () => cheburnet('set_blocklist_tier', { tier: tierSel }));
-  const setFamily = (enabled) =>
-    admin(enabled ? 'Семейный режим: вкл' : 'Семейный режим: выкл',
-      () => cheburnet('set_family_filter', { enabled }));
+  // DNS-провайдер = уровень фильтрации (реклама/семейный/без). Выбор из каталога (status.dns_providers).
+  let providerSel = $state('');
+  const setProvider = () =>
+    admin(`DNS-провайдер: ${providerSel}`, () => cheburnet('set_dns_provider', { provider: providerSel }));
 
   // Замена AWG-конфига: метод стартует фон (snapshot → apply → handshake → commit/rollback),
   // прогресс поллим через install_progress — тот же канал, что у установки.
@@ -202,8 +192,7 @@
       {#if s.wireless_present}
         <li><span>Wi-Fi (SSID)</span><strong>{s.ssid || '—'}</strong></li>
       {/if}
-      <li><span>Блок-лист (тир)</span><strong>{s.tier ?? '—'}</strong></li>
-      <li><span>Семейный режим</span><strong>{s.family_filter ? 'включён' : 'выключен'}</strong></li>
+      <li><span>DNS-фильтрация</span><strong>{s.dns_provider_desc ? s.dns_provider_desc.name : (s.dns_provider ?? '—')}</strong></li>
     </ul>
 
     <h3>Управление</h3>
@@ -219,25 +208,21 @@
       <button disabled={busy} onclick={() => restart('vpn', 'туннель')}>Туннель</button>
       <button disabled={busy} onclick={() => restart('dns', 'DNS')}>DNS</button>
       <button disabled={busy} onclick={() => restart('doh', 'шифрованный DNS')}>Шифрованный DNS</button>
-      <button disabled={busy} onclick={() => restart('adblock', 'блокировка рекламы')}>Блок-лист</button>
     </div>
 
-    <h3>Блокировка рекламы</h3>
+    <h3>Фильтрация (DNS)</h3>
     <label>
-      <span>Уровень блок-листа</span>
-      <select bind:value={tierSel} disabled={busy}>
-        {#each TIERS as t}
-          <option value={t.value}>{t.label}</option>
+      <span>Блокировка рекламы / взрослого контента</span>
+      <select bind:value={providerSel} disabled={busy}>
+        {#each s.dns_providers ?? [] as p}
+          <option value={p.id}>{p.name} — {p.description}</option>
         {/each}
       </select>
     </label>
     <div class="row">
-      <button disabled={busy || !tierSel} onclick={applyTier}>Применить тир</button>
-      <button disabled={busy} onclick={() => setFamily(!s.family_filter)}>
-        {s.family_filter ? 'Выключить семейный режим' : 'Включить семейный режим'}
-      </button>
+      <button disabled={busy || !providerSel || providerSel === s.dns_provider} onclick={setProvider}>Применить</button>
     </div>
-    <p class="muted small">Семейный режим = NSFW-блок + принудительный SafeSearch в поисковиках и YouTube.</p>
+    <p class="muted small">«Семейный» провайдер блокирует сайты 18+ и форсит безопасный поиск. Выбор провайдера = уровень фильтрации.</p>
 
     <h3>Замена VPN-конфига</h3>
     <label>

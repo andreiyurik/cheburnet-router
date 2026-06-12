@@ -27,6 +27,8 @@ function step_stdin(s, cfg) {
 		return sprintf("%J", { domains: cfg.domains ?? [], routing_opts: cfg.routing_opts });
 	if (s.needs == "wifi")
 		return sprintf("%J", { ssid: cfg.ssid, key: cfg.wifi_key }); // нет полей → шаг сделает no-op
+	if (s.needs == "doh")
+		return sprintf("%J", { provider: cfg.dns_provider }); // нет id → doh берёт дефолт каталога
 	return "{}";
 }
 

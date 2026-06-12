@@ -13,6 +13,10 @@
 // Источник правды — REGISTRY: из него выводятся и дескриптор `list`, и ACL. Так список методов
 // и права не разъезжаются между кодом и rpcd-acl.json (тест сверяет файл с выводом отсюда).
 
+// Валидные id DNS-провайдеров — из каталога (единственный источник, enum не дрейфует с providers.uc).
+import { provider_ids } from "../steps/doh/providers.uc";
+const PROVIDER_IDS = provider_ids();
+
 // Реестр методов RPC. Один метод = одна запись (порядок стабилен → стабильны list/ACL).
 //   args  — спецификации аргументов: { name, type, required?, enum?, minlen?, maxlen? }.
 //           type ∈ string|array|object|bool. minlen/maxlen — границы длины строки (граница доверия:
@@ -42,6 +46,7 @@ const REGISTRY = [
 		// только при наличии радио (status.wireless_present); шаг wifi делает no-op без них.
 		{ name: "ssid",          type: "string", minlen: 1, maxlen: 32 },
 		{ name: "wifi_key",      type: "string", minlen: 8, maxlen: 63 }, // секрет → payload 600
+		{ name: "dns_provider",  type: "string", enum: PROVIDER_IDS }, // фильтрация = выбор резолвера
 		{ name: "domains",       type: "array" },
 		{ name: "routing_opts",  type: "object" },
 		{ name: "token",         type: "string", required: true },
@@ -58,18 +63,13 @@ const REGISTRY = [
 		{ name: "url", type: "string" },
 	] },
 	{ name: "service_restart", access: "write", auth: "admin", token: false, args: [
-		// v2-сервисы data-plane (без podkop/sing-box — вырезаны в v2)
-		{ name: "service", type: "string", required: true, enum: [ "vpn", "dns", "doh", "adblock" ] },
+		// v2-сервисы data-plane (без podkop/sing-box; adblock убран — фильтрация через DNS)
+		{ name: "service", type: "string", required: true, enum: [ "vpn", "dns", "doh" ] },
 	] },
-	{ name: "set_blocklist_tier", access: "write", auth: "admin", token: false, args: [
-		// hagezi-тиры adblock-lean (тот же набор, что в v1 valid_tier)
-		{ name: "tier", type: "string", required: true, enum: [
-			"light", "normal", "pro", "pro.plus", "ultimate",
-			"tif", "tif.medium", "tif.mini", "multi.pro", "fake",
-		] },
-	] },
-	{ name: "set_family_filter", access: "write", auth: "admin", token: false, args: [
-		{ name: "enabled", type: "bool", required: true },
+	// Выбор DNS-провайдера = выбор уровня фильтрации (реклама/семейный/без). Заменяет
+	// set_family_filter: «семейный режим» теперь = выбрать семейного провайдера (см. providers.uc).
+	{ name: "set_dns_provider", access: "write", auth: "admin", token: false, args: [
+		{ name: "provider", type: "string", required: true, enum: PROVIDER_IDS },
 	] },
 	{ name: "replace_awg_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },

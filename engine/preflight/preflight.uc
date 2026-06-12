@@ -14,8 +14,8 @@ const REQUIREMENTS = {
 	arch: [ "arm", "aarch64", "mips", "mipsel", "x86_64" ],
 	min_openwrt: "25.12",   // apk-based ветка OpenWrt
 	min_flash_mb: 32,       // пакеты + конфиги влезут
-	min_ram_mb: 128,        // dnsmasq + awg + adblock-списки не упадут
-	deps: [ "kmod-amneziawg", "https-dns-proxy", "dnsmasq", "adblock-lean" ],
+	min_ram_mb: 128,        // dnsmasq + awg не упадут под нагрузкой
+	deps: [ "kmod-amneziawg", "https-dns-proxy", "dnsmasq" ],
 };
 
 // resolve_req(req) — REQUIREMENTS, перекрытые переданными значениями (известные ключи).

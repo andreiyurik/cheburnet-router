@@ -9,15 +9,14 @@ function has(arr, s) {
 	return false;
 }
 
-// --- дефолтные резолверы: Quad9 + Cloudflare ---
-test("дефолт: секции quad9/cloudflare с портами 5053/5054", () => {
+// --- дефолтный провайдер из каталога: AdGuard, одна секция cheburnet_doh:5053 ---
+test("дефолт: секция cheburnet_doh (AdGuard) на порту 5053", () => {
 	let p = build_doh_plan({ hdp_sections: [], servers: [] }, null);
 	ok(p.ok);
-	ok(has(p.hdp_setup, "set https-dns-proxy.quad9=https-dns-proxy"));
-	ok(has(p.hdp_setup, "set https-dns-proxy.quad9.listen_port='5053'"));
-	ok(has(p.hdp_setup, "set https-dns-proxy.quad9.resolver_url='https://dns.quad9.net/dns-query'"));
-	ok(has(p.hdp_setup, "set https-dns-proxy.cloudflare.listen_port='5054'"));
-	ok(has(p.hdp_setup, "set https-dns-proxy.quad9.bootstrap_dns='9.9.9.9,149.112.112.112'"));
+	ok(has(p.hdp_setup, "set https-dns-proxy.cheburnet_doh=https-dns-proxy"));
+	ok(has(p.hdp_setup, "set https-dns-proxy.cheburnet_doh.listen_port='5053'"));
+	ok(has(p.hdp_setup, "set https-dns-proxy.cheburnet_doh.resolver_url='https://dns.adguard-dns.com/dns-query'"));
+	ok(has(p.hdp_setup, "set https-dns-proxy.cheburnet_doh.bootstrap_dns='94.140.14.14,94.140.15.15'"));
 });
 
 test("сами рулим dnsmasq: update_dnsmasq_config='-'", () => {
@@ -25,20 +24,19 @@ test("сами рулим dnsmasq: update_dnsmasq_config='-'", () => {
 	ok(has(p.hdp_setup, "set https-dns-proxy.config.update_dnsmasq_config='-'"));
 });
 
-// --- dnsmasq upstream: свежая система → add обоих ---
-test("dnsmasq upstream: чистая система → add_list обоих локальных портов", () => {
+// --- dnsmasq upstream: свежая система → add нашего локального порта ---
+test("dnsmasq upstream: чистая система → add_list локального порта", () => {
 	let p = build_doh_plan({ hdp_sections: [], servers: [] }, null);
 	deep_eq(p.dnsmasq_ops, [
 		"add_list dhcp.@dnsmasq[0].server='127.0.0.1#5053'",
-		"add_list dhcp.@dnsmasq[0].server='127.0.0.1#5054'",
 	]);
 });
 
 // --- идемпотентность upstream: уже настроено → no-op ---
 test("dnsmasq upstream: уже настроено → пустой diff", () => {
 	let p = build_doh_plan({
-		hdp_sections: [ "quad9", "cloudflare" ],
-		servers: [ "127.0.0.1#5053", "127.0.0.1#5054" ],
+		hdp_sections: [ "cheburnet_doh" ],
+		servers: [ "127.0.0.1#5053" ],
 	}, null);
 	deep_eq(p.dnsmasq_ops, []);
 });
@@ -47,17 +45,16 @@ test("dnsmasq upstream: уже настроено → пустой diff", () => 
 test("чужой upstream-сервер (не 127.0.0.1#) сохраняется", () => {
 	let p = build_doh_plan({
 		hdp_sections: [],
-		servers: [ "8.8.8.8", "127.0.0.1#5053", "127.0.0.1#5054" ],
+		servers: [ "8.8.8.8", "127.0.0.1#5053" ],
 	}, null);
-	deep_eq(p.dnsmasq_ops, [], "наши уже на месте, чужой 8.8.8.8 не в remove");
+	deep_eq(p.dnsmasq_ops, [], "наша уже на месте, чужой 8.8.8.8 не в remove");
 });
 
 // --- замена дефолтной секции пакета (конфликт по порту) ---
-test("teardown сносит существующие секции пакета + наши имена (чистая замена)", () => {
+test("teardown сносит существующие секции пакета + нашу (чистая замена провайдера)", () => {
 	let p = build_doh_plan({ hdp_sections: [ "cfg01" ], servers: [] }, null);
 	ok(has(p.hdp_teardown, "delete https-dns-proxy.cfg01"), "дефолтная секция пакета снесена");
-	ok(has(p.hdp_teardown, "delete https-dns-proxy.quad9"));
-	ok(has(p.hdp_teardown, "delete https-dns-proxy.cloudflare"));
+	ok(has(p.hdp_teardown, "delete https-dns-proxy.cheburnet_doh"), "наша секция (смена провайдера)");
 });
 
 // --- кастомные резолверы заменяют дефолт ---

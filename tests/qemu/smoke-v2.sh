@@ -11,13 +11,13 @@
 # импорт из tests, который юнит-прогон бы замаскировал.
 #
 # Что покрывает:
-#   • rpcd регистрирует ucode-handler через shim; ubus -v list — все 14 методов.
+#   • rpcd регистрирует ucode-handler через shim; ubus -v list — все 13 методов.
 #   • status/preflight/check_lan_conflict → валидный JSON через настоящий ubusd.
 #   • Граница доверия сквозь реальный rpcd: required-поля, токен-гейт, confirm.
 #   • steps/rootpass на НАСТОЯЩЕМ busybox passwd + ubus session.login этим
 #     паролем (самое слабое допущение v2: дефолтный rpcd даёт root-сессии права).
 #   • steps/wifi: честный no-op на VM без радио.
-#   • steps/family: on→идемпотентный on→off на реальном busybox-uci.
+#   • (doh/выбор DNS-провайдера — в T3c-v2: нужен пакет https-dns-proxy с его секцией 'config'.)
 #   • steps/firewall: NAT-зона в реальном uci+fw4 reload, цепочки в реальном
 #     nft, --teardown вычищает и то и другое.
 #
@@ -62,11 +62,11 @@ vm_ssh "ubus list cheburnet >/dev/null" || {
     exit 1
 }
 
-echo "→ assert: ubus -v list — все 14 методов из REGISTRY"
+echo "→ assert: ubus -v list — все 13 методов из REGISTRY"
 methods="$(vm_ssh 'ubus -v list cheburnet' \
     | sed -nE 's/^[[:space:]]+"([^"]+)":.*$/\1/p' \
     | sort | tr '\n' ' ' | sed 's/ $//')"
-expected="apply_lan_ip check_lan_conflict factory_reset install install_cancel install_progress preflight replace_awg_conf service_restart set_blocklist_tier set_family_filter set_mode status update_list"
+expected="apply_lan_ip check_lan_conflict factory_reset install install_cancel install_progress preflight replace_awg_conf service_restart set_dns_provider set_mode status update_list"
 [ "$methods" = "$expected" ] || {
     echo "  expected: $expected"
     echo "  actual:   $methods"
@@ -133,31 +133,9 @@ out="$(vm_ssh 'echo '\''{"ssid":"Test","key":"password123"}'\'' | ucode -R /usr/
 echo "$out" | grep -q 'нет' \
     || { echo "  output: $out"; exit 1; }
 
-# ─── steps/family: on → идемпотентный on → off на реальном busybox-uci ───────
-echo "→ assert: family on — NSFW-токен в конфиге, cname'ы в uci"
-vm_ssh 'mkdir -p /etc/adblock-lean && printf '\''raw_block_lists="hagezi:pro"\n'\'' > /etc/adblock-lean/config'
-vm_ssh 'echo '\''{"enabled":true}'\'' | ucode -R /usr/share/cheburnet/engine/steps/family/apply.uc' \
-    || { echo "  FAIL: family on exit != 0"; exit 1; }
-nsfw_n="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l')"
-[ "$nsfw_n" = "1" ] || { echo "  FAIL: NSFW-токенов $nsfw_n (ожидал 1)"; vm_ssh 'cat /etc/adblock-lean/config'; exit 1; }
-ss_n="$(vm_ssh 'uci show dhcp | grep -o forcesafesearch.google.com | wc -l')"
-[ "$ss_n" = "2" ] || { echo "  FAIL: forcesafesearch-cname $ss_n (ожидал 2)"; vm_ssh 'uci show dhcp'; exit 1; }
-
-echo "→ assert: family on повторно — идемпотентен (no-op, без дублей)"
-out="$(vm_ssh 'echo '\''{"enabled":true}'\'' | ucode -R /usr/share/cheburnet/engine/steps/family/apply.uc')"
-echo "$out" | grep -q 'изменений нет' || { echo "  output: $out"; exit 1; }
-nsfw_n2="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l')"
-[ "$nsfw_n2" = "1" ] || { echo "  FAIL: NSFW-токен продублирован ($nsfw_n2)"; exit 1; }
-
-echo "→ assert: family off — вычищает обе подсистемы, тир остаётся"
-vm_ssh 'echo '\''{"enabled":false}'\'' | ucode -R /usr/share/cheburnet/engine/steps/family/apply.uc' \
-    || { echo "  FAIL: family off exit != 0"; exit 1; }
-nsfw_off="$(vm_ssh 'grep -o nsfw-onlydomains.txt /etc/adblock-lean/config | wc -l')"
-[ "$nsfw_off" = "0" ] || { echo "  FAIL: после off остался NSFW-токен"; exit 1; }
-ss_off="$(vm_ssh 'uci show dhcp | grep -o forcesafesearch.google.com | wc -l')"
-[ "$ss_off" = "0" ] || { echo "  FAIL: после off остались cname ($ss_off)"; exit 1; }
-vm_ssh 'grep -q "hagezi:pro" /etc/adblock-lean/config' \
-    || { echo "  FAIL: family off задел тир"; vm_ssh 'cat /etc/adblock-lean/config'; exit 1; }
+# Примечание: doh-шаг (выбор DNS-провайдера) пишет uci https-dns-proxy, секция 'config' которого
+# создаётся пакетом — поэтому он проверяется в T3c-v2 (install-v2.sh, пакет установлен), а не
+# здесь (hermetic, без apk).
 
 # ─── steps/firewall: NAT-зона + цепочки на РЕАЛЬНОМ fw4/nft + teardown ───────
 echo "→ подготовка: возвращаю fw4 (vm_boot_and_setup его стопил) + ssh-правило"
@@ -227,5 +205,5 @@ echo "$out" | grep -q "ubus_rpc_session" \
 
 echo
 echo "✓ T3a-v2 smoke pass — движок v2 работает на реальном OpenWrt snapshot:"
-echo "  rpcd/ubus/ACL, граница доверия, wifi no-op, family on/off,"
+echo "  rpcd/ubus/ACL, граница доверия, wifi no-op,"
 echo "  NAT-зона + nft + teardown, rootpass+session.login."

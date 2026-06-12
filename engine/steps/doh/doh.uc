@@ -9,18 +9,15 @@
 // видно каждый шаг (учебная цель), один владелец конфига dnsmasq.
 
 import { reconcile_list, starts_with } from "../../lib/uci.uc";
+import { resolvers_for, default_provider } from "./providers.uc";
 
 const DOH_DEFAULTS = {
 	listen_addr: "127.0.0.1",
 	dnsmasq_section: "@dnsmasq[0]",
 	manage_dnsmasq: true, // отключаем авто-правку dnsmasq пакетом — рулим upstream сами
-	// По умолчанию Quad9 (no-log, блокирует malware) + Cloudflare как fallback.
-	resolvers: [
-		{ name: "quad9", url: "https://dns.quad9.net/dns-query",
-		  port: 5053, bootstrap: "9.9.9.9,149.112.112.112" },
-		{ name: "cloudflare", url: "https://cloudflare-dns.com/dns-query",
-		  port: 5054, bootstrap: "1.1.1.1,1.0.0.1" },
-	],
+	// Дефолт — провайдер по умолчанию из каталога (см. providers.uc). Резолверы каждого
+	// провайдера приходят opts.resolvers (их подставляет apply/plan по выбранному id).
+	resolvers: resolvers_for(default_provider()),
 };
 
 function resolve_opts(opts) {

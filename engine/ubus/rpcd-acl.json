@@ -42,8 +42,7 @@
                     "set_mode",
                     "update_list",
                     "service_restart",
-                    "set_blocklist_tier",
-                    "set_family_filter",
+                    "set_dns_provider",
                     "replace_awg_conf",
                     "factory_reset"
                 ]

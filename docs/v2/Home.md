@@ -42,6 +42,7 @@ updated: 2026-06-08
 - [[0002-ucode-over-go]] — почему движок на ucode, а не на Go
 - [[0003-svelte-for-ui]] — почему Svelte для веб-мастера
 - [[0004-multi-protocol-tiers]] — тиры железа + AmneziaWG/Reality/Hysteria2 под устойчивость к DPI
+- [[0005-dns-filtering-not-local-adblock]] — фильтрация рекламы/контента = выбор DNS-провайдера
 
 ## 📖 Справка
 

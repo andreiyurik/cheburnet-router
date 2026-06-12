@@ -14,10 +14,8 @@
 import { stdin, readfile, writefile, unlink, access, chmod } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { list_descriptor, validate_request, requires_token, make_error } from "./ubus.uc";
-import { parse_blocklists } from "../steps/adblock/adblock.uc";
-import { family_status, sentinel_section } from "../steps/family/family.uc";
-import { get_var } from "../lib/conf.uc";
 import { cidr_overlap, suggest_lan, valid_lan_ip } from "../preflight/preflight.uc";
+import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
 import { set_names } from "../routing/routing.uc";
 
 // engine/ — относительно этого файла (engine/ubus/rpcd-cheburnet). Тот же приём, что в run.uc.
@@ -65,11 +63,15 @@ function load_cfg() {
 	if (type(c.routing_opts) != "object") c.routing_opts = {};
 	if (type(c.domains) != "array") c.domains = [];
 	if (type(c.user_domains) != "array") c.user_domains = [];
+	if (type(c.dns_provider) != "string") c.dns_provider = default_provider();
 	return c;
 }
 
 function save_cfg(c) {
-	writefile(CFG_FILE, sprintf("%J\n", { user_domains: c.user_domains, domains: c.domains, routing_opts: c.routing_opts }));
+	writefile(CFG_FILE, sprintf("%J\n", {
+		user_domains: c.user_domains, domains: c.domains,
+		routing_opts: c.routing_opts, dns_provider: c.dns_provider,
+	}));
 }
 
 // imported_text() — кэш community-списка (заполняет list/fetch.uc). Нет файла → пусто.
@@ -134,10 +136,9 @@ function m_status() {
 
 	let installed = access(ETC_CHEBURNET + "/install.json") ? true : false;
 
-	// Все системные факты — ОДНИМ popen (UI поллит status каждые 15 с; на слабом железе 8
-	// отдельных форков на каждый опрос — лишний налог). Батч печатает строки key=value;
+	// Все системные факты — ОДНИМ popen (UI поллит status каждые 15 с; на слабом железе
+	// отдельные форки на каждый опрос — лишний налог). Батч печатает строки key=value;
 	// значения однострочны (uci-список — одна строка, awk NR==1 — первый peer).
-	let sent = sentinel_section();
 	let probe =
 		"echo \"nftset=$(uci -q get dhcp.@dnsmasq[0].nftset 2>/dev/null)\"; " +
 		"echo \"hs=$(awg show awg0 latest-handshakes 2>/dev/null | awk 'NR==1{print $2}')\"; " +
@@ -145,7 +146,6 @@ function m_status() {
 		"echo \"doh=$(/etc/init.d/https-dns-proxy status 2>/dev/null | grep -qi running && echo up)\"; " +
 		"echo \"radios=$(uci -q show wireless 2>/dev/null | grep -c '=wifi-device')\"; " +
 		"echo \"ssid=$(uci -q get wireless.@wifi-iface[0].ssid 2>/dev/null)\"; " +
-		sprintf("echo \"sent=$(uci -q get dhcp.%s 2>/dev/null)\"; ", sent) +
 		// Пустой pid ОБЯЗАТЕЛЬНО отсекаем ДО kill: busybox парсит "" как 0 → kill(0,0) —
 		// сигнал собственной process-группе → всегда успех → ложный installing=true.
 		// Хостовый shell на "" отвечает ошибкой — юниты этот gap не видят (поймано в QEMU).
@@ -176,13 +176,8 @@ function m_status() {
 	let wireless_present = (match(facts.radios ?? "", /^[0-9]+$/) && int(facts.radios) > 0);
 	let ssid = facts.ssid ?? "";
 
-	// adblock-тир и семейный режим — из конфига adblock-lean + sentinel-секции (чистые ядра).
-	let ablcfg = readfile("/etc/adblock-lean/config") ?? "";
-	let tier = parse_blocklists(ablcfg).tier;
-	let family = family_status({
-		raw_block_lists: get_var(ablcfg, "raw_block_lists") ?? "",
-		sections: length(facts.sent ?? "") > 0 ? [ sent ] : [],
-	});
+	// DNS-провайдер (= уровень фильтрации) из воспроизводимой конфигурации + каталог для UI.
+	let dns_provider = cfg.dns_provider;
 
 	// Здоровье импортированного списка: кэш community-списка direct-доменов (list/fetch.uc).
 	// Пустой/отсутствующий кэш — повод для баннера в UI (direct-домены поедут через туннель —
@@ -205,8 +200,9 @@ function m_status() {
 		doh_up: (facts.doh ?? "") == "up",
 		wireless_present: wireless_present,
 		ssid: ssid,
-		tier: tier,
-		family_filter: family,
+		dns_provider: dns_provider,
+		dns_provider_desc: describe(dns_provider),
+		dns_providers: catalog_for_ui(),
 		direct_list_loaded: imported_domains > 0,
 		imported_domains: imported_domains,
 	});
@@ -223,17 +219,20 @@ function m_install(v) {
 	// Финальный direct-список: пользовательский + community-кэш (если уже подтянут).
 	let domains = assemble_domains(v.domains);
 	let routing_opts = (type(v.routing_opts) == "object") ? v.routing_opts : {};
+	// DNS-провайдер (фильтрация): валидность id уже проверил enum на границе; нет → дефолт каталога.
+	let dns_provider = (type(v.dns_provider) == "string" && length(v.dns_provider) > 0)
+		? v.dns_provider : default_provider();
 
-	// Воспроизводимая конфигурация (для set_mode/update_list) — БЕЗ awg_conf (секрет).
-	let cfg = { user_domains: v.domains ?? [], domains: domains, routing_opts: routing_opts };
+	// Воспроизводимая конфигурация (для set_mode/update_list/set_dns_provider) — БЕЗ awg_conf (секрет).
+	let cfg = { user_domains: v.domains ?? [], domains: domains, routing_opts: routing_opts, dns_provider: dns_provider };
 	save_cfg(cfg);
 
 	// Полезная нагрузка для run.uc: его stdin-контракт {awg_conf, root_password, ssid, wifi_key,
-	// domains, routing_opts}. Содержит секреты (приватный ключ awg_conf + пароль root + ключ Wi-Fi)
-	// → пишем и тут же сужаем права до 600. В install.json (save_cfg) секреты НЕ попадают.
+	// dns_provider, domains, routing_opts}. Содержит секреты (приватный ключ awg_conf + пароль root +
+	// ключ Wi-Fi) → пишем и тут же сужаем права до 600. В install.json (save_cfg) секреты НЕ попадают.
 	writefile(PAYLOAD_FILE, sprintf("%J", {
 		awg_conf: v.awg_conf, root_password: v.root_password,
-		ssid: v.ssid, wifi_key: v.wifi_key,
+		ssid: v.ssid, wifi_key: v.wifi_key, dns_provider: dns_provider,
 		domains: domains, routing_opts: routing_opts,
 	}));
 	chmod(PAYLOAD_FILE, 0o600);
@@ -367,24 +366,19 @@ function m_service_restart(v) {
 		sh("/etc/init.d/dnsmasq restart >/dev/null 2>&1");
 	else if (v.service == "doh")
 		sh("/etc/init.d/https-dns-proxy restart >/dev/null 2>&1");
-	else if (v.service == "adblock")
-		sh("/etc/init.d/adblock-lean start >/dev/null 2>&1 || /etc/init.d/adblock-lean restart >/dev/null 2>&1; /etc/init.d/dnsmasq restart >/dev/null 2>&1");
 	respond({ status: "restarted", service: v.service });
 }
 
-function m_set_blocklist_tier(v) {
-	// Идемпотентный adblock-шаг с явным тиром (raw-URL'ы family-фильтра сохраняются — см. шаг).
-	let rc = run_stdin(engine_cli("steps/adblock/apply.uc"), sprintf("%J", { tier: v.tier }));
+function m_set_dns_provider(v) {
+	// Сменить DNS-провайдера (= уровень фильтрации). Переприменить doh-шаг с новым id
+	// (идемпотентно: та же секция cheburnet_doh переписывается) и сохранить в конфигурацию.
+	let rc = run_stdin(engine_cli("steps/doh/apply.uc"), sprintf("%J", { provider: v.provider }));
 	if (rc != 0)
-		respond(make_error("не удалось применить тир (см. logread)", { code: rc }));
-	respond({ status: "ok", tier: v.tier });
-}
-
-function m_set_family_filter(v) {
-	let rc = run_stdin(engine_cli("steps/family/apply.uc"), sprintf("%J", { enabled: v.enabled }));
-	if (rc != 0)
-		respond(make_error("не удалось переключить семейный режим (см. logread)", { code: rc }));
-	respond({ status: "ok", enabled: v.enabled });
+		respond(make_error("не удалось сменить DNS-провайдера (см. logread)", { code: rc }));
+	let cfg = load_cfg();
+	cfg.dns_provider = v.provider;
+	save_cfg(cfg);
+	respond({ status: "ok", dns_provider: v.provider });
 }
 
 function m_replace_awg_conf(v) {
@@ -451,8 +445,7 @@ else if (method == "install_cancel")        m_install_cancel(v);
 else if (method == "set_mode")              m_set_mode(v);
 else if (method == "update_list")           m_update_list(v);
 else if (method == "service_restart")       m_service_restart(v);
-else if (method == "set_blocklist_tier")    m_set_blocklist_tier(v);
-else if (method == "set_family_filter")     m_set_family_filter(v);
+else if (method == "set_dns_provider")      m_set_dns_provider(v);
 else if (method == "replace_awg_conf")      m_replace_awg_conf(v);
 else if (method == "factory_reset")         m_factory_reset(v);
 else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

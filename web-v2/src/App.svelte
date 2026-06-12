@@ -15,6 +15,10 @@
   // Setup покажет поля Wi-Fi как необязательные (не блокируем wired-only роутер).
   let wirelessPresent = $state(null);
 
+  // Каталог DNS-провайдеров (из status) + дефолт — для селектора фильтрации на Setup.
+  let dnsProviders = $state([]);
+  let dnsProviderDefault = $state('');
+
   // Конфиг для установки накапливается на экране Setup, подтверждается на Confirm и
   // читается экраном Installing.
   let installArgs = $state(null);
@@ -28,6 +32,8 @@
     try {
       const s = await cheburnet('status');
       wirelessPresent = s.wireless_present ?? null;
+      dnsProviders = s.dns_providers ?? [];
+      dnsProviderDefault = s.dns_provider ?? '';
       if (s.installed) {
         step = 'status';
         return;
@@ -72,9 +78,9 @@
     {#if bootError}<p class="warn">Статус недоступен: {bootError}</p>{/if}
     <Preflight onReady={() => (step = 'setup')} />
   {:else if step === 'setup'}
-    <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} initial={installArgs} />
+    <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} initial={installArgs} />
   {:else if step === 'confirm'}
-    <Confirm args={installArgs} onBack={() => (step = 'setup')} onConfirm={() => (step = 'installing')} />
+    <Confirm args={installArgs} {dnsProviders} onBack={() => (step = 'setup')} onConfirm={() => (step = 'installing')} />
   {:else if step === 'installing'}
     <Installing args={installArgs} onDone={() => (step = 'status')} onRetry={() => (step = 'setup')} />
   {:else if step === 'status'}
