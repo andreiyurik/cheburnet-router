@@ -1,7 +1,8 @@
 <script>
   import { cheburnet } from '../ubus.js';
 
-  // onReady — вызвать, когда железо подходит и пользователь идёт дальше.
+  // onReady(fullAvailable) — вызвать, когда железо подходит; fullAvailable = тянет ли роутер
+  // Full-тир (VLESS+Reality), из report.tiers.full (preflight). Определяет, предлагать ли его в Setup.
   let { onReady } = $props();
 
   let report = $state(null);
@@ -46,7 +47,12 @@
 
     {#if report.passed}
       <p class="ok-msg">Железо подходит ({report.total} проверок).</p>
-      <button class="primary" onclick={onReady}>Продолжить</button>
+      {#if report.tiers?.full}
+        <p class="muted">Доступен Full-тир: VLESS+Reality (sing-box) — для сетей с жёстким DPI.</p>
+      {:else if report.tiers}
+        <p class="muted">Full-тир (VLESS+Reality) недоступен на этом железе — будет AmneziaWG (этого хватает большинству).</p>
+      {/if}
+      <button class="primary" onclick={() => onReady(report.tiers?.full === true)}>Продолжить</button>
     {:else}
       <p class="warn">Провалено {report.failed} из {report.total}. Устраните указанное и повторите.</p>
       <button onclick={run}>Перепроверить</button>

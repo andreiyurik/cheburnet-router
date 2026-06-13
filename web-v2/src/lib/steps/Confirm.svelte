@@ -5,8 +5,17 @@
 
   // Первая строка [Peer]→Endpoint — единственное, что безопасно показать из AWG-конфига.
   function endpoint(conf) {
-    const m = conf.match(/^\s*Endpoint\s*=\s*(.+)$/m);
+    const m = (conf ?? '').match(/^\s*Endpoint\s*=\s*(.+)$/m);
     return m ? m[1].trim() : '—';
+  }
+
+  // Краткая сводка туннеля без секретов: протокол + хост сервера.
+  function tunnelSummary() {
+    if (args.protocol === 'reality') {
+      const m = (args.reality_conf ?? '').match(/@([^?#/]+)/); // host:port после uuid@
+      return m ? `VLESS+Reality → ${m[1]}` : 'VLESS+Reality';
+    }
+    return `AmneziaWG → ${endpoint(args.awg_conf)}`;
   }
 
   // Человекочитаемая метка фильтрации по выбранному id (или дефолт-описание).
@@ -20,7 +29,7 @@
   <h2>Проверьте перед установкой</h2>
 
   <ul class="status">
-    <li><span>VPN-сервер (Endpoint)</span><strong>{endpoint(args.awg_conf)}</strong></li>
+    <li><span>Туннель</span><strong>{tunnelSummary()}</strong></li>
     <li><span>Пароль роутера</span><strong>задан</strong></li>
     {#if args.ssid}
       <li><span>Wi-Fi</span><strong>{args.ssid} (пароль задан)</strong></li>

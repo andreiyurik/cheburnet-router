@@ -19,6 +19,10 @@
   let dnsProviders = $state([]);
   let dnsProviderDefault = $state('');
 
+  // Тянет ли железо Full-тир (VLESS+Reality) — из preflight (report.tiers.full). false → Setup
+  // предлагает только AmneziaWG (Light). Узнаём на экране preflight, прокидываем в Setup.
+  let fullAvailable = $state(false);
+
   // Конфиг для установки накапливается на экране Setup, подтверждается на Confirm и
   // читается экраном Installing.
   let installArgs = $state(null);
@@ -76,9 +80,9 @@
     <LanConflict info={lanConflict} onSkip={() => (step = 'preflight')} />
   {:else if step === 'preflight'}
     {#if bootError}<p class="warn">Статус недоступен: {bootError}</p>{/if}
-    <Preflight onReady={() => (step = 'setup')} />
+    <Preflight onReady={(full) => { fullAvailable = full === true; step = 'setup'; }} />
   {:else if step === 'setup'}
-    <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} initial={installArgs} />
+    <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} {fullAvailable} initial={installArgs} />
   {:else if step === 'confirm'}
     <Confirm args={installArgs} {dnsProviders} onBack={() => (step = 'setup')} onConfirm={() => (step = 'installing')} />
   {:else if step === 'installing'}
