@@ -8,7 +8,7 @@
 // это безопасное направление гейткипера — «не смог подтвердить» = блокировать, не пропускать.
 
 import { popen, readfile } from "fs";
-import { default_requirements } from "./preflight.uc";
+import { default_requirements, full_requirements } from "./preflight.uc";
 import { parse_meminfo, parse_df, parse_arch, parse_board,
          parse_iface_cidr } from "./parse.uc";
 
@@ -36,6 +36,10 @@ for (let i = 0; i < length(req.deps); i++) {
 	let pkg = req.deps[i];
 	deps_installable[pkg] = cmd_rc(sprintf("apk add --simulate %s", pkg));
 }
+// Full-тир (VLESS+Reality): установимость sing-box — тем же apk --simulate (для evaluate_tiers).
+// Нет под arch/feed → Full недоступен (Light не задет: слабое железо остаётся на AmneziaWG).
+let fr = full_requirements();
+deps_installable[fr.dep] = cmd_rc(sprintf("apk add --simulate %s", fr.dep));
 
 let facts = {
 	arch: parse_arch(sh("uname -m")),

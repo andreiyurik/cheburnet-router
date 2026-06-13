@@ -3,7 +3,7 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { cmp_version, cidr_overlap, evaluate, render_report,
-         suggest_lan, valid_lan_ip } from "../preflight.uc";
+         suggest_lan, valid_lan_ip, evaluate_tiers, full_requirements } from "../preflight.uc";
 
 // Хорошие факты — каждый тест портит одно поле, чтобы проверить ровно его проверку.
 function good_facts() {
@@ -132,6 +132,79 @@ test("valid_lan_ip: только 192.168.X.Y, октеты в диапазоне
 	ok(!valid_lan_ip("0.0.0.0"), "нулевой адрес");
 	ok(!valid_lan_ip(""), "пусто");
 	ok(!valid_lan_ip(null), "null");
+});
+
+// --- evaluate_tiers: гейтинг Full-тира (VLESS+Reality) ---
+
+// Мощное железо, потянет Full: AES-arch, RAM/флеш с запасом, sing-box ставится.
+function full_facts() {
+	let f = good_facts();
+	f.flash_free_mb = 200;
+	f.ram_total_mb = 512;
+	f.deps_installable["sing-box"] = true;
+	return f;
+}
+
+function full_check(rep, id) {
+	for (let i = 0; i < length(rep.full_checks); i++)
+		if (rep.full_checks[i].id == id) return rep.full_checks[i];
+	return null;
+}
+
+test("evaluate_tiers: мощное железо → доступны и light, и full", () => {
+	let rep = evaluate_tiers(full_facts(), null);
+	ok(rep.light, "light доступен");
+	ok(rep.full, "full доступен");
+	eq(rep.full_failed, 0);
+});
+
+test("evaluate_tiers: слабый MIPS → light ок, full НЕ доступен (fail-safe на AWG)", () => {
+	let f = full_facts();
+	f.arch = "mipsel"; f.ram_total_mb = 128; f.flash_free_mb = 64;
+	let rep = evaluate_tiers(f, null);
+	ok(rep.light, "light всё ещё проходит на слабом железе");
+	ok(!rep.full, "full отсечён");
+	ok(!full_check(rep, "full_arch").ok, "arch без AES");
+	ok(!full_check(rep, "full_ram").ok, "RAM мало для Full");
+});
+
+test("evaluate_tiers: RAM 128 при годной arch → full недоступен", () => {
+	let f = full_facts(); f.ram_total_mb = 128;
+	let rep = evaluate_tiers(f, null);
+	ok(rep.light);
+	ok(!rep.full);
+	ok(!full_check(rep, "full_ram").ok);
+});
+
+test("evaluate_tiers: sing-box не ставится → full недоступен, перечислен", () => {
+	let f = full_facts(); f.deps_installable["sing-box"] = false;
+	let rep = evaluate_tiers(f, null);
+	ok(!rep.full);
+	let c = full_check(rep, "full_dep");
+	ok(!c.ok);
+	ok(index(c.detail, "sing-box") >= 0);
+});
+
+test("evaluate_tiers: провал базового light → full тоже false", () => {
+	let f = full_facts(); f.openwrt_version = "24.10.0";  // light провалится по версии
+	let rep = evaluate_tiers(f, null);
+	ok(!rep.light);
+	ok(!rep.full, "Full использует тот же базовый стек — без light невозможен");
+});
+
+test("evaluate_tiers: кастомные пороги Full через req.full", () => {
+	let f = full_facts(); f.ram_total_mb = 200;  // ниже дефолтных 256
+	ok(!evaluate_tiers(f, null).full, "при дефолте 256 — отказ Full");
+	ok(evaluate_tiers(f, { full: { min_ram_mb: 128 } }).full, "при пороге 128 — Full проходит");
+});
+
+test("full_requirements: дефолты Full-тира", () => {
+	let r = full_requirements();
+	eq(r.min_ram_mb, 256);
+	eq(r.min_flash_mb, 128);
+	eq(r.dep, "sing-box");
+	ok(index(r.arch, "aarch64") >= 0);
+	ok(index(r.arch, "mipsel") < 0, "mips исключён из Full");
 });
 
 exit(summary());

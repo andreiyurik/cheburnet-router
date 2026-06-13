@@ -9,7 +9,7 @@
 // (гейткипер: при отказе движок НЕ должен трогать систему). --json → отчёт машинно.
 
 import { stdin } from "fs";
-import { evaluate, render_report } from "./preflight.uc";
+import { evaluate, render_report, evaluate_tiers } from "./preflight.uc";
 
 let raw = trim(stdin.read("all") ?? "");
 if (length(raw) == 0 || substr(raw, 0, 1) != "{")
@@ -21,6 +21,9 @@ let report = evaluate(facts, facts.requirements);
 // Машинный режим: первый аргумент == "--json". (ARGV в ucode CLI доступен как глобал.)
 let want_json = (length(ARGV) > 0 && ARGV[0] == "--json");
 if (want_json) {
+	// tiers — какие туннель-тиры потянет это железо (Light всегда, Full гейтится). Информационно
+	// для UI (показывать ли выбор VLESS+Reality); НЕ влияет на exit-код (блокирует только Light).
+	report.tiers = evaluate_tiers(facts, facts.requirements);
 	print(sprintf("%J\n", report));
 } else {
 	let lines = render_report(report);

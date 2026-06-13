@@ -178,6 +178,75 @@ export function evaluate(facts, req) {
 	return { passed: failed == 0, failed: failed, total: length(checks), checks: checks };
 }
 
+// FULL-тир (VLESS+Reality через sing-box) — отдельные, более жёсткие требования.
+// Пороги по ADR 0004 — ОРИЕНТИРОВОЧНЫЕ, подтвердить замером throughput/RAM на реальном
+// слабом и сильном роутере (это план, не факт). arch здесь — proxy для AES-ускорения
+// (sing-box+Reality криптотяжелы); точная проверка флагов cpuinfo — gather (router-side).
+const FULL_REQUIREMENTS = {
+	arch: [ "aarch64", "x86_64" ],  // ARMv8/x86 с AES; mips/armv7 исключены
+	min_flash_mb: 128,              // sing-box-бинарь крупнее kmod-amneziawg
+	min_ram_mb: 256,                // userspace-туннель + crypto не упадёт под нагрузкой
+	dep: "sing-box",                // должен ставиться из feed под эту arch
+};
+
+function resolve_full_req(req) {
+	let r = {};
+	for (let k in FULL_REQUIREMENTS)
+		r[k] = FULL_REQUIREMENTS[k];
+	if (req)
+		for (let k in req)
+			if (exists(FULL_REQUIREMENTS, k))
+				r[k] = req[k];
+	return r;
+}
+
+// full_requirements() — копия дефолтных требований Full-тира (для gather/UI; источник правды здесь).
+export function full_requirements() {
+	return resolve_full_req(null);
+}
+
+// evaluate_tiers(facts, req) → { light, full, full_checks, full_failed }.
+//   light — проходит ли базовый гейткипер (тот же evaluate; Full использует тот же базовый стек).
+//   full  — light И дополнительные пороги Full (AES-arch, RAM/флеш, sing-box ставится).
+// ИНФОРМАЦИОННО: предлагать Reality только где железо потянет; Light это НЕ блокирует
+// (fail-safe — слабый роутер просто остаётся на AmneziaWG). req.full — вложенные кастомные
+// пороги Full (для тестов/тюнинга); req (верхний) идёт в Light-evaluate как раньше.
+export function evaluate_tiers(facts, req) {
+	let light = evaluate(facts, req);
+	let fr = resolve_full_req(req ? req.full : null);
+
+	let checks = [];
+	push(checks, check("full_arch", index(fr.arch, facts.arch) >= 0,
+		sprintf("arch = %s", facts.arch ?? "?"),
+		sprintf("Full-тир нужен AES-arch: %s", join(", ", fr.arch))));
+
+	let ram = facts.ram_total_mb ?? -1;
+	push(checks, check("full_ram", ram >= fr.min_ram_mb,
+		sprintf("RAM ≈ %d МБ", ram),
+		sprintf("Full-тиру нужно ≥ %d МБ", fr.min_ram_mb)));
+
+	let flash = facts.flash_free_mb ?? -1;
+	push(checks, check("full_flash", flash >= fr.min_flash_mb,
+		sprintf("свободный флеш ≈ %d МБ", flash),
+		sprintf("Full-тиру нужно ≥ %d МБ", fr.min_flash_mb)));
+
+	let di = facts.deps_installable ?? {};
+	push(checks, check("full_dep", di[fr.dep] === true,
+		di[fr.dep] === true ? sprintf("%s ставится", fr.dep) : sprintf("%s не ставится", fr.dep),
+		sprintf("пакет %s недоступен под эту платформу/feed", fr.dep)));
+
+	let failed = 0;
+	for (let i = 0; i < length(checks); i++)
+		if (!checks[i].ok) failed++;
+
+	return {
+		light: light.passed,
+		full: light.passed && failed == 0,
+		full_checks: checks,
+		full_failed: failed,
+	};
+}
+
 // render_report(report) — человекочитаемые строки для CLI/лога.
 export function render_report(report) {
 	let out = [];
