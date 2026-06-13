@@ -42,8 +42,30 @@ endef
 
 define Package/cheburnet/description
   Образовательный роутер на OpenWrt с настраиваемым split-tunnel: домены из direct-списка идут
-  напрямую, остальной трафик — через зашифрованный VPN. Без sing-box: dnsmasq-nftset + nftables
-  + policy routing + AmneziaWG. Логика — движок на ucode; настройка — веб-мастер через ubus RPC.
+  напрямую, остальной трафик — через зашифрованный VPN. Light-тир (дефолт): dnsmasq-nftset +
+  nftables + policy routing + AmneziaWG (в ядре, для слабого железа). Full-тир (VLESS+Reality
+  через sing-box, для устойчивости к DPI на мощном железе) — отдельный пакет cheburnet-full.
+  Логика — движок на ucode; настройка — веб-мастер через ubus RPC.
+endef
+
+# Full-тир (ADR 0004): VLESS+Reality через sing-box. ОТДЕЛЬНЫЙ пакет, а не +sing-box в DEPENDS
+# базового — иначе тяжёлый userspace-туннель (несколько МБ) поехал бы на слабые MIPS-роутеры,
+# которым хватает AmneziaWG. Движок (включая engine/steps/singbox) уже в базовом пакете; этот
+# пакет лишь тянет бинарь sing-box. Ставится туда, где preflight подтвердил Full (AES-arch, RAM).
+define Package/cheburnet-full
+  SECTION:=net
+  CATEGORY:=Network
+  SUBMENU:=VPN
+  TITLE:=cheburnet Full-тир — VLESS+Reality через sing-box
+  URL:=https://github.com/
+  PKGARCH:=all
+  DEPENDS:=+cheburnet +sing-box
+endef
+
+define Package/cheburnet-full/description
+  Метапакет: добавляет к cheburnet поддержку Full-тира (VLESS+Reality через sing-box) для
+  устойчивости к DPI на мощном железе. На слабых роутерах не нужен — ставьте базовый cheburnet
+  (AmneziaWG). Код движка — в пакете cheburnet; здесь только зависимость sing-box.
 endef
 
 # Скрипты — компилировать нечего.
@@ -80,4 +102,10 @@ define Package/cheburnet/postinst
 exit 0
 endef
 
+# cheburnet-full — метапакет: файлов нет, только зависимость sing-box (движок уже в cheburnet).
+define Package/cheburnet-full/install
+	true
+endef
+
 $(eval $(call BuildPackage,cheburnet))
+$(eval $(call BuildPackage,cheburnet-full))
