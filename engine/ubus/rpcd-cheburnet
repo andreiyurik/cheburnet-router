@@ -17,6 +17,7 @@ import { list_descriptor, validate_request, requires_token, make_error } from ".
 import { cidr_overlap, suggest_lan, valid_lan_ip } from "../preflight/preflight.uc";
 import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
 import { set_names } from "../routing/routing.uc";
+import { default_protocol } from "../install/install.uc";
 
 // engine/ — относительно этого файла (engine/ubus/rpcd-cheburnet). Тот же приём, что в run.uc.
 const ENGINE = sourcepath(0, true) + "/..";
@@ -64,6 +65,7 @@ function load_cfg() {
 	if (type(c.domains) != "array") c.domains = [];
 	if (type(c.user_domains) != "array") c.user_domains = [];
 	if (type(c.dns_provider) != "string") c.dns_provider = default_provider();
+	if (type(c.protocol) != "string") c.protocol = default_protocol();
 	return c;
 }
 
@@ -71,6 +73,7 @@ function save_cfg(c) {
 	writefile(CFG_FILE, sprintf("%J\n", {
 		user_domains: c.user_domains, domains: c.domains,
 		routing_opts: c.routing_opts, dns_provider: c.dns_provider,
+		protocol: c.protocol, // туннель (awg|reality) — не секрет, нужен status/reset
 	}));
 }
 
@@ -194,6 +197,8 @@ function m_status() {
 		installed: installed,
 		installing: (facts.alive ?? "") == "1",
 		mode: mode,
+		protocol: cfg.protocol, // активный туннель (awg|reality) — UI показывает и предлагает замену
+
 		direct_domains: direct_count,
 		awg_handshake_age: hs_age,
 		dns_up: (facts.dns ?? "") == "up",
@@ -222,16 +227,22 @@ function m_install(v) {
 	// DNS-провайдер (фильтрация): валидность id уже проверил enum на границе; нет → дефолт каталога.
 	let dns_provider = (type(v.dns_provider) == "string" && length(v.dns_provider) > 0)
 		? v.dns_provider : default_provider();
+	// Туннель: protocol awg (Light, дефолт) | reality (Full). Валидность enum проверил ubus.uc;
+	// нет → дефолт. run.uc по нему выбирает туннель-шаг (vpn/singbox) и tunnel_if.
+	let protocol = (type(v.protocol) == "string" && length(v.protocol) > 0)
+		? v.protocol : default_protocol();
 
-	// Воспроизводимая конфигурация (для set_mode/update_list/set_dns_provider) — БЕЗ awg_conf (секрет).
-	let cfg = { user_domains: v.domains ?? [], domains: domains, routing_opts: routing_opts, dns_provider: dns_provider };
+	// Воспроизводимая конфигурация (для set_mode/update_list/set_dns_provider/reset) — БЕЗ секретов.
+	let cfg = { user_domains: v.domains ?? [], domains: domains, routing_opts: routing_opts,
+		dns_provider: dns_provider, protocol: protocol };
 	save_cfg(cfg);
 
-	// Полезная нагрузка для run.uc: его stdin-контракт {awg_conf, root_password, ssid, wifi_key,
-	// dns_provider, domains, routing_opts}. Содержит секреты (приватный ключ awg_conf + пароль root +
-	// ключ Wi-Fi) → пишем и тут же сужаем права до 600. В install.json (save_cfg) секреты НЕ попадают.
+	// Полезная нагрузка для run.uc: его stdin-контракт {protocol, awg_conf|reality_conf, root_password,
+	// ssid, wifi_key, dns_provider, domains, routing_opts}. Содержит секреты (приватный ключ awg_conf,
+	// reality_conf с credentials сервера, пароль root, ключ Wi-Fi) → пишем и тут же сужаем права до 600.
 	writefile(PAYLOAD_FILE, sprintf("%J", {
-		awg_conf: v.awg_conf, root_password: v.root_password,
+		protocol: protocol, awg_conf: v.awg_conf, reality_conf: v.reality_conf,
+		root_password: v.root_password,
 		ssid: v.ssid, wifi_key: v.wifi_key, dns_provider: dns_provider,
 		domains: domains, routing_opts: routing_opts,
 	}));

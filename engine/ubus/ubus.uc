@@ -17,6 +17,10 @@
 import { provider_ids } from "../steps/doh/providers.uc";
 const PROVIDER_IDS = provider_ids();
 
+// Валидные туннельные протоколы — из install.uc (enum не дрейфует с моделью протоколов, ADR 0004).
+import { protocol_ids } from "../install/install.uc";
+const PROTOCOL_IDS = protocol_ids();
+
 // Реестр методов RPC. Один метод = одна запись (порядок стабилен → стабильны list/ACL).
 //   args  — спецификации аргументов: { name, type, required?, enum?, minlen?, maxlen? }.
 //           type ∈ string|array|object|bool. minlen/maxlen — границы длины строки (граница доверия:
@@ -40,7 +44,12 @@ const REGISTRY = [
 	] },
 	{ name: "install_progress", access: "read", auth: "anon", token: false, args: [] },
 	{ name: "install",   access: "write", auth: "anon",  token: true, args: [
-		{ name: "awg_conf",      type: "string", required: true },
+		// Туннель: protocol выбирает awg (Light, дефолт) | reality (Full). awg_conf нужен для awg,
+		// reality_conf — для reality; оба НЕОБЯЗАТЕЛЬНЫ на этой границе — активный туннель-шаг
+		// (vpn/singbox) валидирует свой вход и падает fail-safe при отсутствии (см. ADR 0004).
+		{ name: "protocol",      type: "string", enum: PROTOCOL_IDS },
+		{ name: "awg_conf",      type: "string" }, // AmneziaWG .conf (protocol=awg)
+		{ name: "reality_conf",  type: "string" }, // vless://… или JSON sing-box (protocol=reality), секрет → payload 600
 		{ name: "root_password", type: "string", required: true, minlen: 8 }, // секрет → payload 600, не install.json
 		// Wi-Fi необязателен: wired-only роутеры (x86/мини-ПК) ставятся без него. UI просит поля
 		// только при наличии радио (status.wireless_present); шаг wifi делает no-op без них.
