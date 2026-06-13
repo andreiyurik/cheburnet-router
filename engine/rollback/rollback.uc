@@ -10,7 +10,7 @@
 // restore (чтение/запись /etc/config) — в snapshot.uc (импурно, QEMU).
 
 // UCI-конфиги, которые трогают наши шаги и которые откатываются ЧИСТО.
-const CLEAN_CONFIGS = [ "network", "dhcp", "firewall", "https-dns-proxy", "wireless" ];
+const CLEAN_CONFIGS = [ "network", "dhcp", "firewall", "https-dns-proxy", "wireless", "sing-box" ];
 
 // protected_configs() → копия списка защищаемых конфигов (копия, чтобы не мутировали внутренний).
 export function protected_configs() {

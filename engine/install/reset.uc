@@ -20,6 +20,7 @@ import { sh, run_stdin, uci_batch } from "../lib/proc.uc";
 import { owned_sections } from "../steps/vpn/vpn.uc";
 import { set_names } from "../routing/routing.uc";
 import { listen_prefix } from "../steps/doh/doh.uc";
+import { config_path as sb_config, service_name as sb_service } from "../steps/singbox/singbox.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -77,6 +78,16 @@ for (let i = 0; i < length(hsects); i++)
 	push(hops, sprintf("delete https-dns-proxy.%s", hsects[i]));
 if (length(hops) > 0)
 	uci_batch(hops, "https-dns-proxy");
+
+// sing-box (Full-тир): выключить сервис + снять uci-секцию и config.json. Только если ставился
+// (Light его не трогает) — иначе не плодим стороннего /etc/config/sing-box. Идемпотентно.
+if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) == "y") {
+	print("reset: убираю sing-box (Full-тир)\n");
+	sh(sprintf("/etc/init.d/%s stop >/dev/null 2>&1", sb_service()));
+	sh(sprintf("/etc/init.d/%s disable >/dev/null 2>&1", sb_service()));
+	uci_batch([ "delete sing-box.main" ], "sing-box");
+	unlink(sb_config());
+}
 
 // /etc/cheburnet: конфигурация, install-токен, кэш импортированного списка.
 print("reset: удаляю /etc/cheburnet\n");

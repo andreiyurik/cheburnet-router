@@ -15,14 +15,56 @@ import { is_clean_config } from "../rollback/rollback.uc";
 // needs — что шагу подать на stdin (для run.uc): awg_conf | domains | none.
 const STEPS = [
 	{ name: "vpn",      configs: [ "network" ],                  rollback: "clean", needs: "awg_conf" },
+	// singbox — альтернативный туннель (Full-тир, VLESS+Reality). Взаимоисключающий с vpn:
+	// активен ровно один (см. PROTOCOLS). Гибрид: uci sing-box (чистый откат) + config.json/сервис
+	// (runtime → dirty teardown). По умолчанию ОТКЛЮЧЁН (протокол awg) — Light остаётся дефолтом.
+	{ name: "singbox",  configs: [ "sing-box" ],                 rollback: "dirty", needs: "reality" },
 	{ name: "dns",      configs: [ "dhcp" ],                     rollback: "clean", needs: "domains" },
 	{ name: "doh",      configs: [ "https-dns-proxy", "dhcp" ],  rollback: "clean", needs: "doh" },
 	// wifi — перед firewall: настройка радио независима от split-routing. Нет радио/ключа → no-op.
 	{ name: "wifi",     configs: [ "wireless" ],                 rollback: "clean", needs: "wifi" },
-	// firewall — последним: пометка/ip rule/kill-switch поверх поднятого awg0. Гибрид: NAT-зона —
+	// firewall — последним: пометка/ip rule/kill-switch поверх поднятого туннеля. Гибрид: NAT-зона —
 	// uci firewall (чистый откат snapshot'ом), цепочки/ip rule — runtime → шаг dirty (teardown).
 	{ name: "firewall", configs: [ "firewall" ],                 rollback: "dirty", needs: "domains" },
 ];
+
+// Туннельные протоколы (две оси покрытия, ADR 0004): awg = AmneziaWG в ядре (Light, дефолт);
+// reality = VLESS+Reality через sing-box (Full, для устойчивости к DPI на мощном железе).
+// Взаимоисключающие: каждый ставит свой туннель-шаг и презентует свой интерфейс (цель
+// policy-routing/NAT-зоны/health-check). Один интерфейс → весь data-plane (firewall/routing)
+// переиспользуется без изменений — туннель взаимозаменяем.
+const PROTOCOLS = {
+	awg:     { step: "vpn",     tunnel_if: "awg0" },
+	reality: { step: "singbox", tunnel_if: "singtun0" },
+};
+const DEFAULT_PROTOCOL = "awg";
+const TUNNEL_STEPS = [ "vpn", "singbox" ]; // взаимоисключающие шаги (ровно один активен)
+
+// protocol_ids() → список валидных протоколов (для enum в ubus-реестре — граница доверия).
+export function protocol_ids() {
+	let out = [];
+	for (let k in PROTOCOLS) push(out, k);
+	return out;
+}
+
+export function default_protocol() {
+	return DEFAULT_PROTOCOL;
+}
+
+// tunnel_info(protocol) → { step, tunnel_if } активного протокола (неизвестный → дефолт, fail-safe).
+export function tunnel_info(protocol) {
+	return PROTOCOLS[protocol] ?? PROTOCOLS[DEFAULT_PROTOCOL];
+}
+
+// disabled_tunnels(protocol) → имена туннель-шагов, которые НЕ применяем (все, кроме активного).
+// run.uc передаёт их в enabled_steps({disable}) → в установке остаётся ровно один туннель.
+export function disabled_tunnels(protocol) {
+	let active = tunnel_info(protocol).step;
+	let out = [];
+	for (let i = 0; i < length(TUNNEL_STEPS); i++)
+		if (TUNNEL_STEPS[i] != active) push(out, TUNNEL_STEPS[i]);
+	return out;
+}
 
 function copy_step(s) {
 	let c = [];

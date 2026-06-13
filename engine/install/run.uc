@@ -12,7 +12,8 @@
 
 import { stdin } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
-import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome } from "./install.uc";
+import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
+         tunnel_info, disabled_tunnels, default_protocol } from "./install.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -23,8 +24,12 @@ function step_cmd(name, extra) {
 // stdin для шага по его потребности (install.uc.needs).
 function step_stdin(s, cfg) {
 	if (s.needs == "awg_conf") return cfg.awg_conf ?? "";
+	if (s.needs == "reality")  return cfg.reality_conf ?? ""; // vless://… или JSON sing-box (сырой текст)
 	if (s.needs == "domains")
-		return sprintf("%J", { domains: cfg.domains ?? [], routing_opts: cfg.routing_opts });
+		// fw_opts.tunnel_if — интерфейс активного туннеля для NAT-зоны (firewall apply берёт его
+		// из fw_opts; routing его игнорирует). dns-шаг лишний ключ игнорирует — payload общий.
+		return sprintf("%J", { domains: cfg.domains ?? [], routing_opts: cfg.routing_opts,
+			fw_opts: { tunnel_if: cfg.routing_opts.tunnel_if } });
 	if (s.needs == "wifi")
 		return sprintf("%J", { ssid: cfg.ssid, key: cfg.wifi_key }); // нет полей → шаг сделает no-op
 	if (s.needs == "doh")
@@ -36,6 +41,12 @@ function step_stdin(s, cfg) {
 // Расширяемо; цель — поймать «туннель/DNS не поднялись» до commit.
 function healthcheck(cfg) {
 	let dns_ok = (trim(sh("nslookup openwrt.org 127.0.0.1 >/dev/null 2>&1; echo $?")) == "0");
+	// reality (Full): туннель — userspace-сервис sing-box, не awg-интерфейс. Минимальная проверка
+	// «процесс жив»; глубокая (handshake к Reality-серверу) — QEMU/железо.
+	if ((cfg.protocol ?? default_protocol()) == "reality") {
+		let up = (trim(sh("pgrep -x sing-box >/dev/null 2>&1; echo $?")) == "0");
+		return dns_ok && up;
+	}
 	let iface = (cfg.routing_opts && cfg.routing_opts.tunnel_if) ? cfg.routing_opts.tunnel_if : "awg0";
 	let hs = sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface));
 	// handshake != 0 (когда-либо был) ИЛИ vpn не настраивался — не валим установку из-за этого жёстко.
@@ -58,7 +69,20 @@ let raw = trim(stdin.read("all") ?? "");
 let cfg = (substr(raw, 0, 1) == "{") ? json(raw) : {};
 let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
-let steps = enabled_steps({ disable: cfg.disable });
+// Протокол туннеля: awg (Light, дефолт) | reality (Full). Определяет активный туннель-шаг и
+// интерфейс, который туннель презентует (NAT-зона firewall + health-check). tunnel_if кладём в
+// routing_opts: routing его игнорирует, а health-check и (через fw_opts) firewall — используют.
+let protocol = cfg.protocol ?? default_protocol();
+let tinfo = tunnel_info(protocol);
+if (type(cfg.routing_opts) != "object") cfg.routing_opts = {};
+cfg.routing_opts.tunnel_if = tinfo.tunnel_if;
+
+// Отключаем неактивные туннель-шаги (vpn/singbox взаимоисключающие) + пользовательский disable.
+let disable = disabled_tunnels(protocol);
+if (type(cfg.disable) == "array")
+	for (let i = 0; i < length(cfg.disable); i++) push(disable, cfg.disable[i]);
+
+let steps = enabled_steps({ disable: disable });
 let scope = snapshot_scope(steps);
 
 // --rollback: только откат, без установки. stdin — {domains?, routing_opts?} для teardown'ов.
