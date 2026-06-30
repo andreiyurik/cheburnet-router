@@ -4,7 +4,7 @@
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { all_steps, enabled_steps, snapshot_scope, dirty_steps,
          decide_outcome, protocol_ids, default_protocol, tunnel_info,
-         disabled_tunnels } from "../install.uc";
+         disabled_tunnels, handshake_state } from "../install.uc";
 
 function names(steps) {
 	let out = [];
@@ -117,6 +117,30 @@ test("decide: шаги ок, health не дошёл (null) → commit", () => {
 		health: null,
 	});
 	eq(d.action, "commit");
+});
+
+// --- handshake_state (fix #2: health-check поллит рукопожатие, а не валит мгновенно) ---
+test("handshake_state: пустой вывод → none (vpn не настраивался — health не валим)", () => {
+	eq(handshake_state(""), "none");
+	eq(handshake_state("  \n "), "none");
+	eq(handshake_state(null), "none");
+});
+
+test("handshake_state: peer есть, рукопожатия ещё нет ('\\t0') → waiting (поллить дальше)", () => {
+	// именно этот кейс ловил баг: мгновенная проверка видела waiting и откатывала установку
+	eq(handshake_state("dCtNRb28Iu+YT2OWBnfFQTXJ79C4NhWeQTU5+hV3zG8=\t0"), "waiting");
+});
+
+test("handshake_state: peer с ненулевым timestamp → up", () => {
+	eq(handshake_state("dCtNRb28Iu+YT2OWBnfFQTXJ79C4NhWeQTU5+hV3zG8=\t1782814714"), "up");
+	// timestamp, оканчивающийся на 0 (не '\t0'), — рукопожатие было, не ложный waiting
+	eq(handshake_state("AAA=\t1782814710"), "up");
+});
+
+test("handshake_state: несколько peer — любой с ненулевым timestamp → up", () => {
+	eq(handshake_state("AAA=\t0\nBBB=\t0"), "waiting", "ни один peer не сделал рукопожатие");
+	eq(handshake_state("AAA=\t1782814700\nBBB=\t0"), "up", "первый peer с рукопожатием");
+	eq(handshake_state("AAA=\t0\nBBB=\t1782814700"), "up", "второй peer с рукопожатием");
 });
 
 exit(summary());

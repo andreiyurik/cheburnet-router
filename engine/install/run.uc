@@ -13,7 +13,7 @@
 import { stdin } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
-         tunnel_info, disabled_tunnels, default_protocol } from "./install.uc";
+         tunnel_info, disabled_tunnels, default_protocol, handshake_state } from "./install.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -37,21 +37,36 @@ function step_stdin(s, cfg) {
 	return "{}";
 }
 
-// Минимальный health-check: свежий awg-handshake (если есть интерфейс) + DNS резолвится локально.
-// Расширяемо; цель — поймать «туннель/DNS не поднялись» до commit.
+// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). reality (Full): туннель —
+// userspace-сервис sing-box → «процесс жив» (глубокая проверка — QEMU/железо). awg (Light): по
+// latest-handshakes — "up" (рукопожатие было) или "none" (vpn не настраивался) считаем готовым,
+// "waiting" (peer есть, рукопожатия ещё нет) — нет.
+function tunnel_ok(cfg, iface) {
+	if ((cfg.protocol ?? default_protocol()) == "reality")
+		return trim(sh("pgrep -x sing-box >/dev/null 2>&1; echo $?")) == "0";
+	return handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) != "waiting";
+}
+
+// dns_ok() — ОДНА проба: резолвится ли имя через локальный dnsmasq (127.0.0.1).
+function dns_ok() {
+	return trim(sh("nslookup openwrt.org 127.0.0.1 >/dev/null 2>&1; echo $?")) == "0";
+}
+
+// Health-check: и DNS, и туннель должны подняться ДО commit. КЛЮЧЕВОЕ — поллим ОБА в одном окне
+// (~30с): шаги dns/doh/vpn только что (пере)настроили dnsmasq, https-dns-proxy и awg0 — сервисам
+// нужно несколько секунд на тёплый старт (AWG-handshake: initiation+ответ сервера ~5–15с; DoH:
+// https-dns-proxy поднимается не мгновенно). Любая МГНОВЕННАЯ проверка ловила бы этот старт и
+// откатывала рабочую установку (исходный баг). Успех — как только ОБА условия выполнены.
 function healthcheck(cfg) {
-	let dns_ok = (trim(sh("nslookup openwrt.org 127.0.0.1 >/dev/null 2>&1; echo $?")) == "0");
-	// reality (Full): туннель — userspace-сервис sing-box, не awg-интерфейс. Минимальная проверка
-	// «процесс жив»; глубокая (handshake к Reality-серверу) — QEMU/железо.
-	if ((cfg.protocol ?? default_protocol()) == "reality") {
-		let up = (trim(sh("pgrep -x sing-box >/dev/null 2>&1; echo $?")) == "0");
-		return dns_ok && up;
-	}
 	let iface = (cfg.routing_opts && cfg.routing_opts.tunnel_if) ? cfg.routing_opts.tunnel_if : "awg0";
-	let hs = sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface));
-	// handshake != 0 (когда-либо был) ИЛИ vpn не настраивался — не валим установку из-за этого жёстко.
-	let awg_ok = (length(trim(hs)) == 0) || !match(hs, /\t0$/);
-	return dns_ok && awg_ok;
+	let dns = false, tun = false;
+	for (let i = 0; i < 15; i++) {
+		if (!dns) dns = dns_ok();
+		if (!tun) tun = tunnel_ok(cfg, iface);
+		if (dns && tun) return true;
+		sh("sleep 2");
+	}
+	return dns && tun;
 }
 
 // rollback_all(steps, cfg) — ЕДИНСТВЕННАЯ реализация отката: вернуть чистые конфиги из снимка

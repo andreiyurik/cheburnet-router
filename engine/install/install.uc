@@ -41,24 +41,24 @@ const DEFAULT_PROTOCOL = "awg";
 const TUNNEL_STEPS = [ "vpn", "singbox" ]; // взаимоисключающие шаги (ровно один активен)
 
 // protocol_ids() → список валидных протоколов (для enum в ubus-реестре — граница доверия).
-export function protocol_ids() {
+function protocol_ids() {
 	let out = [];
 	for (let k in PROTOCOLS) push(out, k);
 	return out;
 }
 
-export function default_protocol() {
+function default_protocol() {
 	return DEFAULT_PROTOCOL;
 }
 
 // tunnel_info(protocol) → { step, tunnel_if } активного протокола (неизвестный → дефолт, fail-safe).
-export function tunnel_info(protocol) {
+function tunnel_info(protocol) {
 	return PROTOCOLS[protocol] ?? PROTOCOLS[DEFAULT_PROTOCOL];
 }
 
 // disabled_tunnels(protocol) → имена туннель-шагов, которые НЕ применяем (все, кроме активного).
 // run.uc передаёт их в enabled_steps({disable}) → в установке остаётся ровно один туннель.
-export function disabled_tunnels(protocol) {
+function disabled_tunnels(protocol) {
 	let active = tunnel_info(protocol).step;
 	let out = [];
 	for (let i = 0; i < length(TUNNEL_STEPS); i++)
@@ -73,14 +73,14 @@ function copy_step(s) {
 }
 
 // all_steps() → копия реестра (в порядке применения).
-export function all_steps() {
+function all_steps() {
 	let out = [];
 	for (let i = 0; i < length(STEPS); i++) push(out, copy_step(STEPS[i]));
 	return out;
 }
 
 // enabled_steps(opts) → шаги к применению. opts.disable — список имён, которые пропустить.
-export function enabled_steps(opts) {
+function enabled_steps(opts) {
 	let disable = (opts && opts.disable) ? opts.disable : [];
 	let out = [];
 	for (let i = 0; i < length(STEPS); i++)
@@ -93,7 +93,7 @@ export function enabled_steps(opts) {
 // реально откатываемые (is_clean_config), без дублей, в порядке встречи. Классификация шага
 // dirty НЕ исключает его uci-configs: у гибридного шага (firewall) uci-часть (NAT-зона)
 // откатывается snapshot'ом, а runtime-часть (nft/ip) — его собственным teardown'ом.
-export function snapshot_scope(steps) {
+function snapshot_scope(steps) {
 	let seen = {}, out = [];
 	for (let i = 0; i < length(steps); i++) {
 		let s = steps[i];
@@ -106,7 +106,7 @@ export function snapshot_scope(steps) {
 }
 
 // dirty_steps(steps) → имена грязных шагов (их откат при сбое — teardown, не uci-restore).
-export function dirty_steps(steps) {
+function dirty_steps(steps) {
 	let out = [];
 	for (let i = 0; i < length(steps); i++)
 		if (steps[i].rollback == "dirty") push(out, steps[i].name);
@@ -117,7 +117,7 @@ export function dirty_steps(steps) {
 //   results = { preflight:{ok}, steps:[{name,ok}...], health:{ok}|null }
 // Порядок проверок = fail-safe: нет preflight → abort (ничего не трогали); упал шаг или
 // health → rollback; всё ок → commit.
-export function decide_outcome(results) {
+function decide_outcome(results) {
 	if (!results || !results.preflight || results.preflight.ok !== true)
 		return { action: "abort", reason: "preflight не пройден — изменений нет", failed: [] };
 
@@ -133,3 +133,27 @@ export function decide_outcome(results) {
 
 	return { action: "commit", reason: "все фазы успешны", failed: [] };
 }
+
+// handshake_state(hs) — состояние AWG-рукопожатия по выводу `awg show <if> latest-handshakes`
+// (строки "<pubkey>\t<секунд_с_последнего_рукопожатия>"). ЧИСТАЯ (вход — строка вывода awg):
+// health-check (run.uc, импурный поллинг) принимает решение тестируемой логикой. Это суть fix #2 —
+// раньше health читал handshake ОДИН раз сразу после firewall-шага и почти всегда видел "waiting"
+// → откатывал рабочую установку.
+//   "none"    — пустой вывод: awg-интерфейса нет / vpn не настраивался → health НЕ валим;
+//   "up"      — хотя бы у одного peer ненулевой timestamp (рукопожатие было);
+//   "waiting" — peer(ы) есть, но рукопожатий ещё нет → поллить дальше.
+// Разбор по строкам (а не regex "\t0$"): корректно для нескольких peer и без зависимости от
+// multiline-семантики `$`.
+function handshake_state(hs) {
+	let s = trim(hs ?? "");
+	if (length(s) == 0) return "none";
+	let lines = split(s, "\n");
+	for (let i = 0; i < length(lines); i++) {
+		let f = split(trim(lines[i]), "\t");      // [pubkey, секунд]; pubkey — base64, без табов
+		if (length(f) >= 2 && int(f[length(f) - 1]) > 0)
+			return "up";
+	}
+	return "waiting";
+}
+
+export { protocol_ids, default_protocol, tunnel_info, disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome, handshake_state };
