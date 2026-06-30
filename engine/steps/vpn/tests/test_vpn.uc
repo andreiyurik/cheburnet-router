@@ -65,10 +65,10 @@ test("build_vpn_plan: интерфейс awg0, обфускация только
 	ok(index(join("\n", plan.setup), "awg_s2") < 0, "S2 отсутствует → не пишем");
 });
 
-test("build_vpn_plan: КРИТИЧНЫЙ инвариант route_allowed_ips='0'", () => {
+test("build_vpn_plan: route_allowed_ips='1' — туннель=дефолт (v2, netifd держит маршрут)", () => {
 	let plan = build_vpn_plan(parse_awg_conf(CONF), {});
-	ok(has(plan.setup, "set network.awg0_peer.route_allowed_ips='0'"),
-		"routing — ядро, не netifd (урок v1)");
+	ok(has(plan.setup, "set network.awg0_peer.route_allowed_ips='1'"),
+		"netifd ставит default через awg0 + пинит endpoint; direct вытягивает policy-routing (fail-safe в туннель)");
 });
 
 test("build_vpn_plan: peer — endpoint split, PSK, forced allowed_ips, keepalive", () => {
@@ -123,7 +123,7 @@ test("build_vpn_plan: кастомный interface → секции и тип pe
 	let plan = build_vpn_plan(parse_awg_conf(CONF), { interface: "awg1" });
 	ok(has(plan.setup, "set network.awg1=interface"));
 	ok(has(plan.setup, "set network.awg1_peer=amneziawg_awg1"));
-	ok(has(plan.setup, "set network.awg1_peer.route_allowed_ips='0'"));
+	ok(has(plan.setup, "set network.awg1_peer.route_allowed_ips='1'"));
 });
 
 test("owned_sections: имена секций шага (источник для reset), уважает opts", () => {

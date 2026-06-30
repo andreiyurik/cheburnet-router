@@ -7,8 +7,10 @@
 // .conf — вход пользователя, поэтому ВАЛИДИРУЕМ (граница доверия): нет обязательных полей →
 // errors, ok=false, шаг не трогает сеть. Применение uci — в apply.uc (импурно, QEMU).
 //
-// ИНВАРИАНТ из v1: route_allowed_ips='0' — маршрутизацией управляет ЯДРО ([[policy-routing]]),
-// не netifd. Иначе два конкурирующих маршрутизатора и конфликт. Это НЕ опция, а требование.
+// МАРШРУТИЗАЦИЯ (v2): route_allowed_ips='1' — netifd ставит default через awg0 (туннель — дефолт
+// для всего, что не direct) и host-route на endpoint через WAN (без зацикливания). Direct-исключения
+// вытягивает наша policy-routing (mark→table-100→WAN, см. [[policy-routing]]) — конфликта нет, разные
+// таблицы. В v1 дефолт ставил podkop, поэтому стояло '0'; podkop убран — дефолт теперь на netifd.
 
 const VPN_DEFAULTS = {
 	interface: "awg0",
@@ -34,13 +36,13 @@ function resolve_opts(opts) {
 
 // owned_sections(opts?) → имена uci-секций network, которыми владеет шаг (интерфейс + peer).
 // Единственный источник для тех, кто их сносит (install/reset.uc) — не дрейфует при переименовании.
-export function owned_sections(opts) {
+function owned_sections(opts) {
 	let o = resolve_opts(opts);
 	return [ o.interface, o.interface + "_peer" ];
 }
 
 // split_endpoint(ep) → { host, port } или null. Поддерживает host:port и [ipv6]:port.
-export function split_endpoint(ep) {
+function split_endpoint(ep) {
 	let s = trim(ep ?? "");
 	if (length(s) == 0) return null;
 	if (substr(s, 0, 1) == "[") {
@@ -59,7 +61,7 @@ export function split_endpoint(ep) {
 
 // parse_awg_conf(text) → { interface: {ключ:значение}, peers: [{...}] }. INI-формат WireGuard:
 // секции [Interface]/[Peer], строки key = value. Inline-комментарии (# или ;) отсекаются.
-export function parse_awg_conf(text) {
+function parse_awg_conf(text) {
 	let iface = {}, peers = [], section = "", curpeer = null;
 	let lines = split(text ?? "", "\n");
 	for (let i = 0; i < length(lines); i++) {
@@ -85,7 +87,7 @@ export function parse_awg_conf(text) {
 // build_vpn_plan(parsed, opts) → { ok, errors, teardown, setup, interface, peer_section }.
 // teardown — delete-before-add (идемпотентность; на apply с || true). setup — uci set/add_list.
 // Берём первый [Peer] (типовой случай: один сервер). Маршрутизацию навязываем ядру (см. инвариант).
-export function build_vpn_plan(parsed, opts) {
+function build_vpn_plan(parsed, opts) {
 	let o = resolve_opts(opts);
 	let iface = (parsed && parsed.interface) ? parsed.interface : {};
 	let peer = (parsed && parsed.peers && length(parsed.peers) > 0) ? parsed.peers[0] : {};
@@ -141,8 +143,11 @@ export function build_vpn_plan(parsed, opts) {
 	push(setup, sprintf("set network.%s.endpoint_port='%s'", peersect, ep.port));
 	push(setup, sprintf("set network.%s.persistent_keepalive='%s'",
 		peersect, peer.PersistentKeepalive ?? o.keepalive));
-	// ИНВАРИАНТ: routing — ядро, не netifd. Без этого два маршрутизатора конфликтуют (v1).
-	push(setup, sprintf("set network.%s.route_allowed_ips='0'", peersect));
+	// route_allowed_ips='1' — netifd ставит default dev awg0 (туннель = дефолт) + host-route на
+	// endpoint через WAN. Direct идёт мимо туннеля через mark→table-100 (routing/firewall). fail-safe:
+	// промах direct-списка = трафик уходит в туннель, а не дропается kill-switch'ем. v1 ставил '0'
+	// (маршрутом владел podkop); в v2 podkop нет — дефолт держит netifd.
+	push(setup, sprintf("set network.%s.route_allowed_ips='1'", peersect));
 
 	return {
 		ok: true, errors: [],
@@ -150,3 +155,5 @@ export function build_vpn_plan(parsed, opts) {
 		interface: ifname, peer_section: peersect,
 	};
 }
+
+export { owned_sections, split_endpoint, parse_awg_conf, build_vpn_plan };
