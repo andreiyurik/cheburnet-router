@@ -77,6 +77,16 @@ function rollback_all(steps, cfg) {
 	let dirty = dirty_steps(steps);
 	for (let i = 0; i < length(dirty); i++)
 		run_stdin(step_cmd(dirty[i], " --teardown"), step_stdin({ name: dirty[i], needs: "domains" }, cfg));
+
+	// Snapshot вернул uci-КОНФИГИ, но РАНТАЙМ ещё несёт изменения установки, и сам по себе он не
+	// сойдётся с конфигом: netifd держит default через awg0 (route_allowed_ips=1, см. vpn-шаг) и НЕ
+	// вернёт WAN-дефолт, пока его не передёрнуть; dnsmasq резолвит через (возможно мёртвый) DoH.
+	// Без переприменения сервисов провал установки оставит LAN-клиентов БЕЗ интернета (kill-switch
+	// в туннель, которого нет; DNS через https-dns-proxy, который не встал). network restart —
+	// детерминированно (reload недостаточно для снятия awg0+возврата дефолта), на пути отката
+	// (уже не happy-path) краткий разрыв LAN приемлем ради гарантированного восстановления.
+	sh("/etc/init.d/network restart >/dev/null 2>&1");
+	sh("/etc/init.d/dnsmasq restart >/dev/null 2>&1");
 }
 
 // --- вход ---
