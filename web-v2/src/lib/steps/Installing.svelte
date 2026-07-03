@@ -1,5 +1,6 @@
 <script>
   import { onDestroy } from 'svelte';
+  import mascot from '../../assets/cheburashka.png';
   import { cheburnet } from '../ubus.js';
 
   // args — { awg_conf, root_password, [ssid, wifi_key], domains, token } для метода install.
@@ -100,7 +101,10 @@
       {cancelling ? 'Отменяю…' : 'Отменить установку'}
     </button>
   {:else if phase === 'ok'}
-    <p class="ok-msg">✓ Готово. Открываю панель…</p>
+    <div class="done">
+      <img src={mascot} alt="" width="84" height="84" />
+      <p class="ok-msg">Готово! Роутер настроен. Открываю панель…</p>
+    </div>
   {:else if phase === 'fail'}
     <p class="warn">✗ {error}</p>
     <div class="support">

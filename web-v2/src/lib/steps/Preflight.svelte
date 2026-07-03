@@ -1,8 +1,8 @@
 <script>
   import { cheburnet } from '../ubus.js';
 
-  // onReady(fullAvailable) — вызвать, когда железо подходит; fullAvailable = тянет ли роутер
-  // Full-тир (VLESS+Reality), из report.tiers.full (preflight). Определяет, предлагать ли его в Setup.
+  // onReady(fullAvailable) — вызвать, когда железо подходит. fullAvailable (report.tiers.full)
+  // сейчас игнорируется App'ом: Full-тир де-скоупнут на v2.1, текст о тирах тут не показываем.
   let { onReady } = $props();
 
   let report = $state(null);
@@ -26,8 +26,8 @@
 </script>
 
 <section>
-  <h2>Проверка железа</h2>
-  <p class="muted">Гейткипер честно скажет, потянет ли роутер стек — до любых изменений.</p>
+  <h2>Проверка роутера</h2>
+  <p class="muted">Сначала убедимся, что роутер подходит, — до любых изменений на нём.</p>
 
   {#if loading}
     <p class="muted">Проверяю…</p>
@@ -46,15 +46,10 @@
     </ul>
 
     {#if report.passed}
-      <p class="ok-msg">Железо подходит ({report.total} проверок).</p>
-      {#if report.tiers?.full}
-        <p class="muted">Доступен Full-тир: VLESS+Reality (sing-box) — для сетей с жёстким DPI.</p>
-      {:else if report.tiers}
-        <p class="muted">Full-тир (VLESS+Reality) недоступен на этом железе — будет AmneziaWG (этого хватает большинству).</p>
-      {/if}
+      <p class="ok-msg">Роутер подходит — все {report.total} проверок пройдены.</p>
       <button class="primary" onclick={() => onReady(report.tiers?.full === true)}>Продолжить</button>
     {:else}
-      <p class="warn">Провалено {report.failed} из {report.total}. Устраните указанное и повторите.</p>
+      <p class="warn">Не пройдено {report.failed} из {report.total} проверок. Исправьте отмеченное и нажмите «Перепроверить».</p>
       <button onclick={run}>Перепроверить</button>
     {/if}
   {/if}

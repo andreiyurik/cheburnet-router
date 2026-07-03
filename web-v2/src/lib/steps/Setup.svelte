@@ -6,7 +6,7 @@
   // dnsProviders — каталог фильтрующих DNS (из status); dnsProviderDefault — дефолтный id.
   // fullAvailable — тянет ли железо Full-тир (из preflight): true → предлагаем выбор протокола
   // AmneziaWG / VLESS+Reality; false → только AmneziaWG (Light).
-  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, initial = null } = $props();
+  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, urlToken = '', initial = null } = $props();
 
   const MIN_PASS = 8; // минимум на ubus-границе (install.root_password.minlen)
   const SSID_MAX = 32; // IEEE 802.11
@@ -38,8 +38,9 @@
   // Это редактируемый дефолт: содержимое списка решает пользователь.
   // svelte-ignore state_referenced_locally
   let domainsText = $state(initial?.domains?.join('\n') ?? 'ru');
+  // Токен: ранее введённый → из ссылки (?token=…) → пусто (ручной ввод).
   // svelte-ignore state_referenced_locally
-  let token = $state(initial?.token ?? '');
+  let token = $state(initial?.token ?? urlToken ?? '');
   // DNS-фильтрация: выбранный провайдер (initial → ранее выбранный → дефолт каталога).
   // svelte-ignore state_referenced_locally
   let dnsProvider = $state(initial?.dns_provider ?? dnsProviderDefault ?? '');
@@ -105,7 +106,7 @@
     }
 
     if (token.trim().length === 0) {
-      error = 'Введите install-токен (его напечатал bootstrap по SSH).';
+      error = 'Введите код установки — он напечатан в терминале после команды установки.';
       return;
     }
     onSubmit({
@@ -147,12 +148,13 @@
     </label>
   {:else}
     <label>
-      <span>AWG-конфиг провайдера</span>
+      <span>VPN-конфиг (AmneziaWG, файл <code>.conf</code>)</span>
       <textarea
         bind:value={awgConf}
         rows="8"
         placeholder="[Interface]&#10;PrivateKey = …&#10;Address = …&#10;[Peer]&#10;PublicKey = …&#10;Endpoint = host:port"
       ></textarea>
+      <small class="muted">Его выдаёт ваш VPN-провайдер (конфиг «для роутеров») или ваш собственный сервер.</small>
     </label>
     <label class="file">
       <span>…или загрузить файлом</span>
@@ -213,8 +215,9 @@
   {/if}
 
   <label>
-    <span>Install-токен</span>
-    <input type="text" bind:value={token} placeholder="из вывода bootstrap по SSH" />
+    <span>Код установки (install-токен)</span>
+    <input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
+    <small class="muted">Если вы открыли мастер по ссылке из терминала — код уже подставлен.</small>
   </label>
 
   {#if error}<p class="warn">{error}</p>{/if}

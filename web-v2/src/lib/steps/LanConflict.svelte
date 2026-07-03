@@ -3,9 +3,11 @@
 
   // info — ответ check_lan_conflict: { lan_cidr, wan_cidr, suggest_ip }.
   // onSkip — продолжить без смены (preflight всё равно отметит конфликт).
-  let { info, onSkip } = $props();
+  // urlToken — токен из ссылки мастера (?token=…), чтобы не вводить руками.
+  let { info, urlToken = '', onSkip } = $props();
 
-  let token = $state('');
+  // svelte-ignore state_referenced_locally
+  let token = $state(urlToken ?? '');
   let error = $state('');
   let busy = $state(false);
   let applied = $state(null); // new_ip после успешного применения
@@ -13,7 +15,7 @@
   async function apply() {
     error = '';
     if (token.trim().length === 0) {
-      error = 'Введите install-токен (его напечатал bootstrap по SSH).';
+      error = 'Введите код установки — он напечатан в терминале после команды установки.';
       return;
     }
     busy = true;
@@ -44,8 +46,8 @@
     <p>
       Подсеть LAN роутера (<code>{info.lan_cidr}</code>) пересекается с подсетью провайдера
       (<code>{info.wan_cidr}</code>). Так бывает, когда роутер подключён за другим роутером с
-      той же подсетью. Маршрутизация в таком виде работать не будет — preflight установку не
-      пропустит.
+      той же подсетью. Маршрутизация в таком виде работать не будет — проверка на следующем
+      шаге установку не пропустит.
     </p>
     <p>
       Решение: сменить адрес LAN на свободный — предлагаем
@@ -54,9 +56,9 @@
     </p>
 
     <label>
-      <span>Install-токен</span>
-      <input type="text" bind:value={token} placeholder="из вывода bootstrap по SSH" />
-      <small class="muted">Смена адреса рвёт соединения — поэтому требует токен владельца.</small>
+      <span>Код установки (install-токен)</span>
+      <input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
+      <small class="muted">Смена адреса рвёт соединения — поэтому требует код владельца роутера.</small>
     </label>
 
     {#if error}<p class="warn">{error}</p>{/if}

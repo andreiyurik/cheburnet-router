@@ -8,6 +8,22 @@
   --bad: #f85149;
   --line: #2a333f;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: dark;
+}
+
+/* Светлая тема — следуем системной настройке устройства (та же палитра ролей). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --fg: #1c2530;
+    --muted: #5c6875;
+    --accent: #2f6fe4;
+    --ok: #1a7f37;
+    --bad: #c93c37;
+    --line: #d9dfe7;
+    color-scheme: light;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -25,8 +41,24 @@ main {
   padding: 1.5rem 1rem 3rem;
 }
 
+header { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 1.25rem; }
 header h1 { margin: 0; font-size: 1.8rem; letter-spacing: 0.5px; }
-header .sub { margin: 0 0 1.25rem; color: var(--muted); }
+header .sub { margin: 0; color: var(--muted); }
+header .logo { flex: none; }
+
+.done { display: flex; align-items: center; gap: 1rem; margin: 0.5rem 0; }
+.done img { flex: none; }
+
+/* Индикатор шагов мастера: точки + подпись «Шаг N из M». */
+.stepper { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.75rem 0.25rem; }
+.stepper .dot {
+  width: 0.55rem; height: 0.55rem;
+  border-radius: 50%;
+  background: var(--line);
+}
+.stepper .dot.done { background: var(--muted); }
+.stepper .dot.active { background: var(--accent); }
+.stepper-label { margin-left: 0.4rem; color: var(--muted); font-size: 0.85rem; }
 
 section {
   background: var(--card);

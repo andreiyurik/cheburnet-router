@@ -11,7 +11,7 @@
 #                     Release-gate. Поймал uci/busybox-несовместимости,
 #                     которые mock-тесты T2 пропускают.
 
-.PHONY: lint test test-unit test-integration qemu qemu-v2 qemu-http qemu-install qemu-install-v2 hardware \
+.PHONY: lint test test-unit test-integration qemu qemu-v2 qemu-http qemu-webui-v2 qemu-install qemu-install-v2 hardware \
         test-engine poc-split
 
 BATS := tests/vendor/bats-core/bin/bats
@@ -78,6 +78,12 @@ qemu-install-v2:
 # c invalid mode и т.п.).
 qemu-http:
 	@./tests/qemu/smoke-http.sh
+
+# T3b-v2 — HTTP-слой веб-мастера v2: uhttpd раздаёт Svelte-бандл, /ubus
+# JSON-RPC (путь браузера), ACL anon-vs-admin, session.login, handler-валидация
+# без деструктивных эффектов. Нужен интернет в VM (apk add uhttpd-mod-ubus).
+qemu-webui-v2:
+	@./tests/qemu/webui-v2.sh
 
 # T3c — полный install. Поднимает VM, заливает репо в /opt/cheburnet,
 # запускает setup/install.sh целиком на реальном busybox-OpenWrt. Ловит
