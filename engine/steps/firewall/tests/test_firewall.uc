@@ -22,18 +22,17 @@ test("HOME kill-switch: непомеченное в WAN → drop, по oifname (
 	let p = build_firewall_plan(rp(null), null);
 	ok(p.ok);
 	deep_eq(p.killswitch, [
-		"add rule inet fw4 cheburnet_ks oifname \"eth0\" meta mark != 0x1 ct state new drop",
+		"oifname \"eth0\" meta mark != 0x1 ct state new drop",
 	]);
 	// LAN-подсеть нигде не упоминается — kill-switch от неё не зависит
-	let joined = join("\n", p.nft_setup);
-	ok(index(joined, "192.168") < 0, "нет хардкода LAN-подсети");
+	ok(index(p.nft_file, "192.168") < 0, "нет хардкода LAN-подсети");
 });
 
 // --- kill-switch: TRAVEL строже (нет direct-исключений) ---
 test("TRAVEL kill-switch: всё в WAN → drop, без mark-исключения", () => {
 	let p = build_firewall_plan(rp({ mode: "travel" }), null);
 	deep_eq(p.killswitch, [
-		"add rule inet fw4 cheburnet_ks oifname \"eth0\" ct state new drop",
+		"oifname \"eth0\" ct state new drop",
 	]);
 });
 
@@ -49,25 +48,22 @@ test("без wan_if: план.ok=false, kill-switch не строится", () =
 // --- динамический WAN прокидывается в правило ---
 test("kill-switch использует переданный wan_if (динамический)", () => {
 	let p = build_firewall_plan(rp({ wan_if: "wwan0" }), null);
-	ok(has(p.killswitch, "add rule inet fw4 cheburnet_ks oifname \"wwan0\" meta mark != 0x1 ct state new drop"));
+	ok(has(p.killswitch, "oifname \"wwan0\" meta mark != 0x1 ct state new drop"));
 });
 
-// --- setup: сеты + наша prerouting-цепочка + правило пометки + ks-цепочка ---
-test("nft_setup: сеты, цепочка пометки (prerouting), правило, ks-цепочка", () => {
+// --- nftables.d-файл: путь + сеты + цепочки + правила (декларативно, для fw4-include) ---
+test("nft_file: путь /etc/nftables.d, сеты, цепочка пометки, правило, ks-цепочка", () => {
 	let p = build_firewall_plan(rp(null), null);
-	ok(has(p.nft_setup, "add set inet fw4 direct { type ipv4_addr; flags interval; }"));
-	ok(has(p.nft_setup, "add chain inet fw4 cheburnet_mark { type filter hook prerouting priority mangle; }"));
-	ok(has(p.nft_setup, "add rule inet fw4 cheburnet_mark ip daddr @direct meta mark set 0x1"));
-	ok(has(p.nft_setup, "add chain inet fw4 cheburnet_ks { type filter hook forward priority filter; }"));
-});
-
-// --- teardown: удаляем НАШИ цепочки, сеты не трогаем ---
-test("teardown удаляет наши цепочки, но НЕ сеты (в них живут адреса dnsmasq)", () => {
-	let p = build_firewall_plan(rp(null), null);
-	ok(has(p.nft_teardown, "delete chain inet fw4 cheburnet_mark"));
-	ok(has(p.nft_teardown, "delete chain inet fw4 cheburnet_ks"));
-	let joined = join("\n", p.nft_teardown);
-	ok(index(joined, "delete set") < 0, "сеты не удаляем");
+	eq(p.nft_path, "/etc/nftables.d/10-cheburnet.nft");
+	ok(index(p.nft_file, "set direct { type ipv4_addr; flags interval; }") >= 0);
+	ok(index(p.nft_file, "chain cheburnet_mark {") >= 0);
+	ok(index(p.nft_file, "type filter hook prerouting priority mangle;") >= 0);
+	ok(index(p.nft_file, "ip daddr @direct meta mark set 0x1") >= 0);
+	ok(index(p.nft_file, "chain cheburnet_ks {") >= 0);
+	ok(index(p.nft_file, "type filter hook forward priority filter;") >= 0);
+	// декларативный формат fw4-include: без императивных `add` и без обёртки `table` (её ставит fw4)
+	ok(index(p.nft_file, "add rule") < 0 && index(p.nft_file, "add chain") < 0, "нет императивных add-команд");
+	ok(index(p.nft_file, "table inet fw4 {") < 0, "нет обёртки table (её ставит fw4)");
 });
 
 // --- ip rule/route teardown+setup ---
@@ -83,14 +79,14 @@ test("ip setup из routing + teardown снимает правило и чист
 test("TRAVEL: ip_setup и mark-правила пусты", () => {
 	let p = build_firewall_plan(rp({ mode: "travel" }), null);
 	deep_eq(p.ip_setup, []);
-	ok(index(join("\n", p.nft_setup), "meta mark set") < 0, "правил пометки нет");
+	ok(index(p.nft_file, "meta mark set") < 0, "правил пометки нет");
 });
 
 // --- IPv6: v6 сет/правило пометки появляются, ks остаётся одним inet-правилом ---
 test("ipv6: добавляются v6 сет и правило пометки; ks по-прежнему одно", () => {
 	let p = build_firewall_plan(build_plan([ "example.com" ], { ipv6: true, wan_if: "eth0" }), null);
-	ok(has(p.nft_setup, "add set inet fw4 direct6 { type ipv6_addr; flags interval; }"));
-	ok(has(p.nft_setup, "add rule inet fw4 cheburnet_mark ip6 daddr @direct6 meta mark set 0x1"));
+	ok(index(p.nft_file, "set direct6 { type ipv6_addr; flags interval; }") >= 0);
+	ok(index(p.nft_file, "ip6 daddr @direct6 meta mark set 0x1") >= 0);
 	eq(length(p.killswitch), 1, "kill-switch — одно inet-правило на оба семейства");
 	ok(has(p.ip_setup, "ip -6 rule add fwmark 0x1 lookup 100"));
 });
@@ -99,8 +95,8 @@ test("ipv6: добавляются v6 сет и правило пометки; k
 test("killswitch=false: ks-цепочки/правил нет, mark и ip остаются", () => {
 	let p = build_firewall_plan(rp(null), { killswitch: false });
 	eq(length(p.killswitch), 0);
-	ok(index(join("\n", p.nft_setup), "cheburnet_ks") < 0);
-	ok(has(p.nft_setup, "add rule inet fw4 cheburnet_mark ip daddr @direct meta mark set 0x1"));
+	ok(index(p.nft_file, "cheburnet_ks") < 0);
+	ok(index(p.nft_file, "ip daddr @direct meta mark set 0x1") >= 0);
 });
 
 // --- NAT-зона awg0: masq + forwarding lan→vpn (uci firewall, чистый откат) ---

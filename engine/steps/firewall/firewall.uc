@@ -5,15 +5,22 @@
 //   • ip rule/route разводят помеченное в WAN, остальное в туннель
 //   • kill-switch роняет непрямой трафик, утекающий в WAN мимо туннеля → [[kill-switch]]
 //
-// ЧИСТОЕ ЯДРО: build_firewall_plan(routing_plan, opts) → списки nft/ip команд (setup+teardown).
-// Применение (nft -f, ip) — в apply.uc (импурно, QEMU). Сходимость здесь — ПЕРЕ-применением
-// (teardown+setup), не минимальным diff: состояние ядра (nft/ip) не откатывается чисто, как
-// UCI, — честный safe-fail вместо иллюзии транзакции (см. reliability.md).
+// НАШИ ЦЕПОЧКИ/СЕТЫ ЖИВУТ В /etc/nftables.d/10-cheburnet.nft — файле, который fw4 включает в
+// table inet fw4 при КАЖДОМ reload. Это критично: ручная инъекция `nft add` теряла правила при
+// ЛЮБОМ fw4 reload (hotplug awg0, установка пакета, правка LuCI, ребут) — kill-switch тихо
+// умирал (поймано живым прогоном на роутере, QEMU это не показал). Через nftables.d fw4 сам
+// восстанавливает наши правила при каждой пересборке — reload из врага становится союзником.
+//
+// ЧИСТОЕ ЯДРО: build_firewall_plan(routing_plan, opts) → { nft_file (содержимое), ip-команды,
+// uci NAT }. Запись файла + reload + ip — в apply.uc (импурно, QEMU). ip rule/route fw4 reload
+// не трогает; их сбрасывает лишь network restart (реже) — отдельная забота (hotplug), не здесь.
 
-import { render_sets, render_mark_rules, render_iprules } from "../../routing/routing.uc";
+import { render_iprules } from "../../routing/routing.uc";
 
-// Свои hooked-цепочки в inet fw4: их можно целиком удалить (clean teardown), не задев правил
-// fw4. Сеты НЕ в этом списке — их не удаляем (в них живут адреса от dnsmasq).
+const NFT_PATH = "/etc/nftables.d/10-cheburnet.nft";
+
+// Свои hooked-цепочки в inet fw4 (объявляются в nftables.d-файле). Сеты — тоже в файле: fw4
+// пересоздаёт их пустыми при reload, dnsmasq пере-наполняет на резолве (адреса эфемерны).
 const FW_DEFAULTS = {
 	mark_chain: "cheburnet_mark", // type filter hook prerouting priority mangle
 	ks_chain: "cheburnet_ks",     // type filter hook forward   priority filter
@@ -68,6 +75,51 @@ function build_nat_ops(opts) {
 	return { teardown: teardown, setup: setup };
 }
 
+// render_nft_file(routing_plan, o) → содержимое /etc/nftables.d/10-cheburnet.nft.
+// Формат — тело, которое fw4 включает ВНУТРЬ table inet fw4 (без обёртки table и без `add`):
+// декларативные `set …` и `chain …` с правилами. Возвращает { content, killswitch }.
+// killswitch отдаём отдельно (список ks-правил) — для юнит-проверки security-семантики.
+function render_nft_file(routing_plan, o) {
+	let ro = routing_plan.opts;
+	let wan = ro.wan_if, mark = ro.mark;
+	let L = [
+		"# cheburnet: пометка direct-трафика + kill-switch (см. firewall.uc).",
+		"# fw4 включает этот файл в table inet fw4 при каждом reload — правила переживают reload.",
+		sprintf("set %s { type ipv4_addr; flags interval; }", ro.set4),
+	];
+	if (ro.ipv6)
+		push(L, sprintf("set %s { type ipv6_addr; flags interval; }", ro.set6));
+
+	// Цепочка пометки (prerouting/mangle): daddr ∈ direct → mark. В travel правил нет.
+	push(L, sprintf("chain %s {", o.mark_chain));
+	push(L, "\ttype filter hook prerouting priority mangle; policy accept;");
+	if (ro.mode != "travel") {
+		push(L, sprintf("\tip daddr @%s meta mark set %s", ro.set4, mark));
+		if (ro.ipv6)
+			push(L, sprintf("\tip6 daddr @%s meta mark set %s", ro.set6, mark));
+	}
+	push(L, "}");
+
+	// kill-switch (forward/filter). ct state new: рубим только новые соединения наружу мимо
+	// туннеля; established (обратный трафик) проходит. AWG-handshake — output роутера, не
+	// forward, поэтому kill-switch его не задевает. drop в base-chain финализирует пакет,
+	// так что порядок относительно fw4-forward неважен.
+	let ks = [];
+	if (o.killswitch && wan) {
+		if (ro.mode == "travel")
+			push(ks, sprintf("oifname \"%s\" ct state new drop", wan)); // всё в WAN → drop
+		else
+			push(ks, sprintf("oifname \"%s\" meta mark != %s ct state new drop", wan, mark));
+		push(L, sprintf("chain %s {", o.ks_chain));
+		push(L, "\ttype filter hook forward priority filter; policy accept;");
+		for (let i = 0; i < length(ks); i++)
+			push(L, "\t" + ks[i]);
+		push(L, "}");
+	}
+
+	return { content: join("\n", L) + "\n", killswitch: ks };
+}
+
 // build_firewall_plan(routing_plan, opts) → структурный план.
 // wan_if берётся из routing_plan.opts (его кладёт gather/preflight) и НЕ хардкодится — это
 // прямой урок v1: хардкод LAN/WAN = тихо-дырявый kill-switch на нестандартной подсети.
@@ -75,43 +127,13 @@ function build_nat_ops(opts) {
 function build_firewall_plan(routing_plan, opts) {
 	let o = resolve_opts(opts);
 	let ro = routing_plan.opts;
-	let fam = ro.family, tbl = ro.fw_table, wan = ro.wan_if;
+	let wan = ro.wan_if;
 	let errors = [];
 
 	if (o.killswitch && !wan)
 		push(errors, "нет wan_if: kill-switch не построить без WAN-интерфейса (не хардкодим)");
 
-	// teardown: удалить наши цепочки (сбрасывает их правила). Сеты не трогаем.
-	let nft_teardown = [ sprintf("delete chain %s %s %s", fam, tbl, o.mark_chain) ];
-	if (o.killswitch)
-		push(nft_teardown, sprintf("delete chain %s %s %s", fam, tbl, o.ks_chain));
-
-	// setup: сеты (идемпотентно) + prerouting-цепочка пометки + правила пометки.
-	let nft_setup = render_sets(routing_plan);
-	push(nft_setup, sprintf("add chain %s %s %s { type filter hook prerouting priority mangle; }",
-		fam, tbl, o.mark_chain));
-	let marks = render_mark_rules(routing_plan, o.mark_chain);
-	for (let i = 0; i < length(marks); i++)
-		push(nft_setup, marks[i]);
-
-	// kill-switch в forward-цепочке. ct state new: рубим только новые соединения наружу мимо
-	// туннеля; established (обратный трафик уже разрешённого) проходит. AWG-handshake — это
-	// output роутера, не forward, поэтому kill-switch его не задевает.
-	let ks = [];
-	if (o.killswitch && wan) {
-		push(nft_setup, sprintf("add chain %s %s %s { type filter hook forward priority filter; }",
-			fam, tbl, o.ks_chain));
-		if (ro.mode == "travel")
-			// нет direct-исключений: всё в WAN — drop (через awg0 разрешено неявно: oifname != wan)
-			push(ks, sprintf("add rule %s %s %s oifname \"%s\" ct state new drop",
-				fam, tbl, o.ks_chain, wan));
-		else
-			// непомеченное (не direct), уходящее в WAN, — drop; direct (mark) и туннель проходят
-			push(ks, sprintf("add rule %s %s %s oifname \"%s\" meta mark != %s ct state new drop",
-				fam, tbl, o.ks_chain, wan, ro.mark));
-		for (let i = 0; i < length(ks); i++)
-			push(nft_setup, ks[i]);
-	}
+	let nft = render_nft_file(routing_plan, o);
 
 	// policy routing: правило fwmark + default в table через WAN (из routing). Teardown —
 	// снять правило и очистить таблицу (ip rule add не идемпотентен → del перед add).
@@ -134,12 +156,12 @@ function build_firewall_plan(routing_plan, opts) {
 		errors: errors,
 		uci_teardown: nat.teardown,
 		uci_setup: nat.setup,
-		nft_teardown: nft_teardown,
-		nft_setup: nft_setup,
+		nft_path: NFT_PATH,
+		nft_file: nft.content,
 		ip_teardown: ip_teardown,
 		ip_setup: ip_setup,
-		killswitch: ks,
+		killswitch: nft.killswitch,
 	};
 }
 
-export { build_nat_ops, build_firewall_plan };
+export { NFT_PATH, build_nat_ops, render_nft_file, build_firewall_plan };

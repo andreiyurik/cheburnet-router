@@ -144,6 +144,25 @@ vm_ssh '/etc/init.d/https-dns-proxy restart >/dev/null 2>&1; sleep 2; /etc/init.
     || { echo "  ✗ https-dns-proxy не стартовал с нашим конфигом"; vm_ssh 'logread | grep -i dns-proxy | tail -10'; exit 1; }
 echo "  ✓ https-dns-proxy принял конфиг и работает"
 
+# ─── firewall: правила ПЕРЕЖИВАЮТ fw4 reload (регрессия живого бага) ──────────
+# На реальном роутере (GL-MT3000, 2026-07-03) обнаружено: ручная nft-инъекция цепочек
+# теряла правила при ЛЮБОМ fw4 reload (hotplug awg0 при install, правка LuCI, ребут) —
+# kill-switch тихо умирал. Фикс: правила в /etc/nftables.d/, fw4 включает их при каждом
+# reload. Этот ассерт ловит регресс: применяем firewall, дёргаем reload, правила на месте.
+echo "→ firewall-шаг: правила в nftables.d переживают fw4 reload"
+vm_ssh 'echo "{\"domains\":[\"example.com\"],\"routing_opts\":{\"wan_if\":\"eth0\"},\"fw_opts\":{\"tunnel_if\":\"awg0\"}}" | ucode -R /usr/share/cheburnet/engine/steps/firewall/apply.uc' >/dev/null 2>&1 \
+    || { echo "  ✗ firewall/apply.uc exit != 0"; exit 1; }
+vm_ssh '[ -f /etc/nftables.d/10-cheburnet.nft ]' \
+    || { echo "  ✗ файл /etc/nftables.d/10-cheburnet.nft не создан"; exit 1; }
+vm_ssh 'nft list chain inet fw4 cheburnet_ks 2>/dev/null | grep -q drop' \
+    || { echo "  ✗ kill-switch не в ядре после apply"; vm_ssh 'nft list chain inet fw4 cheburnet_ks'; exit 1; }
+# КЛЮЧЕВОЕ: reload (то, что раньше стирало правила) — правила обязаны остаться.
+vm_ssh '/etc/init.d/firewall reload >/dev/null 2>&1; sleep 1; nft list chain inet fw4 cheburnet_ks 2>/dev/null | grep -q drop' \
+    || { echo "  ✗ РЕГРЕСС: kill-switch исчез после fw4 reload"; vm_ssh 'nft list chain inet fw4 cheburnet_ks; ls /etc/nftables.d/'; exit 1; }
+vm_ssh 'nft list chain inet fw4 cheburnet_mark 2>/dev/null | grep -q "@direct"' \
+    || { echo "  ✗ РЕГРЕСС: правило пометки исчезло после fw4 reload"; exit 1; }
+echo "  ✓ kill-switch + пометка переживают fw4 reload (nftables.d)"
+
 # ─── итог ────────────────────────────────────────────────────────────────────
 echo
 echo "✓ T3c-v2 pass — установка через apk и data-plane на реальных пакетах:"
