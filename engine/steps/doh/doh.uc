@@ -70,9 +70,13 @@ function build_doh_plan(current, opts) {
 
 	// setup: отключить авто-привязку dnsmasq пакетом (рулим сами) + секции резолверов.
 	let su = [];
-	if (o.manage_dnsmasq)
-		// секция 'config' типа main ставится пакетом при установке; правим её опцию.
+	if (o.manage_dnsmasq) {
+		// Секцию 'config' (тип main) создаём САМИ: пакет https-dns-proxy её НЕ гарантирует —
+		// в свежей установке (проверено на роутере, пакет 2026.03.18) секции нет, и `set` опции
+		// падал с 'uci: Invalid argument'. `set …=main` идемпотентен (повторно — no-op).
+		push(su, "set https-dns-proxy.config=main");
 		push(su, "set https-dns-proxy.config.update_dnsmasq_config='-'");
+	}
 	for (let i = 0; i < length(R); i++) {
 		let r = R[i];
 		push(su, sprintf("set https-dns-proxy.%s=https-dns-proxy", r.name));

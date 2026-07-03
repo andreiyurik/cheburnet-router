@@ -19,8 +19,10 @@ test("дефолт: секция cheburnet_doh (AdGuard) на порту 5053", 
 	ok(has(p.hdp_setup, "set https-dns-proxy.cheburnet_doh.bootstrap_dns='94.140.14.14,94.140.15.15'"));
 });
 
-test("сами рулим dnsmasq: update_dnsmasq_config='-'", () => {
+test("сами рулим dnsmasq: создаём секцию config + update_dnsmasq_config='-'", () => {
 	let p = build_doh_plan({ hdp_sections: [], servers: [] }, null);
+	// секцию создаём САМИ (пакет не гарантирует) — иначе set опции падал 'Invalid argument'
+	ok(has(p.hdp_setup, "set https-dns-proxy.config=main"));
 	ok(has(p.hdp_setup, "set https-dns-proxy.config.update_dnsmasq_config='-'"));
 });
 
