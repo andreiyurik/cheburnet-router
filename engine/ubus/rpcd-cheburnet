@@ -16,7 +16,7 @@ import { sh, run_stdin } from "../lib/proc.uc";
 import { list_descriptor, validate_request, requires_token, make_error } from "./ubus.uc";
 import { cidr_overlap, suggest_lan, valid_lan_ip } from "../preflight/preflight.uc";
 import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
-import { set_names } from "../routing/routing.uc";
+import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
 import { default_protocol } from "../install/install.uc";
 
 // engine/ — относительно этого файла (engine/ubus/rpcd-cheburnet). Тот же приём, что в run.uc.
@@ -143,7 +143,8 @@ function m_status() {
 	// отдельные форки на каждый опрос — лишний налог). Батч печатает строки key=value;
 	// значения однострочны (uci-список — одна строка, awk NR==1 — первый peer).
 	let probe =
-		"echo \"nftset=$(uci -q get dhcp.@dnsmasq[0].nftset 2>/dev/null)\"; " +
+		sprintf("echo \"direct=$(uci -q get dhcp.%s.domain 2>/dev/null)\"; ",
+			dns_owned_sections(null)[0]) +
 		"echo \"hs=$(awg show awg0 latest-handshakes 2>/dev/null | awk 'NR==1{print $2}')\"; " +
 		"echo \"dns=$(/etc/init.d/dnsmasq status 2>/dev/null | grep -qi running && echo up)\"; " +
 		"echo \"doh=$(/etc/init.d/https-dns-proxy status 2>/dev/null | grep -qi running && echo up)\"; " +
@@ -160,13 +161,12 @@ function m_status() {
 		if (eq > 0) facts[substr(plines[i], 0, eq)] = trim(substr(plines[i], eq + 1));
 	}
 
-	// Кол-во direct-доменов: наши nftset-строки в dnsmasq, целящиеся в наш v4-сет (имя — из
-	// routing.set_names, не хардкод). IPv4-запись помечена /4#.
-	let mark4 = "#" + set_names()[0];
+	// Кол-во direct-доменов: список domain нашей v4 ipset-секции (имя — из dns.owned_sections,
+	// не хардкод). uci get списка отдаёт элементы через пробел.
+	let dtoks = split(facts.direct ?? "", /[ \t]+/);
 	let direct_count = 0;
-	let toks = split(facts.nftset ?? "", /[ \t]+/);
-	for (let i = 0; i < length(toks); i++)
-		if (index(toks[i], "/4#") >= 0 && index(toks[i], mark4) >= 0) direct_count++;
+	for (let i = 0; i < length(dtoks); i++)
+		if (length(dtoks[i]) > 0) direct_count++;
 
 	// AWG handshake: возраст последнего рукопожатия (сек) или null. time() — без форка date.
 	let hs_age = null;

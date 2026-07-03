@@ -1,7 +1,7 @@
 // plan.uc — CLI чистого DNS-шага: facts → uci-операции (НЕ применяет, только печатает план).
 //
 //   echo '{"domains":["example.com"],"routing_opts":{"ipv6":false},
-//          "current":{"nftset":[],"options":{}}}' | ucode -R plan.uc
+//          "current":{"sections":{},"options":{}}}' | ucode -R plan.uc
 //
 // Принимает со stdin JSON: domains + routing_opts (для routing.build_plan), current (снимок
 // uci из apply), dns_opts. Печатает строки для `uci batch`. Локально тестируется без роутера —

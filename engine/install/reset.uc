@@ -9,7 +9,7 @@
 // Это НЕ firstboot v1: сбрасывается cheburnet, не роутер.
 //
 // «Что считать нашим» НЕ хардкодим: имена секций/записей приходят из шагов-владельцев
-// (vpn.owned_sections / routing.set_names / doh.listen_prefix) —
+// (vpn.owned_sections / dns.owned_sections / doh.listen_prefix) —
 // переименование в шаге автоматически подхватывается здесь, дрейфа нет.
 //
 // Идемпотентно: повторный запуск на уже чистой системе — no-op (uci -q семантика).
@@ -18,7 +18,7 @@
 import { readfile, unlink, rmdir, lsdir } from "fs";
 import { sh, run_stdin, uci_batch } from "../lib/proc.uc";
 import { owned_sections } from "../steps/vpn/vpn.uc";
-import { set_names } from "../routing/routing.uc";
+import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
 import { listen_prefix } from "../steps/doh/doh.uc";
 import { config_path as sb_config, service_name as sb_service } from "../steps/singbox/singbox.uc";
 
@@ -43,22 +43,14 @@ for (let i = 0; i < length(net); i++)
 	push(nops, "delete network." + net[i]);
 uci_batch(nops, "network");
 
-// dhcp: наши nftset (#<set> из routing), DoH-upstream'ы (префикс из doh), noresolv.
-// Teardown толерантен — код batch не проверяем (отсутствие записей — норма).
+// dhcp: наши ipset-секции (имена из dns.owned_sections), DoH-upstream'ы (префикс из doh),
+// noresolv. Teardown толерантен — код batch не проверяем (отсутствие записей — норма).
 print("reset: чищу dnsmasq-привязки\n");
-let markers = [];
-let sets = set_names();
-for (let i = 0; i < length(sets); i++)
-	push(markers, "#" + sets[i]);
 let ops = [];
-let nft = trim(sh("uci -q get dhcp.@dnsmasq[0].nftset 2>/dev/null"));
-let toks = length(nft) > 0 ? split(nft, /[ \t]+/) : [];
-for (let i = 0; i < length(toks); i++)
-	for (let j = 0; j < length(markers); j++)
-		if (index(toks[i], markers[j]) >= 0) {
-			push(ops, sprintf("del_list dhcp.@dnsmasq[0].nftset='%s'", toks[i]));
-			break;
-		}
+let dns_sects = dns_owned_sections(null);
+for (let i = 0; i < length(dns_sects); i++)
+	if (length(trim(sh(sprintf("uci -q get dhcp.%s 2>/dev/null", dns_sects[i])))) > 0)
+		push(ops, sprintf("delete dhcp.%s", dns_sects[i]));
 let pfx = listen_prefix();
 let srv = trim(sh("uci -q get dhcp.@dnsmasq[0].server 2>/dev/null"));
 let stoks = length(srv) > 0 ? split(srv, /[ \t]+/) : [];

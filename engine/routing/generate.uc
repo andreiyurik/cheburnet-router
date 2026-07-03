@@ -4,12 +4,14 @@
 //   printf 'example.com\nexample.org\n'                                  | ucode -R generate.uc
 //
 // Контракт stdin (это граница доверия — вход валидируем, см. CLAUDE.md):
-//   • JSON-запрос { domains:[...], opts:{...}, what:"all|dnsmasq|dnsmasq_uci|nft|iprules" }
+//   • JSON-запрос { domains:[...], opts:{...}, what:"all|dnsmasq|nft|iprules" }
 //   • либо простые строки-домены (по одной; '#' — комментарий) → what по умолчанию "all".
-// Вывод: для секций (nft/iprules/dnsmasq...) — строки команд; для "all" — JSON render_all.
+// Вывод: для секций (nft/iprules/dnsmasq) — строки команд; для "all" — JSON render_all.
+// UCI-обёртку dnsmasq здесь не генерим: интеграция с /etc/config/dhcp — это секции
+// `config ipset`, их строит steps/dns (см. dns.uc — почему не `list nftset`).
 
 import { stdin } from "fs";
-import { build_plan, render_all, render_dnsmasq, render_dnsmasq_uci,
+import { build_plan, render_all, render_dnsmasq,
          render_nft, render_iprules } from "./routing.uc";
 
 let raw = stdin.read("all") ?? "";
@@ -45,8 +47,6 @@ if (what == "all")
 	print(sprintf("%J\n", render_all(plan)));
 else if (what == "dnsmasq")
 	emit_lines(render_dnsmasq(plan));
-else if (what == "dnsmasq_uci")
-	emit_lines(render_dnsmasq_uci(plan));
 else if (what == "nft")
 	emit_lines(render_nft(plan));
 else if (what == "iprules")

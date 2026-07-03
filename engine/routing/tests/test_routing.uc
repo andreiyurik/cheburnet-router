@@ -6,7 +6,7 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { normalize_domain, is_valid_domain, build_plan, set_names,
-         render_dnsmasq, render_dnsmasq_uci, render_nft, render_iprules,
+         render_dnsmasq, render_nft, render_iprules,
          render_all } from "../routing.uc";
 
 // --- нормализация ---
@@ -56,13 +56,6 @@ test("render_dnsmasq: ipv6=false → только v4", () => {
 	let plan = build_plan(["example.com"], { ipv6: false });
 	deep_eq(render_dnsmasq(plan), [ "/example.com/4#inet#fw4#direct" ]);
 });
-test("render_dnsmasq_uci: обёртка в list nftset '...'", () => {
-	let plan = build_plan(["example.com"], { ipv6: false });
-	deep_eq(render_dnsmasq_uci(plan), [
-		"list nftset '/example.com/4#inet#fw4#direct'",
-	]);
-});
-
 // --- nft рендер ---
 test("render_nft: сеты + правила пометки (prerouting по умолчанию)", () => {
 	let plan = build_plan(["example.com"], {});

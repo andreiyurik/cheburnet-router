@@ -27,19 +27,33 @@ nft add set inet fw4 direct6 { type ipv6_addr\; flags interval\; }
 
 ## Связываем домены с множеством
 
-В конфиге dnsmasq (OpenWrt: `/etc/config/dhcp`) перечисляем, какие домены наполняют `direct`.
-Что попадёт в этот список — задаёт пользователь (или импортируемый им community-список):
+Сырая директива dnsmasq выглядит так (её и генерирует init-скрипт в итоговый конфиг):
 
 ```
-# /etc/config/dhcp — секция dnsmasq
-list nftset '/example.com/4#inet#fw4#direct'      # конкретный домен
-list nftset '/example.com/6#inet#fw4#direct6'
-list nftset '/example.org/4#inet#fw4#direct'      # и любые домены/TLD из вашего списка
-list nftset '/example.org/6#inet#fw4#direct6'
+# формат: /<домен>/<семейство>#<таблица-family>#<таблица>#<имя-set>
+nftset=/example.com/4#inet#fw4#direct
+nftset=/ru/6#inet#fw4#direct6        # матчится по СУФФИКСУ: TLD-запись покрывает всю зону
 ```
 
-Формат значения: `/<домен>/<семейство>#<таблица-family>#<таблица>#<имя-set>`.
-Можно матчить как конкретные домены, так и целые TLD (`/<tld>/...`).
+Но в UCI (OpenWrt: `/etc/config/dhcp`) её **нельзя** записать как `list nftset` в секции
+dnsmasq — init-скрипт такую строку молча игнорирует (проверено на живом OpenWrt 25.12; тихий
+отказ, который не ловится юнитами). Правильная UCI-модель — отдельная секция `config ipset`,
+из которой init сам собирает директиву:
+
+```
+# /etc/config/dhcp
+config ipset 'cheburnet_dns4'
+	option table 'fw4'
+	option table_family 'inet'
+	option family '4'          # явно! иначе init выводит семейство через `nft list set`,
+	                           # а на свежей установке сета ещё нет — вывод молча провалится
+	list name 'direct'
+	list domain 'ru'           # TLD-запись: все *.ru одной строкой
+	list domain 'example.com'  # и/или конкретные домены
+```
+
+Домены матчатся по суффиксу: запись `ru` покрывает `example.ru` и все его поддомены.
+Что попадёт в список — задаёт пользователь.
 
 > [!warning] IDN-домены — это punycode
 > Не-ASCII домены в DNS представлены в punycode (`xn--...`). Если в direct-список нужны такие
