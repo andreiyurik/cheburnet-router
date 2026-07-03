@@ -7,6 +7,11 @@
 
 import { test, expect } from '@playwright/test';
 
+// Мок-роутер держит состояние установки в памяти — сбрасываем перед каждым тестом.
+test.beforeEach(async ({ request }) => {
+  await request.post('/__reset');
+});
+
 const AWG_CONF = `[Interface]
 PrivateKey = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
 Address = 10.8.0.2/32

@@ -66,6 +66,14 @@ function ubusReply(method, args) {
 }
 
 createServer(async (req, res) => {
+  // Сброс состояния между тестами (spec зовёт в beforeEach) — иначе installed=true
+  // от первого прохода утекает во второй и мастер открывает сразу панель.
+  if (req.method === 'POST' && req.url === '/__reset') {
+    installed = false;
+    installPolls = 0;
+    res.end('ok');
+    return;
+  }
   if (req.method === 'POST' && req.url === '/ubus') {
     let body = '';
     for await (const chunk of req) body += chunk;
