@@ -88,8 +88,12 @@ for (let i = 0; i < length(files); i++)
 	unlink(ETC_CHEBURNET + "/" + files[i]);
 rmdir(ETC_CHEBURNET);
 
-// Перечитать конфиги: network (туннель ушёл), firewall уже reload'нут teardown'ом, dnsmasq.
-sh("/etc/init.d/network reload >/dev/null 2>&1");
+// Перечитать конфиги: network, firewall (уже reload'нут teardown'ом), dnsmasq.
+// network RESTART, не reload: awg0 был дефолтным маршрутом (route_allowed_ips=1). Reload НЕ
+// возвращает WAN-дефолт после удаления awg0 — netifd держит остаточный дефолт через мёртвый
+// туннель, и роутер остаётся БЕЗ интернета (поймано живьём: reset обрывал связь). Тот же урок,
+// что в install/run.uc rollback_all (d4bd0bf) — на пути отмены он был, в reset его не хватало.
+sh("/etc/init.d/network restart >/dev/null 2>&1");
 sh("/etc/init.d/dnsmasq restart >/dev/null 2>&1");
 
 print("reset: готово — cheburnet-конфигурация снята, роутер вернулся к обычной маршрутизации\n");
