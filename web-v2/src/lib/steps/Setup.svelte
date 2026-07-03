@@ -186,7 +186,10 @@
   </label>
 
   {#if showWifi}
-    <h3>Wi-Fi {#if !wifiRequired}<em>(необязательно)</em>{/if}</h3>
+    <h3>Wi-Fi {#if wifiRequired}<em class="req">(обязательно)</em>{:else}<em>(необязательно)</em>{/if}</h3>
+    {#if wifiRequired}
+      <p class="muted small">У этого роутера есть Wi-Fi — задайте имя сети и пароль, чтобы включить его.</p>
+    {/if}
     <label>
       <span>Имя сети (SSID)</span>
       <input type="text" bind:value={ssid} maxlength={SSID_MAX} placeholder="например, MyHome" />

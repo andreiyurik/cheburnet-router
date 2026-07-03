@@ -158,6 +158,16 @@ details summary { cursor: pointer; color: var(--muted); margin-top: 0.75rem; }
   padding: 0.6rem 0.8rem;
   font-size: 0.9rem;
 }
+/* Нейтральная информационная подсказка (не тревога) — приглушённая рамка акцента. */
+.note {
+  background: rgba(76, 141, 255, 0.10);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.9rem;
+}
+/* Метка «(обязательно)» — акцентная, в отличие от приглушённого «(необязательно)». */
+em.req { color: var(--accent); font-weight: 600; font-style: normal; }
 
 button.danger { border-color: var(--bad); color: var(--bad); }
 button.danger:hover:not(:disabled) { background: var(--bad); color: #fff; }
