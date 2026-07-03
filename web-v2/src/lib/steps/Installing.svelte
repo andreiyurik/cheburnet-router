@@ -10,6 +10,28 @@
   let phase = $state('starting'); // starting | running | ok | fail
   let step = $state('');
   let log = $state('');
+  let logEl = $state(null); // <pre> живого лога — прокручиваем к свежим строкам
+
+  // При обновлении лога держим прокрутку внизу (свежие строки видны без ручного скролла).
+  $effect(() => {
+    log; // зависимость
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
+  });
+
+  // Понятные подписи технических шагов движка (STATE_FILE) — что именно идёт сейчас.
+  const STEP_LABELS = {
+    starting: 'Запуск…',
+    preflight: 'Проверка роутера',
+    snapshot: 'Сохранение точки отката',
+    vpn: 'Настройка VPN-туннеля',
+    singbox: 'Настройка VPN-туннеля',
+    dns: 'Настройка DNS и split-routing',
+    doh: 'Шифрованный DNS',
+    wifi: 'Настройка Wi-Fi',
+    firewall: 'Firewall и kill-switch',
+    'health-check': 'Проверка связи (поднятие туннеля, до ~30 сек)',
+  };
+  const stepLabel = $derived(STEP_LABELS[step] ?? step ?? '…');
   let error = $state('');
   let timer = null;
 
@@ -96,7 +118,11 @@
   {#if phase === 'starting'}
     <p class="muted">Запускаю…</p>
   {:else if phase === 'running'}
-    <p><span class="spinner"></span> Шаг: <strong>{step || '…'}</strong></p>
+    <p><span class="spinner"></span> <strong>{stepLabel}</strong></p>
+    <p class="muted small">Идёт настройка роутера. Это занимает 1–3 минуты — не закрывайте страницу.</p>
+    {#if log}
+      <pre class="log live" bind:this={logEl}>{log}</pre>
+    {/if}
     <button disabled={cancelling} onclick={cancel}>
       {cancelling ? 'Отменяю…' : 'Отменить установку'}
     </button>
@@ -125,7 +151,7 @@
     </div>
   {/if}
 
-  {#if log}
+  {#if log && phase !== 'running'}
     <details open={phase === 'fail'}>
       <summary>Журнал</summary>
       <pre class="log">{log}</pre>

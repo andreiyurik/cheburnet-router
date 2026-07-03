@@ -135,6 +135,8 @@ pre.log {
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Живой лог во время установки: чуть ниже, всегда прокручен к свежим строкам снизу. */
+pre.log.live { max-height: 180px; margin: 0.75rem 0; }
 
 details summary { cursor: pointer; color: var(--muted); margin-top: 0.75rem; }
 
