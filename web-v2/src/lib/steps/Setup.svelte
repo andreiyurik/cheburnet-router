@@ -33,8 +33,11 @@
   let ssid = $state(initial?.ssid ?? '');
   // svelte-ignore state_referenced_locally
   let wifiKey = $state(initial?.wifi_key ?? '');
+  // Direct-список предзаполнен зонной записью: dnsmasq матчит домены по суффиксу, поэтому одна
+  // запись верхнего уровня (например «ru») покрывает все домены этой зоны — без больших списков.
+  // Это редактируемый дефолт: содержимое списка решает пользователь.
   // svelte-ignore state_referenced_locally
-  let domainsText = $state(initial?.domains?.join('\n') ?? '');
+  let domainsText = $state(initial?.domains?.join('\n') ?? 'ru');
   // svelte-ignore state_referenced_locally
   let token = $state(initial?.token ?? '');
   // DNS-фильтрация: выбранный провайдер (initial → ранее выбранный → дефолт каталога).
@@ -158,13 +161,15 @@
   {/if}
 
   <label>
-    <span>Домены прямого доступа <em>(необязательно)</em></span>
+    <span>Домены прямого доступа</span>
     <textarea
       bind:value={domainsText}
       rows="3"
-      placeholder="example.com&#10;example.org"
+      placeholder="ru&#10;example.com"
     ></textarea>
-    <small class="muted">Эти домены идут напрямую; весь остальной трафик — через туннель.</small>
+    <small class="muted">Эти домены идут напрямую; весь остальной трафик — через туннель.
+      Запись из одной зоны (например, <code>ru</code>) покрывает сразу все домены в ней;
+      отдельные сайты дописывайте своей строкой.</small>
   </label>
 
   <h3>Пароль роутера</h3>
