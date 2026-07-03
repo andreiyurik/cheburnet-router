@@ -10,13 +10,21 @@
 //
 // Откат честный: чистые шаги возвращает snapshot restore; грязный (firewall) — его --teardown.
 
-import { stdin } from "fs";
+import { stdin, writefile } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state } from "./install.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
+
+// set_step(name) — отметить текущий шаг для install_progress (веб-мастер показывает «Шаг: …»).
+// Путь даёт ubus-слой через env STATE_FILE (см. rpcd-cheburnet spawn_bg). Нет env (CLI-запуск)
+// → no-op: прогресс-индикация нужна только фоновой установке из мастера.
+let STATE_FILE = getenv("STATE_FILE");
+function set_step(name) {
+	if (STATE_FILE) writefile(STATE_FILE, name + "\n");
+}
 
 function step_cmd(name, extra) {
 	return sprintf("ucode -R %s/steps/%s/apply.uc%s", ENGINE, name, extra ?? "");
@@ -102,6 +110,17 @@ let tinfo = tunnel_info(protocol);
 if (type(cfg.routing_opts) != "object") cfg.routing_opts = {};
 cfg.routing_opts.tunnel_if = tinfo.tunnel_if;
 
+// WAN-интерфейс для kill-switch и default-маршрута direct-таблицы. Веб-мастер его НЕ передаёт
+// (пользователь не вводит имя интерфейса), поэтому определяем САМИ из текущего дефолт-маршрута —
+// динамически, не хардкодим (урок v1). ВАЖНО делать это ЗДЕСЬ, до шагов: vpn-шаг заберёт дефолт
+// на awg0 (route_allowed_ips=1), и позже WAN уже не вычислить. Без wan_if firewall-шаг отказывал
+// → установка через мастер всегда падала на firewall (поймано живым прогоном).
+if (type(cfg.routing_opts.wan_if) != "string" || length(cfg.routing_opts.wan_if) == 0) {
+	let wan = trim(sh("ip route show default 2>/dev/null | grep -oE 'dev [^ ]+' | head -1 | awk '{print $2}'"));
+	if (length(wan) > 0)
+		cfg.routing_opts.wan_if = wan;
+}
+
 // Отключаем неактивные туннель-шаги (vpn/singbox взаимоисключающие) + пользовательский disable.
 let disable = disabled_tunnels(protocol);
 if (type(cfg.disable) == "array")
@@ -118,6 +137,7 @@ if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
 }
 
 // --- 1. preflight (гейткипер) ---
+set_step("preflight");
 let facts = sh(sprintf("ucode -R %s/preflight/gather.uc", ENGINE));
 let pf_rc = run_stdin(sprintf("ucode -R %s/preflight/check.uc", ENGINE), facts);
 let preflight = { ok: (pf_rc == 0) };
@@ -139,12 +159,14 @@ if (dry) {
 }
 
 // --- 2. snapshot UCI (для чистого отката) ---
+set_step("snapshot");
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
 
 // --- 3. шаги по порядку (fail-fast) ---
 let results = [];
 for (let i = 0; i < length(steps); i++) {
 	let s = steps[i];
+	set_step(s.name); // веб-мастер покажет «Шаг: vpn/dns/doh/wifi/firewall»
 	let code = run_stdin(step_cmd(s.name, null), step_stdin(s, cfg));
 	push(results, { name: s.name, ok: (code == 0) });
 	if (code != 0) {
@@ -156,6 +178,7 @@ for (let i = 0; i < length(steps); i++) {
 // --- 4. health-check (только если все шаги прошли) ---
 let all_ok = true;
 for (let i = 0; i < length(results); i++) if (!results[i].ok) all_ok = false;
+if (all_ok) set_step("health-check"); // поднятие туннеля+DNS — самый долгий этап (до ~30с)
 let health = all_ok ? { ok: healthcheck(cfg) } : null;
 
 // --- 5. решение: commit / rollback ---

@@ -115,9 +115,12 @@ function check_token(v) {
 function spawn_bg(cmd, state) {
 	unlink(DONE_FILE); unlink(LOG_FILE);
 	writefile(STATE_FILE, state + "\n");
+	// STATE_FILE в env: длинная операция (run.uc) обновляет его именем текущего шага, чтобы
+	// install_progress показывал «Шаг: vpn/dns/firewall…», а не застывшее "starting". Кто env
+	// игнорирует (reset) — просто не пишет, поведение прежнее.
 	let spawn = sprintf(
-		"setsid sh -c '%s >> %s 2>&1; echo $? > %s' </dev/null >/dev/null 2>&1 & echo $!",
-		cmd, LOG_FILE, DONE_FILE);
+		"STATE_FILE=%s setsid sh -c '%s >> %s 2>&1; echo $? > %s' </dev/null >/dev/null 2>&1 & echo $!",
+		STATE_FILE, cmd, LOG_FILE, DONE_FILE);
 	let pid = trim(sh(spawn));
 	writefile(PID_FILE, pid + "\n");
 	return int(pid);
@@ -439,6 +442,12 @@ if (action != "call") {
 let method = (length(ARGV) > 1) ? ARGV[1] : "";
 let raw = trim(stdin.read("all") ?? "");
 let args = (substr(raw, 0, 1) == "{") ? json(raw) : {};
+
+// STATE_DIR (/tmp/cheburnet) обязан существовать ДО любого метода: сюда пишутся payload,
+// state, log, done фоновых операций. /tmp — tmpfs → директория исчезает после reboot, а её
+// никто не создаёт (ни пакет, ни bootstrap). Без неё writefile молча падал → install «висел»
+// на state=idle с пустым payload (поймано живым прогоном через веб-мастер). mkdir -p идемпотентен.
+sh(sprintf("mkdir -p %s 2>/dev/null", STATE_DIR));
 
 // Граница доверия: валидируем вход чистым ядром ДО любого I/O.
 let vr = validate_request(method, args);
