@@ -7,7 +7,7 @@
 import { popen } from "fs";
 
 // sh(cmd) → stdout строкой (пусто при сбое запуска). Команда идёт через /bin/sh -c.
-export function sh(cmd) {
+function sh(cmd) {
 	let p = popen(cmd, "r");
 	if (!p) return "";
 	let out = p.read("all") ?? "";
@@ -16,7 +16,7 @@ export function sh(cmd) {
 }
 
 // run_stdin(cmd, text) → код выхода команды; подаёт text на stdin. -1 — popen не запустился.
-export function run_stdin(cmd, text) {
+function run_stdin(cmd, text) {
 	let w = popen(cmd, "w");
 	if (!w) return -1;
 	w.write(text ?? "");
@@ -27,7 +27,7 @@ export function run_stdin(cmd, text) {
 // Пишет операции построчно, опционально добавляя `commit <config>`. ВЫЗЫВАЮЩИЙ ОБЯЗАН
 // проверить код: молча проглоченный сбой batch = полуприменённый конфиг под видом успеха
 // (урок code-review: упавший `commit firewall` оставлял nft-правила без NAT-зоны при exit 0).
-export function uci_batch(ops, commit_config) {
+function uci_batch(ops, commit_config) {
 	if (length(ops) == 0 && !commit_config) return 0;
 	let w = popen("uci batch", "w");
 	if (!w) return -1;
@@ -37,3 +37,5 @@ export function uci_batch(ops, commit_config) {
 		w.write("commit " + commit_config + "\n");
 	return w.close();
 }
+
+export { sh, run_stdin, uci_batch };

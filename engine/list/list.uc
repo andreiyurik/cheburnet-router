@@ -19,7 +19,7 @@ const HOST_SINKS = [ "0.0.0.0", "127.0.0.1", "::", "::1" ];
 //   • plain:  «example.com»  (по одному домену в строке)
 //   • hosts:  «0.0.0.0 example.com»  → берём домен (2-й токен)
 // Inline-комментарии (# или ;) и пустые строки отбрасываются. Формат определяется по строке.
-export function parse_list(text) {
+function parse_list(text) {
 	let out = [];
 	let lines = split(text ?? "", "\n");
 	for (let i = 0; i < length(lines); i++) {
@@ -40,7 +40,7 @@ export function parse_list(text) {
 // Сливает пользовательский direct-список и импортированный community-список, нормализует и
 // валидирует (переиспользуя routing), дедуплицирует (регистронезависимо). Мусор → rejected
 // (fail-safe: не падаем). domains готов для routing.build_plan.
-export function assemble(user_domains, imported_text, opts) {
+function assemble(user_domains, imported_text, opts) {
 	let user = user_domains ?? [];
 	let imported = parse_list(imported_text);
 
@@ -77,7 +77,7 @@ export function assemble(user_domains, imported_text, opts) {
 
 // looks_like_list(text, min_valid) → true, если в тексте есть хотя бы min_valid валидных доменов.
 // Защита от замены хорошего списка мусором (404/captive-portal): fetch проверяет это ДО замены кэша.
-export function looks_like_list(text, min_valid) {
+function looks_like_list(text, min_valid) {
 	let need = (min_valid != null) ? min_valid : 1;
 	let cands = parse_list(text);
 	let n = 0;
@@ -90,3 +90,5 @@ export function looks_like_list(text, min_valid) {
 	}
 	return false;
 }
+
+export { parse_list, assemble, looks_like_list };

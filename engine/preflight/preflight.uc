@@ -32,12 +32,12 @@ function resolve_req(req) {
 
 // default_requirements() — копия дефолтных требований (для gather/UI; источник правды списка
 // зависимостей и порогов — здесь, чтобы не разъезжалось между модулями).
-export function default_requirements() {
+function default_requirements() {
 	return resolve_req(null);
 }
 
 // cmp_version(a, b) → -1|0|1. Точечные числовые версии; SNAPSHOT новее любого релиза.
-export function cmp_version(a, b) {
+function cmp_version(a, b) {
 	if (a == b) return 0;
 	if (a == "SNAPSHOT") return 1;
 	if (b == "SNAPSHOT") return -1;
@@ -79,7 +79,7 @@ function parse_cidr(c) {
 // cidr_overlap(a, b) → true, если две IPv4-подсети пересекаются. Сравниваем сетевые части
 // по меньшему префиксу: если совпали — одна вложена в другую (или равны) → пересечение.
 // Непарсимый вход → false: не выдаём ложный «конфликт» из-за неизвестного формата.
-export function cidr_overlap(a, b) {
+function cidr_overlap(a, b) {
 	let A = parse_cidr(a), B = parse_cidr(b);
 	if (!A || !B) return false;
 	let p = (A.pfx < B.pfx) ? A.pfx : B.pfx;
@@ -94,7 +94,7 @@ export function cidr_overlap(a, b) {
 // практически недостижимо (WAN-подсеть накрывает максимум один кандидат).
 const LAN_CANDIDATES = [ 2, 3, 4, 8, 9, 10, 11 ];
 
-export function suggest_lan(wan_cidr) {
+function suggest_lan(wan_cidr) {
 	for (let i = 0; i < length(LAN_CANDIDATES); i++) {
 		let net = sprintf("192.168.%d.0/24", LAN_CANDIDATES[i]);
 		if (!cidr_overlap(net, wan_cidr))
@@ -106,7 +106,7 @@ export function suggest_lan(wan_cidr) {
 // valid_lan_ip(ip) → bool. Граница доверия apply_lan_ip: принимаем ТОЛЬКО 192.168.X.Y с
 // валидными октетами и host-частью 1..254 — подделанный запрос не уронит роутер в
 // 0.0.0.0/255.255.255.255 (safety guard из v1, ужесточённый: v1 пускал октеты до 999).
-export function valid_lan_ip(ip) {
+function valid_lan_ip(ip) {
 	let m = match(ip ?? "", /^192\.168\.([0-9]{1,3})\.([0-9]{1,3})$/);
 	if (!m) return false;
 	let x = int(m[1]), y = int(m[2]);
@@ -123,7 +123,7 @@ function check(id, ok, detail, fix) {
 //
 // facts: { arch, openwrt_version, flash_free_mb, ram_total_mb,
 //          deps_installable: {pkg: bool}, lan_cidr, wan_cidr }
-export function evaluate(facts, req) {
+function evaluate(facts, req) {
 	let r = resolve_req(req);
 	let checks = [];
 
@@ -201,7 +201,7 @@ function resolve_full_req(req) {
 }
 
 // full_requirements() — копия дефолтных требований Full-тира (для gather/UI; источник правды здесь).
-export function full_requirements() {
+function full_requirements() {
 	return resolve_full_req(null);
 }
 
@@ -211,7 +211,7 @@ export function full_requirements() {
 // ИНФОРМАЦИОННО: предлагать Reality только где железо потянет; Light это НЕ блокирует
 // (fail-safe — слабый роутер просто остаётся на AmneziaWG). req.full — вложенные кастомные
 // пороги Full (для тестов/тюнинга); req (верхний) идёт в Light-evaluate как раньше.
-export function evaluate_tiers(facts, req) {
+function evaluate_tiers(facts, req) {
 	let light = evaluate(facts, req);
 	let fr = resolve_full_req(req ? req.full : null);
 
@@ -248,7 +248,7 @@ export function evaluate_tiers(facts, req) {
 }
 
 // render_report(report) — человекочитаемые строки для CLI/лога.
-export function render_report(report) {
+function render_report(report) {
 	let out = [];
 	for (let i = 0; i < length(report.checks); i++) {
 		let c = report.checks[i];
@@ -263,3 +263,5 @@ export function render_report(report) {
 		: sprintf("preflight ОТКАЗ — провалено %d из %d", report.failed, report.total));
 	return out;
 }
+
+export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, full_requirements, evaluate_tiers, render_report };

@@ -8,7 +8,7 @@
 // key (дубликаты того же ключа убираем) или добавляется в конец, если ключа не было.
 // Закомментированные строки (#key=) не трогаем — при sourcing'е победит наша строка.
 // Идемпотентно: если присваивание уже точно такое — текст не меняется.
-export function set_var(text, key, value) {
+function set_var(text, key, value) {
 	let lines = split(text ?? "", "\n");
 	let want = sprintf("%s=\"%s\"", key, value);
 	let pfx = key + "=";
@@ -27,7 +27,7 @@ export function set_var(text, key, value) {
 }
 
 // get_var(text, key) → значение (без кавычек) первого присваивания key, или null.
-export function get_var(text, key) {
+function get_var(text, key) {
 	let lines = split(text ?? "", "\n");
 	let pfx = key + "=";
 	for (let i = 0; i < length(lines); i++) {
@@ -40,3 +40,5 @@ export function get_var(text, key) {
 	}
 	return null;
 }
+
+export { set_var, get_var };

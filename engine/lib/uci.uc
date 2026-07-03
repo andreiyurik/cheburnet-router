@@ -8,7 +8,7 @@
 // reconcile_list(current, desired) → { add, remove }: что добавить и что убрать, чтобы current
 // стал равен desired. Минимальный diff (общие элементы не трогаем) → идемпотентность.
 // Порядок сохраняем; дубликаты во входе схлопываются (членство по множеству).
-export function reconcile_list(current, desired) {
+function reconcile_list(current, desired) {
 	let cset = {}, dset = {};
 	for (let i = 0; i < length(current); i++) cset[current[i]] = true;
 	for (let i = 0; i < length(desired); i++) dset[desired[i]] = true;
@@ -27,12 +27,14 @@ export function reconcile_list(current, desired) {
 }
 
 // ends_with(s, suffix) — true, если строка s оканчивается на suffix.
-export function ends_with(s, suffix) {
+function ends_with(s, suffix) {
 	let n = length(s), m = length(suffix);
 	return n >= m && substr(s, n - m) == suffix;
 }
 
 // starts_with(s, prefix) — true, если строка s начинается с prefix.
-export function starts_with(s, prefix) {
+function starts_with(s, prefix) {
 	return length(s) >= length(prefix) && substr(s, 0, length(prefix)) == prefix;
 }
+
+export { reconcile_list, ends_with, starts_with };

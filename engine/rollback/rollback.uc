@@ -13,20 +13,20 @@
 const CLEAN_CONFIGS = [ "network", "dhcp", "firewall", "https-dns-proxy", "wireless", "sing-box" ];
 
 // protected_configs() → копия списка защищаемых конфигов (копия, чтобы не мутировали внутренний).
-export function protected_configs() {
+function protected_configs() {
 	let out = [];
 	for (let i = 0; i < length(CLEAN_CONFIGS); i++) push(out, CLEAN_CONFIGS[i]);
 	return out;
 }
 
 // is_clean_config(name) → true, если это наш uci-конфиг с чистым откатом.
-export function is_clean_config(name) {
+function is_clean_config(name) {
 	return index(CLEAN_CONFIGS, name) >= 0;
 }
 
 // classify(target) → { class, reason }. clean = uci-конфиг (транзакция); всё прочее = dirty
 // (неизвестное считаем грязным — безопаснее): kmod, линк, рантайм-сервис не откатываются чисто.
-export function classify(target) {
+function classify(target) {
 	if (is_clean_config(target))
 		return { class: "clean", reason: "uci-конфиг — откат через snapshot/restore чистый" };
 	return {
@@ -37,7 +37,7 @@ export function classify(target) {
 
 // plan_snapshot(configs) → { ok, errors, configs }. configs пуст/нет → берём protected_configs().
 // Отказывает, если среди целей есть грязная: транзакцию строим только для чистых конфигов.
-export function plan_snapshot(configs) {
+function plan_snapshot(configs) {
 	let list = (configs && length(configs) > 0) ? configs : protected_configs();
 	let errors = [], clean = [];
 	for (let i = 0; i < length(list); i++) {
@@ -52,6 +52,8 @@ export function plan_snapshot(configs) {
 
 // decide(health) → "commit" | "rollback". Чистое решение по результату health-check.
 // Любой не-ok (или отсутствие результата) → rollback: fail-safe в сторону отката.
-export function decide(health) {
+function decide(health) {
 	return (health && health.ok === true) ? "commit" : "rollback";
 }
+
+export { protected_configs, is_clean_config, classify, plan_snapshot, decide };

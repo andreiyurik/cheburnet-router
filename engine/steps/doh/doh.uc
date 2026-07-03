@@ -29,7 +29,7 @@ function resolve_opts(opts) {
 
 // listen_prefix() → префикс НАШИХ dnsmasq-upstream-записей ("127.0.0.1#"). По нему шаг (и
 // reset.uc) отличает свои server-записи от чужих — единственный источник, не дрейфует.
-export function listen_prefix() {
+function listen_prefix() {
 	return DOH_DEFAULTS.listen_addr + "#";
 }
 
@@ -38,7 +38,7 @@ export function listen_prefix() {
 // Идемпотентность: https-dns-proxy секции пересоздаём (delete-before-set, плюс сносим ВСЕ
 // существующие — иначе дефолтная секция пакета на :5053 конфликтует с нашей); dnsmasq server —
 // минимальный diff по НАШИМ записям (127.0.0.1#port), чужие upstream не трогаем.
-export function build_doh_plan(current, opts) {
+function build_doh_plan(current, opts) {
 	let o = resolve_opts(opts);
 	let R = o.resolvers;
 
@@ -108,3 +108,5 @@ export function build_doh_plan(current, opts) {
 		servers: desired,
 	};
 }
+
+export { listen_prefix, build_doh_plan };

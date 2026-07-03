@@ -11,7 +11,7 @@ function kb_to_mb(kb) {
 }
 
 // parse_meminfo(text) → ram_total_mb или null. Источник: /proc/meminfo, строка "MemTotal: N kB".
-export function parse_meminfo(text) {
+function parse_meminfo(text) {
 	let lines = split(text ?? "", "\n");
 	for (let i = 0; i < length(lines); i++) {
 		let m = match(lines[i], /^MemTotal:[ \t]+([0-9]+)[ \t]+kB/);
@@ -26,7 +26,7 @@ export function parse_meminfo(text) {
 // поле. Собираем целые токены по порядку: это устойчиво и к busybox-переносу длинного имени
 // ФС на отдельную строку (тогда в строке данных просто нет поля Filesystem). Use% ("1%") и
 // путь монтирования — не чистые целые, в счёт не идут.
-export function parse_df(text) {
+function parse_df(text) {
 	let lines = split(text ?? "", "\n");
 	let started = false, ints = [];
 	for (let i = 0; i < length(lines); i++) {
@@ -44,14 +44,14 @@ export function parse_df(text) {
 }
 
 // parse_arch(text) → arch (trim) или null. Источник: `uname -m`.
-export function parse_arch(text) {
+function parse_arch(text) {
 	let a = trim(text ?? "");
 	return length(a) > 0 ? a : null;
 }
 
 // parse_board(json_text) → openwrt_version или null. Источник: `ubus call system board`,
 // поле release.version (например "25.12.0" или "SNAPSHOT").
-export function parse_board(json_text) {
+function parse_board(json_text) {
 	let o;
 	try { o = json(json_text); } catch (e) { return null; }
 	if (type(o) != "object" || type(o.release) != "object")
@@ -62,7 +62,7 @@ export function parse_board(json_text) {
 
 // parse_iface_cidr(json_text) → "addr/mask" или null. Источник: `ubus call network.interface.<X> status`,
 // первый ipv4-address {address, mask}. Хост-биты в адресе не мешают: cidr_overlap маскирует сам.
-export function parse_iface_cidr(json_text) {
+function parse_iface_cidr(json_text) {
 	let o;
 	try { o = json(json_text); } catch (e) { return null; }
 	if (type(o) != "object")
@@ -78,3 +78,5 @@ export function parse_iface_cidr(json_text) {
 		return null;
 	return sprintf("%s/%d", a.address, mask);
 }
+
+export { parse_meminfo, parse_df, parse_arch, parse_board, parse_iface_cidr };

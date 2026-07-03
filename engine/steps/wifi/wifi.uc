@@ -20,7 +20,7 @@ function q(s) {
 }
 
 // validate_wifi(ssid, key) → { ok, errors }. Граница доверия: длины в пределах стандарта.
-export function validate_wifi(ssid, key) {
+function validate_wifi(ssid, key) {
 	let errors = [];
 	if (type(ssid) != "string" || length(ssid) < SSID_MIN || length(ssid) > SSID_MAX)
 		push(errors, sprintf("SSID: %d..%d символов", SSID_MIN, SSID_MAX));
@@ -38,7 +38,7 @@ export function validate_wifi(ssid, key) {
 // PMF (ieee80211w) осмыслен только при SAE; на чистом WPA2 он рвёт совместимость со старыми
 // клиентами (телефоны/IoT) — поэтому в не-SAE режиме мы его УДАЛЯЕМ, а не оставляем (урок v1 T4:
 // vanilla-секции default_radioN могут нести ieee80211w из коробки).
-export function build_wifi_plan(ifaces, opts) {
+function build_wifi_plan(ifaces, opts) {
 	let o = opts ?? {};
 	let enc = o.encryption ?? "sae-mixed";
 	let sae = (substr(enc, 0, 3) == "sae");
@@ -65,3 +65,5 @@ export function build_wifi_plan(ifaces, opts) {
 	}
 	return { ok: true, errors: [], teardown: teardown, setup: setup, applied: true };
 }
+
+export { validate_wifi, build_wifi_plan };

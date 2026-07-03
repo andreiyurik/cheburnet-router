@@ -11,7 +11,7 @@
 const MIN_PASSWORD_LEN = 8; // тот же минимум, что в ubus-реестре (install.root_password.minlen)
 
 // validate_password(pw) → { ok, errors }. Правило одно: непустая строка не короче минимума.
-export function validate_password(pw) {
+function validate_password(pw) {
 	let errors = [];
 	if (type(pw) != "string" || length(pw) == 0)
 		push(errors, "пароль не задан");
@@ -19,3 +19,5 @@ export function validate_password(pw) {
 		push(errors, sprintf("пароль короче %d символов", MIN_PASSWORD_LEN));
 	return { ok: length(errors) == 0, errors: errors };
 }
+
+export { validate_password };

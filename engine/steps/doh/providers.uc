@@ -42,12 +42,12 @@ function find(id) {
 }
 
 // default_provider() → id провайдера по умолчанию.
-export function default_provider() {
+function default_provider() {
 	return DEFAULT_ID;
 }
 
 // provider_ids() → список валидных id (для enum в ubus-реестре — граница доверия).
-export function provider_ids() {
+function provider_ids() {
 	let out = [];
 	for (let i = 0; i < length(PROVIDERS); i++) push(out, PROVIDERS[i].id);
 	return out;
@@ -56,21 +56,23 @@ export function provider_ids() {
 // resolvers_for(id) → список резолверов для doh.build_doh_plan (opts.resolvers).
 // Неизвестный/пустой id → дефолт (fail-safe: лучше рабочий DNS, чем пустой). Имя секции
 // фиксировано → смена провайдера переписывает ту же секцию.
-export function resolvers_for(id) {
+function resolvers_for(id) {
 	let p = find(id) ?? find(DEFAULT_ID);
 	return [ { name: SECTION, url: p.url, port: PORT, bootstrap: p.bootstrap } ];
 }
 
 // describe(id) → запись каталога { id, name, description, category } или null. Для status.
-export function describe(id) {
+function describe(id) {
 	let p = find(id);
 	return p ? { id: p.id, name: p.name, description: p.description, category: p.category } : null;
 }
 
 // catalog_for_ui() → [{ id, name, description, category }] для дропдауна веб-мастера (status отдаёт).
-export function catalog_for_ui() {
+function catalog_for_ui() {
 	let out = [];
 	for (let i = 0; i < length(PROVIDERS); i++)
 		push(out, describe(PROVIDERS[i].id));
 	return out;
 }
+
+export { default_provider, provider_ids, resolvers_for, describe, catalog_for_ui };

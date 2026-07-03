@@ -40,7 +40,7 @@ function resolve_opts(opts) {
 // таблицу inet fw4 и стёр бы наши цепочки, если бы шёл после них (см. apply.uc).
 //   masq=1   — SNAT трафика LAN-клиентов, ушедшего в awg0 (без него обратный путь не находится);
 //   mtu_fix=1 — MSS-clamp под MTU туннеля; input REJECT — извне в роутер по туннелю не лезут.
-export function build_nat_ops(opts) {
+function build_nat_ops(opts) {
 	let o = opts ?? {};
 	let tif  = o.tunnel_if ?? "awg0";
 	let lan  = o.lan_zone ?? "lan";
@@ -72,7 +72,7 @@ export function build_nat_ops(opts) {
 // wan_if берётся из routing_plan.opts (его кладёт gather/preflight) и НЕ хардкодится — это
 // прямой урок v1: хардкод LAN/WAN = тихо-дырявый kill-switch на нестандартной подсети.
 // kill-switch ключуется по oifname WAN, а не по LAN-CIDR → вообще не зависит от подсети.
-export function build_firewall_plan(routing_plan, opts) {
+function build_firewall_plan(routing_plan, opts) {
 	let o = resolve_opts(opts);
 	let ro = routing_plan.opts;
 	let fam = ro.family, tbl = ro.fw_table, wan = ro.wan_if;
@@ -141,3 +141,5 @@ export function build_firewall_plan(routing_plan, opts) {
 		killswitch: ks,
 	};
 }
+
+export { build_nat_ops, build_firewall_plan };

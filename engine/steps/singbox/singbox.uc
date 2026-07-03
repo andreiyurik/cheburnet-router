@@ -35,15 +35,15 @@ function resolve_opts(opts) {
 
 // tun_interface(opts) → имя TUN-интерфейса. Единственный источник для routing/firewall и reset
 // (как owned_sections у vpn) — не дрейфует при переименовании.
-export function tun_interface(opts) {
+function tun_interface(opts) {
 	return resolve_opts(opts).tun;
 }
 
 // config_path(opts) / service_name(opts) — артефакты, которыми владеет шаг (для reset/apply).
-export function config_path(opts) {
+function config_path(opts) {
 	return resolve_opts(opts).config_path;
 }
-export function service_name(opts) {
+function service_name(opts) {
 	return resolve_opts(opts).service;
 }
 
@@ -108,7 +108,7 @@ function split_hostport(s) {
 //   vless://<uuid>@<host>:<port>?security=reality&pbk=…&sni=…&sid=…&fp=…&flow=…&type=…#label
 // fields: { uuid, host, port, security, pbk, sni, sid, fp, flow, type, label }.
 // Парсинг отделён от валидации Reality (build_singbox_config) — здесь только разбор структуры.
-export function parse_vless_link(s) {
+function parse_vless_link(s) {
 	let raw = trim(s ?? "");
 	if (substr(raw, 0, 8) != "vless://")
 		return { ok: false, errors: [ "ссылка не начинается с vless://" ], fields: {} };
@@ -148,7 +148,7 @@ export function parse_vless_link(s) {
 // build_singbox_config(fields, opts) → { ok, errors, config }. fields — из parse_vless_link.
 // Валидация (граница доверия): Reality требует uuid/host/port/pbk/sni; security, если задан,
 // обязан быть "reality" (Full-тир = только Reality, см. ADR 0004). sid/fp/flow — с дефолтами.
-export function build_singbox_config(fields, opts) {
+function build_singbox_config(fields, opts) {
 	let o = resolve_opts(opts);
 	let f = fields ?? {};
 
@@ -213,7 +213,7 @@ export function build_singbox_config(fields, opts) {
 //   • "vless://…"  → разобрать ссылку и сгенерировать конфиг (основной путь).
 //   • "{…}"        → сырой JSON sing-box (advanced): должен содержать массив outbounds.
 //                    Доверяем структуре пользователя, но проверяем минимум (граница доверия).
-export function parse_input(text, opts) {
+function parse_input(text, opts) {
 	let raw = trim(text ?? "");
 	if (length(raw) == 0)
 		return { ok: false, errors: [ "пустой вход" ], config: null, source: "empty" };
@@ -239,7 +239,7 @@ export function parse_input(text, opts) {
 //   uci_teardown, service }. Артефакты применения: config-объект (apply сериализует в файл),
 //   uci-операции включения сервиса (delete-before-set → идемпотентно), имя сервиса для рестарта.
 // Сервис OpenWrt sing-box: uci `sing-box.main` с enabled='1' и conffile=путь.
-export function build_singbox_plan(text, opts) {
+function build_singbox_plan(text, opts) {
 	let o = resolve_opts(opts);
 	let parsed;
 	try {
@@ -268,3 +268,5 @@ export function build_singbox_plan(text, opts) {
 		tun: o.tun,
 	};
 }
+
+export { tun_interface, config_path, service_name, parse_vless_link, build_singbox_config, parse_input, build_singbox_plan };

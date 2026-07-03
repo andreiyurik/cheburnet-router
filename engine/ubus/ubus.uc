@@ -98,7 +98,7 @@ function find_spec(method) {
 }
 
 // method_specs() — копия реестра (для UI/отладки; источник правды — здесь).
-export function method_specs() {
+function method_specs() {
 	return json(sprintf("%J", REGISTRY)); // глубокая копия через JSON-раунд-трип
 }
 
@@ -112,7 +112,7 @@ function type_placeholder(t) {
 
 // list_descriptor() → объект протокола rpcd `list`: { method: { arg: <образец-типа> } }.
 // Скрипт-обработчик печатает его на действие `list`, чтобы rpcd знал сигнатуры методов.
-export function list_descriptor() {
+function list_descriptor() {
 	let out = {};
 	for (let i = 0; i < length(REGISTRY); i++) {
 		let m = REGISTRY[i], sig = {};
@@ -138,7 +138,7 @@ function type_ok(val, t) {
 // отбрасываем (берём только объявленные). Не падаем на мусоре — возвращаем структурную ошибку
 // (её импурный слой отдаёт клиенту как {"error":...}). Значение ТОКЕНА здесь не проверяем —
 // это сравнение с файлом (импурно); здесь лишь требуем, что поле присутствует и строковое.
-export function validate_request(method, args) {
+function validate_request(method, args) {
 	let spec = find_spec(method);
 	if (!spec)
 		return { ok: false, error: "unknown method" };
@@ -178,7 +178,7 @@ export function validate_request(method, args) {
 }
 
 // requires_token(method) → нужен ли install-токен (импурный слой сверяет значение с файлом).
-export function requires_token(method) {
+function requires_token(method) {
 	let s = find_spec(method);
 	return s ? (s.token === true) : false;
 }
@@ -186,7 +186,7 @@ export function requires_token(method) {
 // acl_split() → { unauth:{read,write}, admin:{read,write} } — имена методов по тирам, выведенные
 // из реестра. unauth = anon-методы (мутации всё равно гейтятся токеном); admin видит ВСЕ методы
 // (анонимные + admin-only). Из этого собирается rpcd-acl.json (build_acl).
-export function acl_split() {
+function acl_split() {
 	let ur = [], uw = [], ar = [], aw = [];
 	for (let i = 0; i < length(REGISTRY); i++) {
 		let m = REGISTRY[i];
@@ -205,7 +205,7 @@ export function acl_split() {
 //   unauthenticated — первичная установка из LAN (мутации защищены install-токеном);
 //   cheburnet-admin — пост-установочное управление (выдаётся авторизованной сессии).
 // Источник правды прав — REGISTRY (acl_split); описания статичны.
-export function build_acl() {
+function build_acl() {
 	let s = acl_split();
 	return {
 		unauthenticated: {
@@ -222,8 +222,10 @@ export function build_acl() {
 }
 
 // make_error(msg, extra?) → { error: msg, ...extra }. Единообразный ответ-ошибка для RPC.
-export function make_error(msg, extra) {
+function make_error(msg, extra) {
 	let o = { error: msg };
 	if (extra) for (let k in extra) o[k] = extra[k];
 	return o;
 }
+
+export { method_specs, list_descriptor, validate_request, requires_token, acl_split, build_acl, make_error };
