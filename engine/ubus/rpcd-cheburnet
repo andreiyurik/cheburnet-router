@@ -443,11 +443,14 @@ let method = (length(ARGV) > 1) ? ARGV[1] : "";
 let raw = trim(stdin.read("all") ?? "");
 let args = (substr(raw, 0, 1) == "{") ? json(raw) : {};
 
-// STATE_DIR (/tmp/cheburnet) обязан существовать ДО любого метода: сюда пишутся payload,
-// state, log, done фоновых операций. /tmp — tmpfs → директория исчезает после reboot, а её
-// никто не создаёт (ни пакет, ни bootstrap). Без неё writefile молча падал → install «висел»
-// на state=idle с пустым payload (поймано живым прогоном через веб-мастер). mkdir -p идемпотентен.
-sh(sprintf("mkdir -p %s 2>/dev/null", STATE_DIR));
+// Каталоги состояния обязаны существовать ДО любого метода — иначе writefile молча падает
+// (класс бага, пойманный живым прогоном: install «висел» на state=idle с пустым payload):
+//   • STATE_DIR (/tmp/cheburnet) — payload/state/log/done фоновых операций. /tmp это tmpfs →
+//     исчезает после reboot, поэтому mkdir здесь (на каждом вызове), а не в postinst пакета.
+//   • ETC_CHEBURNET (/etc/cheburnet) — install.json (replay для set_mode/update_list). Его
+//     создаёт bootstrap, но reset.uc его удаляет → без гарантии save_cfg писал бы в никуда.
+// mkdir -p идемпотентен и дёшев.
+sh(sprintf("mkdir -p %s %s 2>/dev/null", STATE_DIR, ETC_CHEBURNET));
 
 // Граница доверия: валидируем вход чистым ядром ДО любого I/O.
 let vr = validate_request(method, args);

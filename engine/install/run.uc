@@ -10,13 +10,14 @@
 //
 // Откат честный: чистые шаги возвращает snapshot restore; грязный (firewall) — его --teardown.
 
-import { stdin, writefile } from "fs";
+import { stdin, writefile, unlink } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state } from "./install.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
+const ETC_CHEBURNET = getenv("ETC_CHEBURNET") ?? "/etc/cheburnet";
 
 // set_step(name) — отметить текущий шаг для install_progress (веб-мастер показывает «Шаг: …»).
 // Путь даёт ubus-слой через env STATE_FILE (см. rpcd-cheburnet spawn_bg). Нет env (CLI-запуск)
@@ -193,6 +194,10 @@ if (outcome.action == "commit") {
 		if (rc != 0)
 			warn("install: пароль root не применился — установите вручную по SSH\n");
 	}
+	// Install-токен одноразовый: установка удалась → пропуск использован, снимаем его (иначе он
+	// продолжал бы пускать install/apply_lan_ip любого в LAN). Только на commit-пути: при откате
+	// токен ОСТАЁТСЯ, чтобы пользователь исправил данные и повторил тем же токеном без bootstrap.
+	unlink(ETC_CHEBURNET + "/install-token");
 	printf("install: успешно — %s\n", outcome.reason);
 	exit(0);
 }
