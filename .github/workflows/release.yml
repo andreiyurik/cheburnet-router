@@ -1,0 +1,75 @@
+name: release
+
+# Публикация пакета cheburnet в GitHub Releases по git-тегу `v*`.
+#
+# Дистрибуция v2 (см. docs/v2/architecture/bootstrap.md + bootstrap/bootstrap.sh):
+#   - cheburnet — PKGARCH=all (ucode+shell+web), поэтому ОДИН arch-независимый .apk на всех.
+#     Собираем один раз, кладём ассетом в Release. bootstrap качает его напрямую
+#     (releases/latest/download/…) — нам не нужен хостинг feed-индекса.
+#   - kmod-amneziawg (arch/ядро-зависимый) НЕ здесь: его ставит bootstrap из awg-openwrt.
+#
+# Подпись: MVP БЕЗ подписи — bootstrap ставит .apk через --allow-untrusted (как и kmod из
+# awg-openwrt). Доверие — HTTPS к GitHub Release. Вернуть подпись = добавить PRIVATE_KEY (секрет)
+# в SDK-шаг + класть публичный ключ ассетом; bootstrap поставит его в /etc/apk/keys.
+#
+# ⚠️ Первый прогон — вручную (workflow_dispatch) на тестовом теге: точная раскладка вывода SDK
+# (путь .apk в apk-ветке 25.12) финализируется на живом прогоне — как и package-build в
+# engine.yml. До валидации в QEMU этим master не гейтим.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Собрать и загрузить артефакты, но НЕ создавать Release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # нужно для создания Release и загрузки ассетов
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # OpenWrt SDK (apk-ветка 25.12) собирает пакет. ARCH задаёт SDK-контейнер; для PKGARCH=all
+      # любой один arch даёт тот же arch-независимый .apk — берём x86_64/25.12. Без подписи (MVP).
+      - name: Build cheburnet via OpenWrt SDK
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: x86_64-25.12.0        # ← при первом прогоне сверить с доступным тегом ghcr SDK
+          FEEDNAME: cheburnet
+          PACKAGES: cheburnet
+          V: s
+
+      # Находим собранный .apk и нормализуем имя до cheburnet.apk (стабильный ассет для bootstrap).
+      - name: Collect package
+        id: collect
+        run: |
+          set -eu
+          APK="$(find bin/packages -name 'cheburnet*.apk' | head -n1)"
+          [ -n "$APK" ] || { echo "::error::cheburnet .apk не найден в bin/packages"; \
+                             find bin/packages -type f | head -50; exit 1; }
+          mkdir -p dist
+          cp "$APK" dist/cheburnet.apk
+          ls -l dist/
+          echo "apk=dist/cheburnet.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cheburnet-package
+          path: dist/*
+          retention-days: 14
+
+      # Публикуем Release только на тег (не на dry-run workflow_dispatch).
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/cheburnet.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true
