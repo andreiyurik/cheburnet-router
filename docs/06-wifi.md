@@ -1,5 +1,8 @@
 # 📡 06. Wi-Fi
 
+> [!note]
+> **Документация текущей реализации (v1)** — то, что работает сегодня. Целевая архитектура проекта: [architecture-v2.md](architecture-v2.md) · [база знаний v2](v2/README.md). См. [индекс документации](README.md).
+
 ## TL;DR
 
 Два радио (2.4 ГГц и 5 ГГц) объединены под **одним SSID** для простоты. Шифрование — **WPA2/WPA3-mixed (`sae-mixed`)**: новые устройства получают WPA3-SAE (forward secrecy + PMF), старые откатываются на WPA2-PSK. Требует пакета `wpad-mbedtls` (не базового `wpad-basic-mbedtls`). Country code — RU, PMF включён (`ieee80211w='1'`).

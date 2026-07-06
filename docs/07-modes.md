@@ -1,5 +1,8 @@
 # 🧭 07. Управление режимами (HOME / TRAVEL)
 
+> [!note]
+> **Документация текущей реализации (v1)** — то, что работает сегодня. Целевая архитектура проекта: [architecture-v2.md](architecture-v2.md) · [база знаний v2](v2/README.md). См. [индекс документации](README.md).
+
 ## TL;DR
 
 Два режима: **HOME** (split-routing — основной трафик через VPN, RU-сервисы напрямую) и **TRAVEL** (full-tunnel — всё через VPN без исключений). Переключение через web-UI (`http://192.168.1.1/cheburnet/`) или CLI (`vpn-mode home/travel/status`). Состояние хранится в UCI подkop'а — persistent через перезагрузки и sysupgrade автоматически.

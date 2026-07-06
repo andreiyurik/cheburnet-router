@@ -73,7 +73,7 @@ if [ -z "${APK_UPDATE_SKIPPED:-}" ]; then
             fi
 
             if wget -qO /dev/null --timeout=8 \
-                https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh \
+                https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh \
                 2>/dev/null; then
                 echo "  ✓ raw.githubusercontent.com доступен"
                 GH_OK=1

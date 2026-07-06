@@ -6,11 +6,34 @@
 
 | Команда | Что делает | Время | Интернет нужен? |
 |---|---|---|---|
-| `make qemu` | T3a — hermetic smoke: bringup VM + ubus-вызовы | ~90с | нет |
-| `make qemu-http` | T3b — то же + uhttpd + HTTP/UI-кнопки | ~3мин | да (apk add) |
-| `make qemu-install` | T3c — полный прогон `setup/install.sh` на VM | ~5-10мин | да (apk + github) |
+| `make qemu` | T3a — hermetic smoke **v1** (заморожен): bringup VM + ubus-вызовы | ~90с | нет |
+| `make qemu-v2` | T3a-v2 — hermetic smoke **движка v2** (ucode): 14 методов, граница доверия, rootpass→session.login, family, NAT-зона+nft+teardown | ~2мин | нет* |
+| `make qemu-install-v2` | T3c-v2 — **установка через apk** + data-plane против реальных сервисов (dnsmasq-full/https-dns-proxy) | ~5-8мин | **да** (apk) |
+| `make qemu-http` | T3b — то же + uhttpd + HTTP/UI-кнопки (v1) | ~3мин | да (apk add) |
+| `make qemu-install` | T3c — полный прогон `setup/install.sh` на VM (v1) | ~5-10мин | да (apk + github) |
 
-Все три запускаются из корня репо. При падении автоматически выводят последние 60 строк serial-консоли VM и возвращают exit ≠ 0.
+Все запускаются из корня репо. При падении автоматически выводят последние 60 строк serial-консоли VM и возвращают exit ≠ 0. (*первый запуск качает образ snapshot'а — дальше кэш.)
+
+### T3a-v2 — `smoke-v2.sh` (движок v2, hermetic)
+
+Деплоит движок **как пакет** (shim → `/usr/libexec/rpcd/cheburnet`, engine без `tests/` в
+`/usr/share/cheburnet`, ACL из реестра) и проверяет на живом OpenWrt то, что юниты и dry-run'ы
+не могут: регистрацию всех 14 ubus-методов, границу доверия сквозь настоящий rpcd (required/
+токен-гейт/confirm), `steps/rootpass` на реальном busybox `passwd` + **`session.login` этим
+паролем** (ключевое допущение входа в панель), no-op wifi-шага без радио, family on/off на
+реальном busybox-uci, NAT-зону + nft-цепочки + `--teardown` на реальном fw4. Не покрывает:
+HTTP-слой `/ubus` с ACL-инфорсментом (нужен uhttpd-mod-ubus → интернет, уровень T3b) и полный
+install (apk, AWG-сервер).
+
+### T3c-v2 — `install-v2.sh` (установка через apk, нужен интернет)
+
+Ставит DEPENDS пакета из **реального apk-feed** на живой OpenWrt и гоняет data-plane против
+**настоящих** сервисов (а не подсунутых руками): проверяет, что `package/cheburnet/Makefile`
+DEPENDS вообще резолвятся под arch; `dnsmasq` → `dnsmasq-full` swap; `dns`-шаг (реальный
+dnsmasq-full перечитывает наш nftset); `doh`-шаг (реальный https-dns-proxy стартует с нашими
+резолверами); preflight на живом `apk --simulate` даёт вердикт. `adblock-lean` (не feed-пакет)
+и `kmod-amneziawg` (нет под x86-ядро snapshot) — best-effort с репортом. Туннель/handshake и
+adblock-списки — на железе/T3b.
 
 ## Что покрывает каждый уровень
 

@@ -1,0 +1,209 @@
+// run.uc — установочный оркестратор (импурно, router-side). Связывает кирпичи в поток:
+//   preflight → snapshot UCI → шаги по порядку → health-check → commit / rollback.
+//
+//   echo '{"awg_conf":"...","domains":["example.com"],"routing_opts":{"wan_if":"eth0"}}' \
+//     | ucode -R run.uc
+//   ... | ucode -R run.uc --dry-run     # показать, что будет сделано
+//
+// Политика (порядок, область snapshot, решение) — чистое ядро install.uc (под тестами). Здесь —
+// выполнение: запуск preflight/snapshot/шагов/health через существующие CLI. Проверяется в QEMU.
+//
+// Откат честный: чистые шаги возвращает snapshot restore; грязный (firewall) — его --teardown.
+
+import { stdin, writefile, unlink } from "fs";
+import { sh, run_stdin } from "../lib/proc.uc";
+import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
+         tunnel_info, disabled_tunnels, default_protocol, handshake_state } from "./install.uc";
+
+let SELF = sourcepath(0, true);
+let ENGINE = SELF + "/..";              // engine/
+const ETC_CHEBURNET = getenv("ETC_CHEBURNET") ?? "/etc/cheburnet";
+
+// set_step(name) — отметить текущий шаг для install_progress (веб-мастер показывает «Шаг: …»).
+// Путь даёт ubus-слой через env STATE_FILE (см. rpcd-cheburnet spawn_bg). Нет env (CLI-запуск)
+// → no-op: прогресс-индикация нужна только фоновой установке из мастера.
+let STATE_FILE = getenv("STATE_FILE");
+function set_step(name) {
+	if (STATE_FILE) writefile(STATE_FILE, name + "\n");
+}
+
+function step_cmd(name, extra) {
+	return sprintf("ucode -R %s/steps/%s/apply.uc%s", ENGINE, name, extra ?? "");
+}
+// stdin для шага по его потребности (install.uc.needs).
+function step_stdin(s, cfg) {
+	if (s.needs == "awg_conf") return cfg.awg_conf ?? "";
+	if (s.needs == "reality")  return cfg.reality_conf ?? ""; // vless://… или JSON sing-box (сырой текст)
+	if (s.needs == "domains")
+		// fw_opts.tunnel_if — интерфейс активного туннеля для NAT-зоны (firewall apply берёт его
+		// из fw_opts; routing его игнорирует). dns-шаг лишний ключ игнорирует — payload общий.
+		return sprintf("%J", { domains: cfg.domains ?? [], routing_opts: cfg.routing_opts,
+			fw_opts: { tunnel_if: cfg.routing_opts.tunnel_if } });
+	if (s.needs == "wifi")
+		return sprintf("%J", { ssid: cfg.ssid, key: cfg.wifi_key }); // нет полей → шаг сделает no-op
+	if (s.needs == "doh")
+		return sprintf("%J", { provider: cfg.dns_provider }); // нет id → doh берёт дефолт каталога
+	return "{}";
+}
+
+// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). reality (Full): туннель —
+// userspace-сервис sing-box → «процесс жив» (глубокая проверка — QEMU/железо). awg (Light): по
+// latest-handshakes — "up" (рукопожатие было) или "none" (vpn не настраивался) считаем готовым,
+// "waiting" (peer есть, рукопожатия ещё нет) — нет.
+function tunnel_ok(cfg, iface) {
+	if ((cfg.protocol ?? default_protocol()) == "reality")
+		return trim(sh("pgrep -x sing-box >/dev/null 2>&1; echo $?")) == "0";
+	return handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) != "waiting";
+}
+
+// dns_ok() — ОДНА проба: резолвится ли имя через локальный dnsmasq (127.0.0.1).
+function dns_ok() {
+	return trim(sh("nslookup openwrt.org 127.0.0.1 >/dev/null 2>&1; echo $?")) == "0";
+}
+
+// Health-check: и DNS, и туннель должны подняться ДО commit. КЛЮЧЕВОЕ — поллим ОБА в одном окне
+// (~30с): шаги dns/doh/vpn только что (пере)настроили dnsmasq, https-dns-proxy и awg0 — сервисам
+// нужно несколько секунд на тёплый старт (AWG-handshake: initiation+ответ сервера ~5–15с; DoH:
+// https-dns-proxy поднимается не мгновенно). Любая МГНОВЕННАЯ проверка ловила бы этот старт и
+// откатывала рабочую установку (исходный баг). Успех — как только ОБА условия выполнены.
+function healthcheck(cfg) {
+	let iface = (cfg.routing_opts && cfg.routing_opts.tunnel_if) ? cfg.routing_opts.tunnel_if : "awg0";
+	let dns = false, tun = false;
+	for (let i = 0; i < 15; i++) {
+		if (!dns) dns = dns_ok();
+		if (!tun) tun = tunnel_ok(cfg, iface);
+		if (dns && tun) return true;
+		sh("sleep 2");
+	}
+	return dns && tun;
+}
+
+// rollback_all(steps, cfg) — ЕДИНСТВЕННАЯ реализация отката: вернуть чистые конфиги из снимка
+// + снять правила грязных шагов (safe-fail). Зовётся отсюда (упавшая установка) и ubus-слоем
+// через `run.uc --rollback` (отмена установки) — знание «как откатывать» не дрейфует по слоям.
+function rollback_all(steps, cfg) {
+	sh(sprintf("ucode -R %s/rollback/snapshot.uc restore", ENGINE));
+	let dirty = dirty_steps(steps);
+	for (let i = 0; i < length(dirty); i++)
+		run_stdin(step_cmd(dirty[i], " --teardown"), step_stdin({ name: dirty[i], needs: "domains" }, cfg));
+
+	// Snapshot вернул uci-КОНФИГИ, но РАНТАЙМ ещё несёт изменения установки, и сам по себе он не
+	// сойдётся с конфигом: netifd держит default через awg0 (route_allowed_ips=1, см. vpn-шаг) и НЕ
+	// вернёт WAN-дефолт, пока его не передёрнуть; dnsmasq резолвит через (возможно мёртвый) DoH.
+	// Без переприменения сервисов провал установки оставит LAN-клиентов БЕЗ интернета (kill-switch
+	// в туннель, которого нет; DNS через https-dns-proxy, который не встал). network restart —
+	// детерминированно (reload недостаточно для снятия awg0+возврата дефолта), на пути отката
+	// (уже не happy-path) краткий разрыв LAN приемлем ради гарантированного восстановления.
+	sh("/etc/init.d/network restart >/dev/null 2>&1");
+	sh("/etc/init.d/dnsmasq restart >/dev/null 2>&1");
+}
+
+// --- вход ---
+let raw = trim(stdin.read("all") ?? "");
+let cfg = (substr(raw, 0, 1) == "{") ? json(raw) : {};
+let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
+
+// Протокол туннеля: awg (Light, дефолт) | reality (Full). Определяет активный туннель-шаг и
+// интерфейс, который туннель презентует (NAT-зона firewall + health-check). tunnel_if кладём в
+// routing_opts: routing его игнорирует, а health-check и (через fw_opts) firewall — используют.
+let protocol = cfg.protocol ?? default_protocol();
+let tinfo = tunnel_info(protocol);
+if (type(cfg.routing_opts) != "object") cfg.routing_opts = {};
+cfg.routing_opts.tunnel_if = tinfo.tunnel_if;
+
+// WAN-интерфейс для kill-switch и default-маршрута direct-таблицы. Веб-мастер его НЕ передаёт
+// (пользователь не вводит имя интерфейса), поэтому определяем САМИ из текущего дефолт-маршрута —
+// динамически, не хардкодим (урок v1). ВАЖНО делать это ЗДЕСЬ, до шагов: vpn-шаг заберёт дефолт
+// на awg0 (route_allowed_ips=1), и позже WAN уже не вычислить. Без wan_if firewall-шаг отказывал
+// → установка через мастер всегда падала на firewall (поймано живым прогоном).
+if (type(cfg.routing_opts.wan_if) != "string" || length(cfg.routing_opts.wan_if) == 0) {
+	let wan = trim(sh("ip route show default 2>/dev/null | grep -oE 'dev [^ ]+' | head -1 | awk '{print $2}'"));
+	if (length(wan) > 0)
+		cfg.routing_opts.wan_if = wan;
+}
+
+// Отключаем неактивные туннель-шаги (vpn/singbox взаимоисключающие) + пользовательский disable.
+let disable = disabled_tunnels(protocol);
+if (type(cfg.disable) == "array")
+	for (let i = 0; i < length(cfg.disable); i++) push(disable, cfg.disable[i]);
+
+let steps = enabled_steps({ disable: disable });
+let scope = snapshot_scope(steps);
+
+// --rollback: только откат, без установки. stdin — {domains?, routing_opts?} для teardown'ов.
+if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
+	rollback_all(steps, cfg);
+	warn("install: откат выполнен (--rollback)\n");
+	exit(0);
+}
+
+// --- 1. preflight (гейткипер) ---
+set_step("preflight");
+let facts = sh(sprintf("ucode -R %s/preflight/gather.uc", ENGINE));
+let pf_rc = run_stdin(sprintf("ucode -R %s/preflight/check.uc", ENGINE), facts);
+let preflight = { ok: (pf_rc == 0) };
+
+if (!preflight.ok) {
+	// Отчёт preflight уже напечатан check.uc выше (его stdout унаследован). Просто прерываемся.
+	let d = decide_outcome({ preflight: preflight });
+	warn(sprintf("install: %s\n", d.reason));
+	exit(1);
+}
+
+if (dry) {
+	printf("# preflight: ok\n# snapshot scope: %s\n# шаги: ", join(", ", scope));
+	for (let i = 0; i < length(steps); i++) printf("%s ", steps[i].name);
+	printf("\n# dirty (teardown при rollback): %s\n", join(", ", dirty_steps(steps)));
+	for (let i = 0; i < length(steps); i++)
+		run_stdin(step_cmd(steps[i].name, " --dry-run"), step_stdin(steps[i], cfg));
+	exit(0);
+}
+
+// --- 2. snapshot UCI (для чистого отката) ---
+set_step("snapshot");
+sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
+
+// --- 3. шаги по порядку (fail-fast) ---
+let results = [];
+for (let i = 0; i < length(steps); i++) {
+	let s = steps[i];
+	set_step(s.name); // веб-мастер покажет «Шаг: vpn/dns/doh/wifi/firewall»
+	let code = run_stdin(step_cmd(s.name, null), step_stdin(s, cfg));
+	push(results, { name: s.name, ok: (code == 0) });
+	if (code != 0) {
+		warn(sprintf("install: шаг %s упал (код %d)\n", s.name, code));
+		break;
+	}
+}
+
+// --- 4. health-check (только если все шаги прошли) ---
+let all_ok = true;
+for (let i = 0; i < length(results); i++) if (!results[i].ok) all_ok = false;
+if (all_ok) set_step("health-check"); // поднятие туннеля+DNS — самый долгий этап (до ~30с)
+let health = all_ok ? { ok: healthcheck(cfg) } : null;
+
+// --- 5. решение: commit / rollback ---
+let outcome = decide_outcome({ preflight: preflight, steps: results, health: health });
+if (outcome.action == "commit") {
+	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
+	// Пароль root — не транзакция (см. steps/rootpass): применяем на успешном пути, отдельно от
+	// uci-снимка. Сбой passwd не валит установку — честный warning, пароль вторичен к data-plane.
+	if (cfg.root_password) {
+		let rc = run_stdin(sprintf("ucode -R %s/steps/rootpass/apply.uc", ENGINE),
+			sprintf("%J", { root_password: cfg.root_password }));
+		if (rc != 0)
+			warn("install: пароль root не применился — установите вручную по SSH\n");
+	}
+	// Install-токен одноразовый: установка удалась → пропуск использован, снимаем его (иначе он
+	// продолжал бы пускать install/apply_lan_ip любого в LAN). Только на commit-пути: при откате
+	// токен ОСТАЁТСЯ, чтобы пользователь исправил данные и повторил тем же токеном без bootstrap.
+	unlink(ETC_CHEBURNET + "/install-token");
+	printf("install: успешно — %s\n", outcome.reason);
+	exit(0);
+}
+
+// rollback: единая реализация (см. rollback_all выше).
+warn(sprintf("install: откат — %s\n", outcome.reason));
+rollback_all(steps, cfg);
+warn("install: откат выполнен — система возвращена к состоянию до установки\n");
+exit(1);

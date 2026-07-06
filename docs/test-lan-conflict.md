@@ -149,7 +149,7 @@ Enter мы ничего не меняли.)
 
 ```bash
 # 1. Свежий роутер + bootstrap.
-ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
+ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh | sh'
 # Запоминаем install-token из вывода (32 hex).
 
 # 2. Создаём конфликт через ssh (как в сценарии A, шаг 1).

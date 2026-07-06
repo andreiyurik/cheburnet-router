@@ -1,0 +1,52 @@
+{
+    "unauthenticated": {
+        "description": "cheburnet web wizard — первичная установка (LAN-only). Мутации защищены install-токеном.",
+        "read": {
+            "ubus": {
+                "cheburnet": [
+                    "preflight",
+                    "status",
+                    "check_lan_conflict",
+                    "install_progress"
+                ]
+            }
+        },
+        "write": {
+            "ubus": {
+                "cheburnet": [
+                    "apply_lan_ip",
+                    "install",
+                    "install_cancel"
+                ]
+            }
+        }
+    },
+    "cheburnet-admin": {
+        "description": "cheburnet — пост-установочное управление (выдаётся авторизованной сессии).",
+        "read": {
+            "ubus": {
+                "cheburnet": [
+                    "preflight",
+                    "status",
+                    "check_lan_conflict",
+                    "install_progress"
+                ]
+            }
+        },
+        "write": {
+            "ubus": {
+                "cheburnet": [
+                    "apply_lan_ip",
+                    "install",
+                    "install_cancel",
+                    "set_mode",
+                    "update_list",
+                    "service_restart",
+                    "set_dns_provider",
+                    "replace_awg_conf",
+                    "factory_reset"
+                ]
+            }
+        }
+    }
+}

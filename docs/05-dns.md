@@ -1,5 +1,8 @@
 # 🔒 05. DNS: Quad9 DoH + автофейловер
 
+> [!note]
+> **Документация текущей реализации (v1)** — то, что работает сегодня. Целевая архитектура проекта: [architecture-v2.md](architecture-v2.md) · [база знаний v2](v2/README.md). См. [индекс документации](README.md).
+
 ## TL;DR
 
 Основной DNS — **Quad9 DoH** (`dns.quad9.net/dns-query`). Bootstrap (для разрезолва Quad9-хоста на старте) — Cloudflare UDP `1.1.1.1`. Fallback при сбое — Cloudflare DoH. CLI `dns-provider` для ручного свитча, `dns-healthcheck` в cron каждые 30 сек для автофейловера. На уровне dnsmasq **до** sing-box работает adblock-lean (см. [04-adblock.md](04-adblock.md)).

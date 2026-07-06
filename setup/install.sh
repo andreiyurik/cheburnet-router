@@ -1,6 +1,10 @@
 #!/bin/sh
 # install.sh — единственный оркестратор установки. Всегда запускается НА РОУТЕРЕ.
 #
+# ⚠️ V1 ЗАМОРОЖЕН (strangler-fig миграция на v2 — см. CLAUDE.md и docs/architecture-v2.md).
+# Сюда — только фиксы стабильности для работающих установок. Новые фичи — ТОЛЬКО в v2
+# (engine/ + web-v2/). План вывода v1 — docs/architecture-v2.md, раздел «Sunset v1».
+#
 # Точки входа:
 #   • Веб-мастер: rpcd-cheburnet → setsid /opt/cheburnet/setup/install.sh (фоном).
 #   • CLI с ноутбука: setup.sh scp'шит репо в /opt/cheburnet/ и делает
@@ -64,7 +68,7 @@ if ! command -v cheburnet_preflight_flash >/dev/null 2>&1; then
     echo "✗ Preflight-библиотека не загружена ($INSTALL_DIR/lib/cheburnet-preflight.sh)." >&2
     echo "  Установка прервана — это означает повреждённый или неполный репо." >&2
     echo "  Перезалейте репо bootstrap'ом из README:" >&2
-    echo "    wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh" >&2
+    echo "    wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh | sh" >&2
     echo "fail-preflight-missing-lib" > "$DONE"
     exit 1
 fi
@@ -298,7 +302,7 @@ cat <<EOF
 
 ЕСЛИ ВСЁ ПОЛУЧИЛОСЬ И ПРОЕКТ ВАМ ОТКЛИКНУЛСЯ:
   ⭐ Поставьте звезду:
-     https://github.com/yurik2718/cheburnet-router
+     https://github.com/andreiyurik/cheburnet-router
 
   Это занимает 2 секунды и ничего не стоит, но каждая звезда
   поднимает проект в поиске GitHub — больше людей, кому нужен

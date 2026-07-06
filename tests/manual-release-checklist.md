@@ -143,7 +143,7 @@ ssh root@192.168.1.1 'passwd'
 
 ```sh
 ssh root@192.168.1.1 \
-  'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
+  'wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh | sh'
 ```
 
 (Замени `master` на твою ветку, если тестируешь ветку.)

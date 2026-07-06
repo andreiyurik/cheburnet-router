@@ -50,6 +50,11 @@ POSIX_FILES=(
     scripts/vpn-mode
     backup/backup.sh
     backup/restore.sh
+    # v2 (POSIX glue движка; логика — на ucode, его shellcheck не проверяет)
+    engine/run-tests.sh
+    bootstrap/bootstrap.sh
+    package/cheburnet/files/rpcd-cheburnet.sh
+    tests/poc/split-routing-netns.sh
 )
 
 # BASH_FILES и BATS_FILES — собираются автоматически через find, чтобы новые
