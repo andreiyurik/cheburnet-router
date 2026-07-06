@@ -1,10 +1,10 @@
 <!--
-  README v2 (draft на ветке feat/v2). Consumer-first.
-  ⚠️ НЕ мержить в master, пока не опубликован реальный feed:
-     install-однострочник ниже тянет bootstrap.sh, который делает `apk add cheburnet`
-     из feed'а. Пока feed = placeholder (feed.cheburnet.example) — установка у постороннего
-     не сработает. Перед публикацией: (1) поднять подписанный feed, (2) вписать финальный
-     FEED_URL в bootstrap/bootstrap.sh, (3) заменить TODO-URL в install-командах ниже.
+  README v2. Consumer-first.
+  ⚠️ ГЕЙТ ПУБЛИЧНОГО ЗАПУСКА: install-однострочник ниже тянет bootstrap.sh с master,
+     который ставит cheburnet.apk из GitHub Releases (подписанный). Однострочник работает
+     только когда: (1) feat/v2 смержен в master, (2) опубликован Release с cheburnet.apk
+     (тег v* → release.yml), (3) путь проверен живым прогоном на реальном роутере.
+     После этого — удалить этот комментарий отдельным коммитом. До этого не рекламировать.
 -->
 <div align="center">
 
@@ -21,7 +21,7 @@ Smart TV, консоли. Без приложений на каждом гадж
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12%2B-blue?logo=openwrt)](https://openwrt.org/)
 [![VPN](https://img.shields.io/badge/VPN-AmneziaWG-3bc272)](https://amnezia.org/)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/yurik2718/cheburnet-router?style=flat&logo=github&color=ffd33d)](https://github.com/yurik2718/cheburnet-router/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/andreiyurik/cheburnet-router?style=flat&logo=github&color=ffd33d)](https://github.com/andreiyurik/cheburnet-router/stargazers)
 [![Telegram](https://img.shields.io/badge/Telegram-@industrialprofi-26A5E4?logo=telegram)](https://t.me/industrialprofi)
 
 ### [🚀 Установить](#-установка-за-пару-шагов) · [💸 Что нужно и сколько стоит](#-что-нужно-и-сколько-стоит) · [🧒 Семейный режим](#-семейный-режим) · [❓ FAQ](#-faq)
@@ -42,7 +42,7 @@ Smart TV, консоли. Без приложений на каждом гадж
 - ⚡ **Split-tunnel.** Домены из вашего списка идут **напрямую** (полная скорость, реальный IP — удобно для банков и локальных сервисов), остальное — через VPN.
 - 🚫 **Блокировка рекламы и трекеров** на уровне сети — для каждого устройства, включая те, куда adblock не поставить (Smart TV, консоли).
 - 🔐 **Шифрованный DNS (DoH).** Провайдер не видит, на какие сайты вы заходите.
-- 🧒 **Семейный режим** — фильтр нежелательного контента + принудительный SafeSearch, одним тумблером.
+- 🧒 **Семейный режим** — фильтр нежелательного контента + принудительный SafeSearch, одним выбором в панели.
 - 🛡 **Kill-switch.** Если VPN отвалился — трафик не утекает в открытую сеть, а не идёт «как получится».
 
 **Что обычно болит — и как это решается здесь:**
@@ -105,12 +105,12 @@ flowchart LR
 
 **Linux / macOS:**
 ```bash
-ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/bootstrap/bootstrap.sh | sh'
+ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh | sh'
 ```
 
 **Windows (PowerShell / Терминал):**
 ```powershell
-ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/bootstrap/bootstrap.sh | sh"
+ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh | sh"
 ```
 
 > **🌍 Не ставится? `apk update не прошёл` / «не достучаться до зеркала пакетов»?** В некоторых
@@ -170,12 +170,13 @@ ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o Co
 
 ## 🧒 Семейный режим
 
-Один тумблер в веб-панели включает две вещи для всех устройств в Wi-Fi:
+Семейный режим — это выбор **семейного DNS-фильтра** в веб-панели (например, AdGuard Family
+вместо обычного AdGuard). Одно действие включает для всех устройств в Wi-Fi:
 
-1. **Блокирует нежелательный контент** — список NSFW-доменов добавляется к обычному блок-листу. Браузер не получает IP и видит обычную ошибку «сайт недоступен».
-2. **Принудительный SafeSearch** в Google, Bing, DuckDuckGo, Yandex и YouTube (Strict) — даже если в самом сервисе он выключен.
+1. **Блокировку нежелательного контента** — DNS-фильтр не отдаёт адреса сайтов для взрослых; браузер видит обычную ошибку «сайт недоступен».
+2. **Принудительный SafeSearch** в поисковиках и YouTube — даже если в самом сервисе он выключен.
 
-Можно включать только на время — например, на детские часы.
+Вернуть обычный фильтр можно в любой момент тем же выпадающим списком.
 
 <details>
 <summary>Чего семейный режим НЕ делает</summary>
