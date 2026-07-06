@@ -8,23 +8,17 @@ name: release
 #     (releases/latest/download/…) — нам не нужен хостинг feed-индекса.
 #   - kmod-amneziawg (arch/ядро-зависимый) НЕ здесь: его ставит bootstrap из awg-openwrt.
 #
-# Подпись: MVP БЕЗ подписи — bootstrap ставит .apk через --allow-untrusted (как и kmod из
-# awg-openwrt). Доверие — HTTPS к GitHub Release. Вернуть подпись = добавить PRIVATE_KEY (секрет)
-# в SDK-шаг + класть публичный ключ ассетом; bootstrap поставит его в /etc/apk/keys.
+# Подпись: пакет подписывается EC-ключом (секрет APK_PRIVATE_KEY → private-key.pem в SDK,
+# CONFIG_SIGNED_PACKAGES=y). Публичный ключ закоммичен в bootstrap/cheburnet.pem — bootstrap
+# ставит его в /etc/apk/keys, apk проверяет подпись при установке.
 #
-# ⚠️ Первый прогон — вручную (workflow_dispatch) на тестовом теге: точная раскладка вывода SDK
-# (путь .apk в apk-ветке 25.12) финализируется на живом прогоне — как и package-build в
-# engine.yml. До валидации в QEMU этим master не гейтим.
+# Публикация Release — ТОЛЬКО по push тега v*. workflow_dispatch = всегда dry-run (сборка +
+# артефакты, без Release): безопасно гонять для проверки SDK-раскладки на любой ветке.
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Собрать и загрузить артефакты, но НЕ создавать Release"
-        type: boolean
-        default: true
 
 permissions:
   contents: write   # нужно для создания Release и загрузки ассетов
@@ -36,14 +30,18 @@ jobs:
       - uses: actions/checkout@v4
 
       # OpenWrt SDK (apk-ветка 25.12) собирает пакет. ARCH задаёт SDK-контейнер; для PKGARCH=all
-      # любой один arch даёт тот же arch-независимый .apk — берём x86_64/25.12. Без подписи (MVP).
+      # любой один arch даёт тот же arch-независимый .apk — берём x86_64/25.12.
+      # Экшен запинен на SHA: job имеет contents:write, mutable @main здесь недопустим.
       - name: Build cheburnet via OpenWrt SDK
-        uses: openwrt/gh-action-sdk@main
+        uses: openwrt/gh-action-sdk@797d0e3d0eb13b355c3447f60d0179d4b43089e2
         env:
           ARCH: x86_64-25.12.0        # ← при первом прогоне сверить с доступным тегом ghcr SDK
           FEEDNAME: cheburnet
           PACKAGES: cheburnet
           V: s
+          # EC-ключ подписи: entrypoint кладёт его в private-key.pem и включает
+          # CONFIG_SIGNED_PACKAGES=y — каждый .apk выходит подписанным.
+          PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
 
       # Находим собранный .apk и нормализуем имя до cheburnet.apk (стабильный ассет для bootstrap).
       - name: Collect package
@@ -65,9 +63,9 @@ jobs:
           path: dist/*
           retention-days: 14
 
-      # Публикуем Release только на тег (не на dry-run workflow_dispatch).
+      # Публикуем Release ТОЛЬКО на push тега: workflow_dispatch (даже на теге) — всегда dry-run.
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/cheburnet.apk

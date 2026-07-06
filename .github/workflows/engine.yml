@@ -80,7 +80,7 @@ jobs:
 
       # Официальный SDK-экшен OpenWrt: монтирует репозиторий как feed и собирает пакет под arch.
       - name: Build cheburnet via OpenWrt SDK
-        uses: openwrt/gh-action-sdk@main
+        uses: openwrt/gh-action-sdk@797d0e3d0eb13b355c3447f60d0179d4b43089e2
         env:
           ARCH: ${{ matrix.arch }}
           FEEDNAME: cheburnet
