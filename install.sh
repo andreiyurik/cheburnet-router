@@ -4,10 +4,10 @@
 # ЗАПУСКАЕТСЯ НА САМОМ РОУТЕРЕ, не с ноутбука.
 #
 # Разовая команда для установки (из терминала ноутбука):
-#   ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh'
+#   ssh root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh | sh'
 #
 # Или вручную на роутере:
-#   wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh
+#   wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh | sh
 #
 # После выполнения откройте в браузере:
 #   http://<IP_роутера>/cheburnet/
@@ -19,7 +19,7 @@
 # и НИ ОДНА строка не выполнится, даже если файл скачался наполовину.
 set -e
 
-REPO_TAR="https://codeload.github.com/yurik2718/cheburnet-router/tar.gz/refs/heads/master"
+REPO_TAR="https://codeload.github.com/andreiyurik/cheburnet-router/tar.gz/refs/heads/master"
 INSTALL_DIR="/opt/cheburnet"
 WEB_DIR="/www/cheburnet"
 RPCD_BIN="/usr/libexec/rpcd/cheburnet"
@@ -143,7 +143,7 @@ fi
 # который некоторые сборки BusyBox wget расценивают как ошибку.
 step 1 "Проверяю интернет"
 if ! wget -qO /dev/null --timeout=10 \
-    "https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh" \
+    "https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh" \
     2>/dev/null; then
     fail_msg "Нет доступа к GitHub. Диагностика:"
     echo
@@ -236,7 +236,7 @@ if [ "$DPI_BLOCKED" = "1" ]; then
     echo "        мимо VPN — типичный косяк) + USB-tethering → роутер"
     echo
     echo "  Подробная инструкция (обе схемы по шагам):"
-    echo "    https://github.com/yurik2718/cheburnet-router/blob/master/docs/install-blocked.md"
+    echo "    https://github.com/andreiyurik/cheburnet-router/blob/master/docs/install-blocked.md"
     echo
     # tty-detect: при `ssh root@router 'wget|sh'` stdin = закрытый пайп, и
     # `read -t N` возвращается мгновенно (EOF) — обещанная пауза не работает.
@@ -296,7 +296,7 @@ if ! with_retry 120 3 "apk update" apk update; then
     # СПЕЦИФИЧНО downloads.openwrt.org, а не всё подряд. Если оба упали —
     # либо широкий DPI, либо captive portal, либо общая сетевая проблема.
     if wget -qO /dev/null --timeout=8 \
-        https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh \
+        https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh \
         2>/dev/null; then
         echo "  ✓ raw.githubusercontent.com доступен"
         GH_OK=1
@@ -426,7 +426,7 @@ if ! with_retry 120 3 "apk update" apk update; then
         echo "    5. После установки — кабель обратно в домашний роутер."
         echo
         echo "  Подробная инструкция (шаги, troubleshooting):"
-        echo "    https://github.com/yurik2718/cheburnet-router/blob/master/docs/install-blocked.md"
+        echo "    https://github.com/andreiyurik/cheburnet-router/blob/master/docs/install-blocked.md"
         echo
         echo "  Помощь: @industrialprofi в Telegram."
         echo

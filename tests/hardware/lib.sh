@@ -425,7 +425,7 @@ check_internet_https() {
     local attempt=0
     while [ "$attempt" -lt 3 ]; do
         if ssh_router 'wget -qO /dev/null --timeout=15 \
-            https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh' >/dev/null 2>&1; then
+            https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh' >/dev/null 2>&1; then
             if [ "$attempt" -eq 0 ]; then
                 report_pass check_internet_https "https raw.github reachable"
             else

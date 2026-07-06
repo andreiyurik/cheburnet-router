@@ -68,7 +68,7 @@ if ! command -v cheburnet_preflight_flash >/dev/null 2>&1; then
     echo "✗ Preflight-библиотека не загружена ($INSTALL_DIR/lib/cheburnet-preflight.sh)." >&2
     echo "  Установка прервана — это означает повреждённый или неполный репо." >&2
     echo "  Перезалейте репо bootstrap'ом из README:" >&2
-    echo "    wget -qO- https://raw.githubusercontent.com/yurik2718/cheburnet-router/master/install.sh | sh" >&2
+    echo "    wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/install.sh | sh" >&2
     echo "fail-preflight-missing-lib" > "$DONE"
     exit 1
 fi
@@ -302,7 +302,7 @@ cat <<EOF
 
 ЕСЛИ ВСЁ ПОЛУЧИЛОСЬ И ПРОЕКТ ВАМ ОТКЛИКНУЛСЯ:
   ⭐ Поставьте звезду:
-     https://github.com/yurik2718/cheburnet-router
+     https://github.com/andreiyurik/cheburnet-router
 
   Это занимает 2 секунды и ничего не стоит, но каждая звезда
   поднимает проект в поиске GitHub — больше людей, кому нужен

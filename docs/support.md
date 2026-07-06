@@ -40,7 +40,7 @@ bc1qen3tutepyqjtsn7meggcertp6x4m0492vkg4m2
 
 ## Если денег нет — это тоже помощь
 
-- ⭐ **Поставьте звезду** — [github.com/yurik2718/cheburnet-router](https://github.com/yurik2718/cheburnet-router). Бесплатно, занимает 2 секунды, поднимает проект в поиске.
+- ⭐ **Поставьте звезду** — [github.com/andreiyurik/cheburnet-router](https://github.com/andreiyurik/cheburnet-router). Бесплатно, занимает 2 секунды, поднимает проект в поиске.
 - 🐛 **Сообщите о баге** — каждый ваш лог с ошибкой я разбираю лично. Подробности в [docs/09-troubleshooting.md](09-troubleshooting.md).
 - 💬 **Расскажите друзьям** — кому-то рядом этот роутер сэкономит часы и деньги, просто они о нём не знают.
 - ✏️ **Пришлите PR** — улучшения документации, тесты, поддержка нового железа. Форкайте, адаптируйте, шлите PR.
@@ -50,6 +50,6 @@ bc1qen3tutepyqjtsn7meggcertp6x4m0492vkg4m2
 ## Контакты
 
 - Telegram: [@industrialprofi](https://t.me/industrialprofi) — отвечаю всем лично
-- Issues: [github.com/yurik2718/cheburnet-router/issues](https://github.com/yurik2718/cheburnet-router/issues)
+- Issues: [github.com/andreiyurik/cheburnet-router/issues](https://github.com/andreiyurik/cheburnet-router/issues)
 
 Спасибо, что поддерживаете open-source. 🙏
