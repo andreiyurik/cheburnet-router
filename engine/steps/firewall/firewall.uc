@@ -151,6 +151,16 @@ function build_firewall_plan(routing_plan, opts) {
 	// NAT-зона туннеля (uci firewall, чистый откат). Выключаемо через fw_opts.nat=false.
 	let nat = o.nat ? build_nat_ops(o) : { teardown: [], setup: [] };
 
+	// fw4 reload вычищает ПРАВИЛА, но чужие цепочки/сеты в inet fw4 не удаляет (поймано
+	// smoke-v2): после unlink nftables.d-файла остаются пустые hooked-цепочки. Снимаем явно.
+	// Всегда все четыре имени, независимо от текущих opts: прошлая установка могла их создать.
+	let nft_teardown = [
+		sprintf("delete chain inet fw4 %s", o.mark_chain),
+		sprintf("delete chain inet fw4 %s", o.ks_chain),
+		sprintf("delete set inet fw4 %s", ro.set4),
+		sprintf("delete set inet fw4 %s", ro.set6),
+	];
+
 	return {
 		ok: length(errors) == 0,
 		errors: errors,
@@ -158,6 +168,7 @@ function build_firewall_plan(routing_plan, opts) {
 		uci_setup: nat.setup,
 		nft_path: NFT_PATH,
 		nft_file: nft.content,
+		nft_teardown: nft_teardown,
 		ip_teardown: ip_teardown,
 		ip_setup: ip_setup,
 		killswitch: nft.killswitch,

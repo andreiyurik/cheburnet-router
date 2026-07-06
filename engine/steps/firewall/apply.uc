@@ -41,6 +41,9 @@ if (teardown_only) {
 		run("uci -q " + plan.uci_teardown[i]);
 	run("uci commit firewall");
 	run("/etc/init.d/firewall reload"); // пересобрать fw4 без нашего файла и зоны
+	// reload не удаляет чужие цепочки/сеты (остаются пустыми) — добиваем явно, отсутствие — норма.
+	for (let i = 0; i < length(plan.nft_teardown); i++)
+		run("nft " + plan.nft_teardown[i]);
 	print("firewall: teardown выполнен (правила и NAT-зона сняты)\n");
 	exit(0);
 }
