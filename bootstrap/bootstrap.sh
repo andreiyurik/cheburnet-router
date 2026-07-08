@@ -11,10 +11,14 @@
 #     upstream awg-openwrt под каждый стоковый релиз; берём оттуда (их инсталлятор сам детектит
 #     version/target/arch). Мы НЕ владеем этими данными — импортируем (принцип проекта).
 #   - cheburnet — arch-независимый (ucode+shell+web, PKGARCH=all), поэтому один .apk на всех, лежит
-#     в наших GitHub Releases и ПОДПИСАН: apk проверяет подпись против публичного ключа, который
-#     ставится в /etc/apk/keys (kmod из awg-openwrt — unsigned, это ограничение upstream).
+#     в наших GitHub Releases. Ставится `apk add --allow-untrusted`: apk-tools 3 доверяет пакетам
+#     ТОЛЬКО через подписанный индекс репозитория (APKINDEX), а не через подпись отдельного файла —
+#     `apk add ./x.apk` всегда «untrusted», даже для официальных пакетов OpenWrt. Мы раздаём один
+#     файл, а не репозиторий, поэтому аутентичность здесь = HTTPS с нашего GitHub Release (тот же
+#     уровень доверия, что и kmod из awg-openwrt — он тоже unsigned). Настоящий подписанный feed —
+#     возможная будущая фаза (свой APKINDEX на GitHub Pages), пока MVP.
 #     Остальные зависимости (dnsmasq-full, https-dns-proxy, nftables, …) apk тянет из штатного
-#     официального feed OpenWrt.
+#     официального feed OpenWrt (его индекс подписан ключом openwrt — нативная проверка).
 set -eu
 
 # --- Источники (env-override для CI/QEMU; в проде — дефолты) --------------------------------------
@@ -24,9 +28,6 @@ SRC_BASE="${CHEBURNET_SRC_BASE:-https://raw.githubusercontent.com/andreiyurik/ch
 # стабильному URL).
 RELEASE_BASE="${CHEBURNET_RELEASE_BASE:-https://github.com/andreiyurik/cheburnet-router/releases/latest/download}"
 PKG_FILE="${CHEBURNET_PKG:-cheburnet.apk}"
-# Публичный ключ подписи пакета cheburnet: apk проверяет .apk против /etc/apk/keys.
-# Лежит в репо рядом с bootstrap — тот же origin доверия, что и сам скрипт.
-KEY_URL="${CHEBURNET_KEY_URL:-$SRC_BASE/bootstrap/cheburnet.pem}"
 # Инсталлятор kmod-amneziawg. По умолчанию — НАША vendored-копия (pinned, ревьюится в нашем репо),
 # а не master awg-openwrt: воспроизводимость и один origin доверия. Обновление копии — vendor/README.md.
 AWG_INSTALL_URL="${CHEBURNET_AWG_INSTALL_URL:-$SRC_BASE/vendor/amneziawg-install.sh}"
@@ -78,8 +79,6 @@ retry 3 2 fetch "$AWG_INSTALL_URL" "$WORK/awg-install.sh" \
     || die "не скачать awg-инсталлятор ($AWG_INSTALL_URL) — проверьте доступ к сети/зеркалу"
 retry 3 2 fetch "$RELEASE_BASE/$PKG_FILE" "$WORK/cheburnet.apk" \
     || die "не скачать пакет ($RELEASE_BASE/$PKG_FILE)"
-retry 3 2 fetch "$KEY_URL" "$WORK/cheburnet.pem" \
-    || die "не скачать ключ подписи ($KEY_URL)"
 
 # --- 2. kmod-amneziawg + amneziawg-tools через awg-openwrt (packages-only) ------------------------
 # -n: НЕ настраивать awg-интерфейс (его поднимет движок cheburnet из .conf юзера — иначе конфликт).
@@ -104,19 +103,17 @@ while :; do
     _awg_i=$((_awg_i + 1))
 done
 
-# --- 3. Пакет cheburnet: ключ подписи + локальная установка .apk ----------------------------------
+# --- 3. Пакет cheburnet: локальная установка .apk -------------------------------------------------
 log "ставлю пакет cheburnet"
-mkdir -p /etc/apk/keys
-cp "$WORK/cheburnet.pem" /etc/apk/keys/cheburnet.pem
-chmod 644 /etc/apk/keys/cheburnet.pem
 
 # apk update — чтобы штатный feed знал про зависимости (dnsmasq-full, https-dns-proxy, …).
 # retry: индекс тянется с downloads.openwrt.org, который изредка обрывает отдачу одного packages.adb.
 retry 4 3 apk update || die "apk update не прошёл — недоступно зеркало OpenWrt (см. docs/install-blocked.md)"
-# Подпись .apk проверяется против /etc/apk/keys/cheburnet.pem — подмена пакета не пройдёт.
-# Зависимости apk тянет из штатного feed; kmod-amneziawg уже стоит (шаг 2) → зависимость удовлетворена.
-# retry: apk add тоже качает зависимости (dnsmasq-full, https-dns-proxy) с того же зеркала.
-retry 3 3 apk add "$WORK/cheburnet.apk" || die "apk add cheburnet не прошёл (зависимости?)"
+# --allow-untrusted: устанавливаем ЛОКАЛЬНЫЙ файл, а apk-tools 3 доверяет только подписанному индексу
+# репозитория, не отдельному .apk (см. шапку). Аутентичность файла держит HTTPS с нашего Release.
+# Зависимости (dnsmasq-full, https-dns-proxy, …) apk берёт из штатного подписанного feed OpenWrt;
+# kmod-amneziawg уже стоит (шаг 2). retry: apk add тоже качает зависимости с того же зеркала.
+retry 3 3 apk add --allow-untrusted "$WORK/cheburnet.apk" || die "apk add cheburnet не прошёл (зависимости?)"
 
 # --- 4. Install-токен: доказывает «я владелец роутера (есть SSH)» для первичной установки ---------
 # Мастер требует токен в методе install (engine/ubus); движок удаляет его по завершении установки —
