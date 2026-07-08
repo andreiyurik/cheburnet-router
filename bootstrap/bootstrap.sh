@@ -36,11 +36,30 @@ ETC="/etc/cheburnet"
 log()  { echo "→ $*"; }
 die()  { echo "✗ $*" >&2; exit 1; }
 
+# retry N SECS CMD… — до N попыток с паузой SECS между ними. WHY: зеркала OpenWrt и GitHub
+# изредка обрывают отдачу (в живом прогоне ловили `wget error 4` = EOF на packages.adb посреди
+# apk update). Для consumer-установки «за пару шагов» один сетевой флап не должен валить всё.
+# Без `local` (POSIX/busybox) — переменные с префиксом _r_, чтобы не затирать чужие.
+retry() {
+    _r_n="$1"; _r_s="$2"; shift 2
+    _r_i=1
+    while :; do
+        "$@" && return 0
+        [ "$_r_i" -ge "$_r_n" ] && return 1
+        log "сеть подвела (попытка $_r_i/$_r_n) — повтор через ${_r_s}s…"
+        sleep "$_r_s"
+        _r_i=$((_r_i + 1))
+    done
+}
+
 # fetch URL DEST — uclient-fetch штатен на OpenWrt; wget — fallback. Пустой файл считаем провалом.
 fetch() {
     uclient-fetch -qO "$2" "$1" 2>/dev/null || wget -qO "$2" "$1" || return 1
     [ -s "$2" ] || return 1
 }
+
+# awg_ok PKG — установлен ли пакет PKG (по факту в apk-базе, не по коду выхода инсталлятора).
+awg_ok() { apk list --installed 2>/dev/null | grep -q "^$1-[0-9]"; }
 
 WORK="$(mktemp -d)" || die "не создать временную папку"
 # Чистим за собой в любом исходе. trap на EXIT — единственный путь очистки (set -e может прервать).
@@ -55,11 +74,11 @@ command -v apk >/dev/null 2>&1 \
 # Если хоть один артефакт недоступен (нет Release, нет сети, битое зеркало) — умираем ДО того,
 # как на роутере что-то изменилось. Урок ревью: kmod-до-проверки-пакета оставлял полуустановку.
 log "скачиваю установочные файлы"
-fetch "$AWG_INSTALL_URL" "$WORK/awg-install.sh" \
+retry 3 2 fetch "$AWG_INSTALL_URL" "$WORK/awg-install.sh" \
     || die "не скачать awg-инсталлятор ($AWG_INSTALL_URL) — проверьте доступ к сети/зеркалу"
-fetch "$RELEASE_BASE/$PKG_FILE" "$WORK/cheburnet.apk" \
+retry 3 2 fetch "$RELEASE_BASE/$PKG_FILE" "$WORK/cheburnet.apk" \
     || die "не скачать пакет ($RELEASE_BASE/$PKG_FILE)"
-fetch "$KEY_URL" "$WORK/cheburnet.pem" \
+retry 3 2 fetch "$KEY_URL" "$WORK/cheburnet.pem" \
     || die "не скачать ключ подписи ($KEY_URL)"
 
 # --- 2. kmod-amneziawg + amneziawg-tools через awg-openwrt (packages-only) ------------------------
@@ -72,11 +91,18 @@ log "ставлю kmod-amneziawg (через awg-openwrt, подбор под я
 # скачался (нет под версию ИЛИ транзиентный сбой сети). Нам luci-proto НЕ нужен. Поэтому НЕ гейтим
 # на коде выхода скрипта, а проверяем ФАКТ: стоят ли реально нужные нам kmod-amneziawg и
 # amneziawg-tools. Так частичный успех upstream'а (наш случай) не рушит установку.
-sh "$WORK/awg-install.sh" -n -e || true
-awg_ok() { apk list --installed 2>/dev/null | grep -q "^$1-[0-9]"; }
-if ! awg_ok kmod-amneziawg || ! awg_ok amneziawg-tools; then
-    die "AmneziaWG (kmod + tools) не установились — нет сборки kmod под вашу OpenWrt/ядро или нет сети (см. лог awg-openwrt выше)"
-fi
+# Повторяем, пока нужные пакеты не встанут ПО ФАКТУ: upstream-скрипт и сам ставит из сети
+# (его apk update/add тоже ловят флап), поэтому гейтим на факте, а не на коде выхода, и ретраим.
+_awg_i=1
+while :; do
+    sh "$WORK/awg-install.sh" -n -e || true
+    awg_ok kmod-amneziawg && awg_ok amneziawg-tools && break
+    [ "$_awg_i" -ge 3 ] \
+        && die "AmneziaWG (kmod + tools) не установились — нет сборки kmod под вашу OpenWrt/ядро или сеть недоступна (см. лог awg-openwrt выше)"
+    log "AmneziaWG ещё не встал (попытка $_awg_i/3) — повтор через 3s…"
+    sleep 3
+    _awg_i=$((_awg_i + 1))
+done
 
 # --- 3. Пакет cheburnet: ключ подписи + локальная установка .apk ----------------------------------
 log "ставлю пакет cheburnet"
@@ -85,10 +111,12 @@ cp "$WORK/cheburnet.pem" /etc/apk/keys/cheburnet.pem
 chmod 644 /etc/apk/keys/cheburnet.pem
 
 # apk update — чтобы штатный feed знал про зависимости (dnsmasq-full, https-dns-proxy, …).
-apk update || die "apk update не прошёл — недоступно зеркало OpenWrt (см. docs/install-blocked.md)"
+# retry: индекс тянется с downloads.openwrt.org, который изредка обрывает отдачу одного packages.adb.
+retry 4 3 apk update || die "apk update не прошёл — недоступно зеркало OpenWrt (см. docs/install-blocked.md)"
 # Подпись .apk проверяется против /etc/apk/keys/cheburnet.pem — подмена пакета не пройдёт.
 # Зависимости apk тянет из штатного feed; kmod-amneziawg уже стоит (шаг 2) → зависимость удовлетворена.
-apk add "$WORK/cheburnet.apk" || die "apk add cheburnet не прошёл (зависимости?)"
+# retry: apk add тоже качает зависимости (dnsmasq-full, https-dns-proxy) с того же зеркала.
+retry 3 3 apk add "$WORK/cheburnet.apk" || die "apk add cheburnet не прошёл (зависимости?)"
 
 # --- 4. Install-токен: доказывает «я владелец роутера (есть SSH)» для первичной установки ---------
 # Мастер требует токен в методе install (engine/ubus); движок удаляет его по завершении установки —
