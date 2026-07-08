@@ -65,14 +65,18 @@ fetch "$KEY_URL" "$WORK/cheburnet.pem" \
 # --- 2. kmod-amneziawg + amneziawg-tools через awg-openwrt (packages-only) ------------------------
 # -n: НЕ настраивать awg-интерфейс (его поднимет движок cheburnet из .conf юзера — иначе конфликт).
 # -e: не спрашивать про русский языковой пакет. Итог: неинтерактивная установка только пакетов.
-# Известное ограничение upstream-скрипта: он дополнительно ставит luci-proto-amneziawg (флага
-# «без LuCI» у него нет) и падает, если этого ассета нет в их релизе под вашу версию.
 log "ставлю kmod-amneziawg (через awg-openwrt, подбор под ядро)"
 # Их скрипт сам детектит version/target/arch и качает совпадающий по vermagic kmod с GitHub Release.
-# Провал (нет сборки под вашу версию, нет сети) → ненулевой код → set -e прервёт установку.
-# preflight движка тоже перепроверит deps перед стартом мастера.
-sh "$WORK/awg-install.sh" -n -e \
-    || die "awg-openwrt не смог поставить пакеты AmneziaWG под вашу OpenWrt-версию (см. лог выше)"
+# ВАЖНО (поймано живым прогоном на GL-MT3000): upstream-скрипт ПОСЛЕ kmod+tools дополнительно
+# ставит luci-proto-amneziawg (флага «без LuCI» у него нет) и делает exit 1, если этот ассет не
+# скачался (нет под версию ИЛИ транзиентный сбой сети). Нам luci-proto НЕ нужен. Поэтому НЕ гейтим
+# на коде выхода скрипта, а проверяем ФАКТ: стоят ли реально нужные нам kmod-amneziawg и
+# amneziawg-tools. Так частичный успех upstream'а (наш случай) не рушит установку.
+sh "$WORK/awg-install.sh" -n -e || true
+awg_ok() { apk list --installed 2>/dev/null | grep -q "^$1-[0-9]"; }
+if ! awg_ok kmod-amneziawg || ! awg_ok amneziawg-tools; then
+    die "AmneziaWG (kmod + tools) не установились — нет сборки kmod под вашу OpenWrt/ядро или нет сети (см. лог awg-openwrt выше)"
+fi
 
 # --- 3. Пакет cheburnet: ключ подписи + локальная установка .apk ----------------------------------
 log "ставлю пакет cheburnet"
