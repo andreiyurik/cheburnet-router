@@ -79,4 +79,31 @@ function parse_iface_cidr(json_text) {
 	return sprintf("%s/%d", a.address, mask);
 }
 
-export { parse_meminfo, parse_df, parse_arch, parse_board, parse_iface_cidr };
+// parse_wan_route(json_text) → {wan_if, wan_gw|null} или null. Источник: тот же
+// `ubus call network.interface.wan status`. netifd знает WAN, даже когда kernel-default уже
+// у туннеля (пере-установка) — поэтому это ПЕРВИЧНЫЙ источник wan_if/wan_gw для routing/firewall,
+// а разбор `ip route` — только фолбэк. wan_gw null — норма для p2p-линков (PPPoE): там
+// default-маршрут без via корректен; для ethernet-WAN nexthop обязателен (без via ядро ARP-ит
+// публичные IP в линк, апстрим не отвечает — direct-путь мёртв; доказано живьём 2026-07-08).
+function parse_wan_route(json_text) {
+	let o;
+	try { o = json(json_text); } catch (e) { return null; }
+	if (type(o) != "object")
+		return null;
+	let dev = o.l3_device ?? o.device;
+	if (type(dev) != "string" || length(dev) == 0)
+		return null;
+	let gw = null;
+	if (type(o.route) == "array")
+		for (let i = 0; i < length(o.route); i++) {
+			let r = o.route[i];
+			if (type(r) == "object" && r.target == "0.0.0.0" && r.mask == 0 &&
+			    type(r.nexthop) == "string" && r.nexthop != "0.0.0.0") {
+				gw = r.nexthop;
+				break;
+			}
+		}
+	return { wan_if: dev, wan_gw: gw };
+}
+
+export { parse_meminfo, parse_df, parse_arch, parse_board, parse_iface_cidr, parse_wan_route };

@@ -3,7 +3,7 @@
 
 import { test, eq, ok, summary } from "../../lib/assert.uc";
 import { parse_meminfo, parse_df, parse_arch, parse_board,
-         parse_iface_cidr } from "../parse.uc";
+         parse_iface_cidr, parse_wan_route } from "../parse.uc";
 
 // --- /proc/meminfo ---
 test("parse_meminfo: MemTotal kB → МБ (вниз)", () => {
@@ -60,6 +60,27 @@ test("parse_iface_cidr: нет адресов / битый → null", () => {
 	eq(parse_iface_cidr('{"up":false,"ipv4-address":[]}'), null);
 	eq(parse_iface_cidr('{"up":true}'), null);
 	eq(parse_iface_cidr("nope"), null);
+});
+
+// --- ubus network.interface.wan status → WAN для routing/firewall ---
+test("parse_wan_route: ethernet-WAN — l3_device + nexthop (живой сэмпл GL-MT3000)", () => {
+	let j = '{"up":true,"l3_device":"eth0","device":"eth0",' +
+		'"route":[{"target":"0.0.0.0","mask":0,"nexthop":"192.168.31.1","source":"192.168.31.111/32"}]}';
+	let r = parse_wan_route(j);
+	eq(r.wan_if, "eth0");
+	eq(r.wan_gw, "192.168.31.1");
+});
+test("parse_wan_route: p2p без nexthop → wan_gw null (dev-only маршрут корректен)", () => {
+	let j = '{"up":true,"l3_device":"pppoe-wan","route":[{"target":"0.0.0.0","mask":0}]}';
+	let r = parse_wan_route(j);
+	eq(r.wan_if, "pppoe-wan");
+	eq(r.wan_gw, null);
+});
+test("parse_wan_route: не-default маршруты игнорируются, нет устройства/битый → null", () => {
+	let j = '{"up":true,"l3_device":"eth0","route":[{"target":"10.0.0.0","mask":8,"nexthop":"192.168.31.1"}]}';
+	eq(parse_wan_route(j).wan_gw, null);
+	eq(parse_wan_route('{"up":false}'), null);
+	eq(parse_wan_route("nope"), null);
 });
 
 exit(summary());

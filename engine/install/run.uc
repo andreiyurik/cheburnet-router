@@ -13,7 +13,9 @@
 import { stdin, writefile, unlink } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
-         tunnel_info, disabled_tunnels, default_protocol, handshake_state } from "./install.uc";
+         tunnel_info, disabled_tunnels, default_protocol, handshake_state,
+         protocol_ids } from "./install.uc";
+import { parse_wan_route } from "../preflight/parse.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -111,15 +113,35 @@ let tinfo = tunnel_info(protocol);
 if (type(cfg.routing_opts) != "object") cfg.routing_opts = {};
 cfg.routing_opts.tunnel_if = tinfo.tunnel_if;
 
-// WAN-интерфейс для kill-switch и default-маршрута direct-таблицы. Веб-мастер его НЕ передаёт
-// (пользователь не вводит имя интерфейса), поэтому определяем САМИ из текущего дефолт-маршрута —
-// динамически, не хардкодим (урок v1). ВАЖНО делать это ЗДЕСЬ, до шагов: vpn-шаг заберёт дефолт
-// на awg0 (route_allowed_ips=1), и позже WAN уже не вычислить. Без wan_if firewall-шаг отказывал
-// → установка через мастер всегда падала на firewall (поймано живым прогоном).
+// WAN (интерфейс + шлюз) для kill-switch и default-маршрута direct-таблицы. Веб-мастер их НЕ
+// передаёт (пользователь не вводит имена интерфейсов) — определяем САМИ, динамически, не
+// хардкодим (урок v1). Первичный источник — netifd: он знает WAN, даже когда kernel-default
+// уже у туннеля (пере-установка поверх рабочей; детект по `ip route` там находил awg0/ничего).
+// Шлюз обязателен для ethernet-WAN: без via ядро ARP-ит публичные IP прямо в линк, апстрим
+// proxy-ARP не делает → direct-путь молча мёртв (доказано живым прогоном 2026-07-08).
+// PPPoE/p2p отдаёт маршрут без nexthop — там dev-only корректен.
 if (type(cfg.routing_opts.wan_if) != "string" || length(cfg.routing_opts.wan_if) == 0) {
-	let wan = trim(sh("ip route show default 2>/dev/null | grep -oE 'dev [^ ]+' | head -1 | awk '{print $2}'"));
-	if (length(wan) > 0)
-		cfg.routing_opts.wan_if = wan;
+	let wr = parse_wan_route(sh("ubus call network.interface.wan status 2>/dev/null"));
+	if (!wr) {
+		// Фолбэк (нестандартное имя WAN-логики в netifd): дефолт-маршрут, минуя туннели.
+		let tunnels = {};
+		for (let p in protocol_ids())
+			tunnels[tunnel_info(p).tunnel_if] = true;
+		let defs = split(trim(sh("ip route show default 2>/dev/null")), "\n");
+		for (let i = 0; i < length(defs); i++) {
+			let dev = match(defs[i], /dev ([^ ]+)/);
+			if (!dev || tunnels[dev[1]])
+				continue;
+			let gw = match(defs[i], /via ([0-9.]+)/);
+			wr = { wan_if: dev[1], wan_gw: gw ? gw[1] : null };
+			break;
+		}
+	}
+	if (wr) {
+		cfg.routing_opts.wan_if = wr.wan_if;
+		if (wr.wan_gw)
+			cfg.routing_opts.wan_gw = wr.wan_gw;
+	}
 }
 
 // Отключаем неактивные туннель-шаги (vpn/singbox взаимоисключающие) + пользовательский disable.
