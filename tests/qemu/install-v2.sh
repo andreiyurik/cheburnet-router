@@ -116,7 +116,11 @@ vm_ssh 'uci -q get dhcp.cheburnet_dns4.domain | grep -q "example.com"' \
 # Ключевой ассерт: init РЕАЛЬНО превратил секцию в nftset-директиву итогового конфига.
 # Урок живого прогона: старая модель (list nftset в секции dnsmasq) писалась в uci «успешно»,
 # но init её молча игнорировал — проверка одного uci этот тихий отказ не ловила.
-vm_ssh 'grep -q "nftset=/example.com/4#inet#fw4#direct" /var/etc/dnsmasq.conf.*' \
+# Формат строки зависит от версии init: старый — домен-на-строку
+# (nftset=/example.com/4#...), новый snapshot склеивает домены одной директивой
+# (nftset=/example.com/example.org/4#...). Ассертим суть: example.com в nftset-строке
+# нашего сета — оба домена проверяем по отдельности, порядок склейки не фиксируем.
+vm_ssh 'grep -qE "nftset=.*/example\.com/.*4#inet#fw4#direct" /var/etc/dnsmasq.conf.* && grep -qE "nftset=.*/example\.org/.*4#inet#fw4#direct" /var/etc/dnsmasq.conf.*' \
     || { echo "  ✗ nftset-директива не попала в сгенерированный конфиг dnsmasq"; vm_ssh 'grep nftset /var/etc/dnsmasq.conf.* || true'; exit 1; }
 vm_ssh '/etc/init.d/dnsmasq status | grep -qi running' \
     || { echo "  ✗ dnsmasq упал после применения нашего конфига (nftset не принят?)"; vm_ssh 'logread | grep -i dnsmasq | tail -10'; exit 1; }
