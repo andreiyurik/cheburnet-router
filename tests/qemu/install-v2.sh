@@ -34,8 +34,20 @@ vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
     || { echo "✗ DNS не работает в VM — apk update не пройдёт"; exit 1; }
 echo "  ✓ DNS работает"
 
+# downloads.openwrt.org из фильтрующих сетей рвётся посреди передачи (EPERM/EOF) —
+# один флап зеркала не должен красить тест (тот же урок, что apk_retry в webui-v2.sh
+# и retry в bootstrap.sh). if, не `[ … ] && …` — ловушка set -e (CLAUDE.md).
+apk_try() { # apk_try 'apk add <pkg>' — до 5 попыток, тихо; код возврата честный
+    local cmd="$1"
+    for _ in 1 2 3 4 5; do
+        if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
+        sleep 3
+    done
+    return 1
+}
+
 echo "→ apk update"
-vm_ssh "apk update" >/dev/null 2>&1 || { echo "✗ apk update упал"; vm_ssh "apk update 2>&1 | tail -10"; exit 1; }
+apk_try "apk update" || { echo "✗ apk update упал"; vm_ssh "apk update 2>&1 | tail -10"; exit 1; }
 
 # ─── DEPENDS пакета (источник правды — package/cheburnet/Makefile) ────────────
 # CORE — обязаны ставиться из feed; AWG — best-effort (kmod может отсутствовать на x86).
@@ -46,7 +58,7 @@ AWG_DEPS="kmod-amneziawg amneziawg-tools"
 
 echo "→ Ставлю CORE-зависимости (assert: каждая ставится)"
 for pkg in $CORE_DEPS; do
-    if vm_ssh "apk add $pkg" >/dev/null 2>&1; then
+    if apk_try "apk add $pkg"; then
         echo "  ✓ $pkg"
     else
         echo "  ✗ $pkg — НЕ ставится из feed под x86_64 snapshot"
@@ -58,9 +70,9 @@ done
 echo "→ dnsmasq-full (замена dnsmasq — нужен для nftset)"
 # dnsmasq-full конфликтует с dnsmasq (стоит по умолчанию). apk должен заменить;
 # если нет — снимаем dnsmasq и ставим заново. Это реальная install-загвоздка.
-if vm_ssh "apk add dnsmasq-full" >/dev/null 2>&1; then
+if apk_try "apk add dnsmasq-full"; then
     echo "  ✓ dnsmasq-full (apk заменил dnsmasq сам)"
-elif vm_ssh "apk del dnsmasq >/dev/null 2>&1; apk add dnsmasq-full" >/dev/null 2>&1; then
+elif apk_try "apk del dnsmasq >/dev/null 2>&1; apk add dnsmasq-full"; then
     echo "  ✓ dnsmasq-full (после явного apk del dnsmasq)"
 else
     echo "  ✗ dnsmasq-full не ставится"
@@ -74,7 +86,7 @@ echo "  ✓ dnsmasq-full работает"
 echo "→ AWG-зависимости (best-effort — на x86-snapshot kmod может отсутствовать)"
 AWG_OK=1
 for pkg in $AWG_DEPS; do
-    if vm_ssh "apk add $pkg" >/dev/null 2>&1; then
+    if apk_try "apk add $pkg"; then
         echo "  ✓ $pkg"
     else
         echo "  ⚠ $pkg недоступен под это ядро — ожидаемо на x86-snapshot (preflight это ловит)"
@@ -153,8 +165,25 @@ echo "  ✓ https-dns-proxy принял конфиг и работает"
 # теряла правила при ЛЮБОМ fw4 reload (hotplug awg0 при install, правка LuCI, ребут) —
 # kill-switch тихо умирал. Фикс: правила в /etc/nftables.d/, fw4 включает их при каждом
 # reload. Этот ассерт ловит регресс: применяем firewall, дёргаем reload, правила на месте.
+echo "→ подготовка: возвращаю fw4 (vm_boot_and_setup его стопил) + ssh-правило"
+# Как в smoke-v2: шаг добавляет цепочки в СУЩЕСТВУЮЩУЮ таблицу inet fw4 — на
+# остановленном firewall её нет. Старый fw4 прощал reload из stopped-состояния
+# (создавал таблицу), новый snapshot — нет: apply падал именно здесь. ssh-доступ
+# страхуем постоянным uci-правилом (переживает reload'ы, в отличие от nft-инъекции).
+vm_ssh 'uci add firewall rule >/dev/null
+        uci set firewall.@rule[-1].name="qemu-ssh"
+        uci set firewall.@rule[-1].src="*"
+        uci set firewall.@rule[-1].proto="tcp"
+        uci set firewall.@rule[-1].dest_port="22"
+        uci set firewall.@rule[-1].target="ACCEPT"
+        uci commit firewall
+        /etc/init.d/firewall start >/dev/null 2>&1; sleep 2
+        nft list table inet fw4 >/dev/null' \
+    || { echo "  ✗ fw4 не поднялся"; vm_ssh 'logread | tail -15'; exit 1; }
+vm_ssh true || { echo "  ✗ ssh потерян после старта fw4"; exit 1; }
+
 echo "→ firewall-шаг: правила в nftables.d переживают fw4 reload"
-vm_ssh 'echo "{\"domains\":[\"example.com\"],\"routing_opts\":{\"wan_if\":\"eth0\"},\"fw_opts\":{\"tunnel_if\":\"awg0\"}}" | ucode -R /usr/share/cheburnet/engine/steps/firewall/apply.uc' >/dev/null 2>&1 \
+vm_ssh 'echo "{\"domains\":[\"example.com\"],\"routing_opts\":{\"wan_if\":\"eth0\"},\"fw_opts\":{\"tunnel_if\":\"awg0\"}}" | ucode -R /usr/share/cheburnet/engine/steps/firewall/apply.uc' \
     || { echo "  ✗ firewall/apply.uc exit != 0"; exit 1; }
 vm_ssh '[ -f /etc/nftables.d/10-cheburnet.nft ]' \
     || { echo "  ✗ файл /etc/nftables.d/10-cheburnet.nft не создан"; exit 1; }
