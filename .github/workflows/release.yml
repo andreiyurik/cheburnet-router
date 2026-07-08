@@ -8,9 +8,12 @@ name: release
 #     (releases/latest/download/…) — нам не нужен хостинг feed-индекса.
 #   - kmod-amneziawg (arch/ядро-зависимый) НЕ здесь: его ставит bootstrap из awg-openwrt.
 #
-# Подпись: пакет подписывается EC-ключом (секрет APK_PRIVATE_KEY → private-key.pem в SDK,
-# CONFIG_SIGNED_PACKAGES=y). Публичный ключ закоммичен в bootstrap/cheburnet.pem — bootstrap
-# ставит его в /etc/apk/keys, apk проверяет подпись при установке.
+# Пакет НЕ подписываем: apk-tools 3 доверяет пакетам только через подписанный индекс репозитория
+# (APKINDEX), а не через подпись отдельного файла — `apk add ./cheburnet.apk` всё равно был бы
+# "untrusted" (проверено живьём на GL-MT3000, даже стоковый пакет OpenWrt так же). Раздаём один
+# arch-независимый .apk, а не репозиторий, поэтому bootstrap ставит его `--allow-untrusted`;
+# аутентичность = HTTPS с этого Release (тот же уровень, что и unsigned kmod из awg-openwrt).
+# Настоящий подписанный feed (свой APKINDEX на GitHub Pages) — возможная будущая фаза.
 #
 # Публикация Release — ТОЛЬКО по push тега v*. workflow_dispatch = всегда dry-run (сборка +
 # артефакты, без Release): безопасно гонять для проверки SDK-раскладки на любой ветке.
@@ -39,9 +42,8 @@ jobs:
           FEEDNAME: cheburnet
           PACKAGES: cheburnet
           V: s
-          # EC-ключ подписи: entrypoint кладёт его в private-key.pem и включает
-          # CONFIG_SIGNED_PACKAGES=y — каждый .apk выходит подписанным.
-          PRIVATE_KEY: ${{ secrets.APK_PRIVATE_KEY }}
+          # Подпись НЕ включаем (PRIVATE_KEY не задаём): для раздачи одиночным .apk она
+          # бесполезна — apk доверяет только подписанному индексу репо, не файлу (см. шапку).
 
       # Находим собранный .apk и нормализуем имя до cheburnet.apk (стабильный ассет для bootstrap).
       - name: Collect package
