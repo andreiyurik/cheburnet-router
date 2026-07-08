@@ -75,7 +75,13 @@ function build_doh_plan(current, opts) {
 		// в свежей установке (проверено на роутере, пакет 2026.03.18) секции нет, и `set` опции
 		// падал с 'uci: Invalid argument'. `set …=main` идемпотентен (повторно — no-op).
 		push(su, "set https-dns-proxy.config=main");
+		// Имя опции в пакете МЕНЯЛОСЬ: старые версии читают update_dnsmasq_config, текущая
+		// (2026.03.18) — dnsmasq_config_update. Пишем ОБА: если живо только старое имя, новое —
+		// инертная опция (и наоборот). Без '-' init пакета при КАЖДОМ старте сам вписывает все
+		// свои инстансы в dhcp.server → чужой резолвер (dns.google из дефолт-секции) оказывается
+		// upstream'ом dnsmasq МИМО выбранной фильтрации (поймано живым прогоном 2026-07-08).
 		push(su, "set https-dns-proxy.config.update_dnsmasq_config='-'");
+		push(su, "set https-dns-proxy.config.dnsmasq_config_update='-'");
 	}
 	for (let i = 0; i < length(R); i++) {
 		let r = R[i];

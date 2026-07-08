@@ -19,11 +19,14 @@ test("дефолт: секция cheburnet_doh (AdGuard) на порту 5053", 
 	ok(has(p.hdp_setup, "set https-dns-proxy.cheburnet_doh.bootstrap_dns='94.140.14.14,94.140.15.15'"));
 });
 
-test("сами рулим dnsmasq: создаём секцию config + update_dnsmasq_config='-'", () => {
+test("сами рулим dnsmasq: создаём секцию config + отключаем авто-привязку ОБОИМИ именами", () => {
 	let p = build_doh_plan({ hdp_sections: [], servers: [] }, null);
 	// секцию создаём САМИ (пакет не гарантирует) — иначе set опции падал 'Invalid argument'
 	ok(has(p.hdp_setup, "set https-dns-proxy.config=main"));
+	// имя опции менялось между версиями пакета: старое update_… + текущее dnsmasq_… — оба '-',
+	// иначе init сам вписывает свои инстансы (dns.google) в dhcp.server мимо фильтрации
 	ok(has(p.hdp_setup, "set https-dns-proxy.config.update_dnsmasq_config='-'"));
+	ok(has(p.hdp_setup, "set https-dns-proxy.config.dnsmasq_config_update='-'"));
 });
 
 // --- dnsmasq upstream: свежая система → add нашего локального порта ---
@@ -77,9 +80,10 @@ test("резолвер без bootstrap → строки bootstrap_dns нет", 
 });
 
 // --- manage_dnsmasq=false ---
-test("manage_dnsmasq=false: строки update_dnsmasq_config нет", () => {
+test("manage_dnsmasq=false: строк отключения авто-привязки нет (оба имени)", () => {
 	let p = build_doh_plan({ hdp_sections: [], servers: [] }, { manage_dnsmasq: false });
 	ok(index(join("\n", p.hdp_setup), "update_dnsmasq_config") < 0);
+	ok(index(join("\n", p.hdp_setup), "dnsmasq_config_update") < 0);
 });
 
 // --- валидация ---
