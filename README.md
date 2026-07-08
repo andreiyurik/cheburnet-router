@@ -4,9 +4,14 @@
      который ставит cheburnet.apk из GitHub Releases (--allow-untrusted; apk доверяет только
      подписанному индексу репо, не одиночному файлу). Однострочник работает только когда:
      (1) ✅ смержено в master, (2) ✅ опубликован Release v2.0.0 с cheburnet.apk,
-     (3) ⏳ путь проверен живым прогоном на роутере — установка/движок/fail-safe откат ЗЕЛЁНЫЕ
-        (GL-MT3000, 2026-07-08), НО реальный трафик через туннель ещё не показан (нужен живой
-        AWG-сервер; тестовый молчал). Снять гейт после одного зелёного трафик-прогона.
+     (3) ✅ путь проверен живым прогоном на роутере ЦЕЛИКОМ (GL-MT3000, 2026-07-08, заводской
+        OpenWrt → однострочник → мастер → живой туннель): split доказан живым трафиком
+        LAN-клиента, kill-switch блокирует при упавшем туннеле, DoH-фильтрация работает,
+        fail-safe откат и идемпотентная пере-установка подтверждены.
+     (4) ⏳ Release v2.0.1: прогон нашёл 2 бага в v2.0.0 (direct-путь мёртв на ethernet-WAN —
+        маршрут без шлюза; DoH-фильтрация дырявая — пакет вписывал dns.google мимо выбранного
+        провайдера). Фиксы в master; снять гейт ПОСЛЕ тега v2.0.1 с ними — иначе однострочник
+        поставит пользователям битую версию.
      После этого — удалить этот комментарий отдельным коммитом. До этого не рекламировать.
 -->
 <div align="center">
@@ -108,13 +113,20 @@ flowchart LR
 
 **Linux / macOS:**
 ```bash
-ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh | sh'
+ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo "скачивание не удалось (попытка $i из 5) — повторяю через 3 сек..."; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo "ОШИБКА: не удалось скачать установщик. Проверьте, что кабель интернета подключён к роутеру, и запустите команду ещё раз."; fi'
 ```
 
 **Windows (PowerShell / Терминал):**
 ```powershell
-ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 "wget -qO- https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh | sh"
+ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo "скачивание не удалось (попытка $i из 5) — повторяю через 3 сек..."; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo "ОШИБКА: не удалось скачать установщик. Проверьте, что кабель интернета подключён к роутеру, и запустите команду ещё раз."; fi'
 ```
+
+<!-- Почему не `wget -qO- … | sh`: raw.githubusercontent.com в реальных сетях флапает
+     (замерено на живой сети: до 1/3 запросов — 0 байт), а `sh` на пустом вводе молча выходит
+     с кодом 0 — пользователь запускает команду, и «ничего не происходит». Поэтому: скачивание
+     в файл с 5 попытками, запуск только непустого файла, внятная ошибка. PowerShell-вариант
+     в ОДИНАРНЫХ кавычках намеренно: в двойных PowerShell сам подставил бы $i. -->
+
 
 > **🌍 Не ставится? `apk update не прошёл` / «не достучаться до зеркала пакетов»?** В некоторых
 > сетях зеркало OpenWrt недоступно. Пока cheburnet не установлен, помочь себе он не может —
