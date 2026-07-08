@@ -40,10 +40,10 @@ try {
     // если поле файла не по label — пробуем прямой input[type=file]
     await page.locator('input[type=file]').setInputFiles(AWG_CONF);
   });
-  const domains = await page.getByLabel('Домены прямого доступа').inputValue().catch(() => '?');
+  const domains = await page.getByLabel('Сайты напрямую, без VPN').inputValue().catch(() => '?');
   log(`direct-домены по умолчанию: "${domains}"`);
-  const tokenVal = await page.getByLabel('Код установки').inputValue().catch(() => '?');
-  log(`токен подставлен из ссылки: ${tokenVal ? 'да' : 'нет'}`);
+  const tokenAuto = await page.getByText('Код установки получен из ссылки').isVisible().catch(() => false);
+  log(`токен подставлен из ссылки: ${tokenAuto ? 'да' : 'нет'}`);
 
   await page.getByLabel('Пароль администратора (root)').fill('cheburnet-test-1');
   await page.getByLabel('Повторите пароль').fill('cheburnet-test-1');

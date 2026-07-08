@@ -33,7 +33,71 @@
   };
   const stepLabel = $derived(STEP_LABELS[step] ?? step ?? '…');
   let error = $state('');
+  let advice = $state(null); // { title, items[] } — адресная диагностика по reason
   let timer = null;
+
+  // Адресная диагностика по машинному коду исхода (install_progress.reason).
+  // Главный кейс: health — роутер настроен ПРАВИЛЬНО, но VPN-сервер не ответил. Без этого
+  // человек с протухшей подпиской дёргает Wi-Fi и пароли вместо конфига.
+  function explainFail(reason) {
+    if (reason === 'health') {
+      error = 'VPN-сервер не ответил — туннель не поднялся.';
+      advice = {
+        title: 'Роутер настроен правильно, но сервер из вашего VPN-конфига молчит. Изменения откатаны. Чаще всего это значит:',
+        items: [
+          'подписка у VPN-провайдера закончилась или сервер отключён — проверьте личный кабинет;',
+          'конфиг устарел — скачайте свежий файл .conf и загрузите его заново;',
+          'провайдер интернета мешает VPN-протоколу — попробуйте конфиг с другим сервером.',
+        ],
+        action: 'Загрузить другой конфиг',
+      };
+      return;
+    }
+    if (reason === 'step:vpn') {
+      error = 'VPN-конфиг не принят.';
+      advice = {
+        title: 'Изменения откатаны. Проверьте файл конфига:',
+        items: [
+          'он вставлен целиком — от строки [Interface] до конца;',
+          'это конфиг AmneziaWG/WireGuard «для роутеров» (.conf), а не ссылка или QR-код.',
+        ],
+        action: 'Исправить конфиг',
+      };
+      return;
+    }
+    if (reason && reason.startsWith('step:')) {
+      const s = reason.slice(5);
+      error = `Сбой на этапе «${STEP_LABELS[s] ?? s}».`;
+      advice = {
+        title: 'Изменения откатаны — роутер в исходном состоянии. Что можно сделать:',
+        items: [
+          'попробуйте ещё раз — разовые сбои случаются;',
+          'если повторяется — скопируйте журнал ниже и приложите его к вопросу в сообществе проекта.',
+        ],
+        action: 'Попробовать снова',
+      };
+      return;
+    }
+    if (reason === 'preflight') {
+      error = 'Роутер не прошёл проверку.';
+      advice = {
+        title: 'Изменений нет. Вернитесь назад — с экрана настройки кнопка «Назад» запустит проверку заново и покажет, что именно не так.',
+        items: [],
+        action: 'Назад к настройке',
+      };
+      return;
+    }
+    // Код не пришёл (старый пакет / crash) — прежний общий текст.
+    advice = {
+      title: 'Что делать',
+      items: [
+        'Изменения откатаны — роутер в исходном состоянии, можно пробовать снова.',
+        'Частые причины: опечатка в AWG-конфиге (вставлен не целиком), нет интернета на WAN, недоступен сервер VPN-провайдера.',
+        'Не получается — скопируйте журнал ниже и приложите его к вопросу в сообществе проекта.',
+      ],
+      action: 'Изменить данные и повторить',
+    };
+  }
 
   // Движок ставит долго (apk + шаги) — install лишь запускает фон и возвращает {started};
   // прогресс тянем поллингом install_progress (см. engine/ubus: фон+poll).
@@ -62,10 +126,16 @@
           setTimeout(onDone, 800);
         } else if (p.result === 'cancelled') {
           phase = 'fail';
-          error = 'установка отменена — изменения откатаны';
+          error = 'Установка отменена — изменения откатаны.';
+          advice = null;
+        } else if (p.result === 'crashed') {
+          phase = 'fail';
+          error = 'Установщик аварийно завершился.';
+          explainFail(null);
         } else {
           phase = 'fail';
-          error = p.result === 'crashed' ? 'установщик аварийно завершился' : 'установка не удалась';
+          error = 'Установка не удалась.';
+          explainFail(p.reason ?? null);
         }
       }
     } catch (e) {
@@ -98,14 +168,37 @@
   let copied = $state(false);
 
   // Копировать журнал: главное, что нужно приложить к вопросу о сбое.
+  // ВАЖНО: navigator.clipboard работает только на https, а мастер живёт на http://192.168.1.1 —
+  // поэтому основной путь здесь fallback через скрытый textarea + execCommand (работает на http).
   async function copyLog() {
+    let done = false;
     try {
       await navigator.clipboard.writeText(log);
+      done = true;
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = log;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { done = document.execCommand('copy'); } catch { /* совсем без клипборда — есть «Скачать» */ }
+      ta.remove();
+    }
+    if (done) {
       copied = true;
       setTimeout(() => (copied = false), 2000);
-    } catch {
-      // clipboard может быть недоступен (http-origin) — журнал виден ниже, скопируют руками
     }
+  }
+
+  // Скачать журнал файлом — надёжный путь передать лог (Blob-download работает и на http).
+  function downloadLog() {
+    const blob = new Blob([log], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cheburnet-журнал.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   onDestroy(stop);
@@ -133,20 +226,21 @@
     </div>
   {:else if phase === 'fail'}
     <p class="warn">✗ {error}</p>
-    <div class="support">
-      <strong>Что делать</strong>
-      <ol>
-        <li>Изменения откатаны — роутер в исходном состоянии, можно пробовать снова.</li>
-        <li>Частые причины: опечатка в AWG-конфиге (вставлен не целиком), нет интернета на
-          WAN, недоступен сервер VPN-провайдера.</li>
-        <li>Не получается — скопируйте журнал ниже и приложите его к вопросу в сообществе
-          проекта.</li>
-      </ol>
-    </div>
+    {#if advice}
+      <div class="support">
+        <strong>{advice.title}</strong>
+        {#if advice.items.length > 0}
+          <ol>
+            {#each advice.items as item}<li>{item}</li>{/each}
+          </ol>
+        {/if}
+      </div>
+    {/if}
     <div class="row">
-      <button onclick={onRetry}>Изменить данные и повторить</button>
+      <button class="primary" onclick={onRetry}>{advice?.action ?? 'Изменить данные и повторить'}</button>
       {#if log}
         <button onclick={copyLog}>{copied ? '✓ Скопировано' : 'Копировать журнал'}</button>
+        <button onclick={downloadLog}>Скачать журнал</button>
       {/if}
     </div>
   {/if}

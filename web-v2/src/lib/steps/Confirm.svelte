@@ -37,7 +37,7 @@
       <li><span>Wi-Fi</span><strong>не настраивается</strong></li>
     {/if}
     <li><span>Фильтрация (DNS)</span><strong>{dnsLabel(args.dns_provider)}</strong></li>
-    <li><span>Свои домены прямого доступа</span><strong>{args.domains.length}</strong></li>
+    <li><span>Сайты напрямую, без VPN</span><strong>{args.domains.length}</strong></li>
   </ul>
 
   <p class="muted">

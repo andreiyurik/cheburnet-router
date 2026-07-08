@@ -41,6 +41,10 @@
   // Токен: ранее введённый → из ссылки (?token=…) → пусто (ручной ввод).
   // svelte-ignore state_referenced_locally
   let token = $state(initial?.token ?? urlToken ?? '');
+  // Токен пришёл из ссылки → поле не показываем (лишний технический вопрос для человека,
+  // который просто кликнул по ссылке из терминала); «изменить» раскрывает ручной ввод.
+  // svelte-ignore state_referenced_locally
+  let tokenEditable = $state(!(urlToken && token === urlToken));
   // DNS-фильтрация: выбранный провайдер (initial → ранее выбранный → дефолт каталога).
   // svelte-ignore state_referenced_locally
   let dnsProvider = $state(initial?.dns_provider ?? dnsProviderDefault ?? '');
@@ -163,15 +167,15 @@
   {/if}
 
   <label>
-    <span>Домены прямого доступа</span>
+    <span>Сайты напрямую, без VPN</span>
     <textarea
       bind:value={domainsText}
       rows="3"
       placeholder="ru&#10;example.com"
     ></textarea>
-    <small class="muted">Эти домены идут напрямую; весь остальной трафик — через туннель.
-      Запись из одной зоны (например, <code>ru</code>) покрывает сразу все домены в ней;
-      отдельные сайты дописывайте своей строкой.</small>
+    <small class="muted">Эти сайты (домены) открываются напрямую; весь остальной трафик идёт
+      через VPN. Одна запись зоны (например, <code>ru</code>) покрывает сразу все сайты в ней;
+      отдельные сайты дописывайте своей строкой. Можно оставить как есть.</small>
   </label>
 
   <h3>Пароль роутера</h3>
@@ -217,11 +221,17 @@
     </label>
   {/if}
 
-  <label>
-    <span>Код установки (install-токен)</span>
-    <input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
-    <small class="muted">Если вы открыли мастер по ссылке из терминала — код уже подставлен.</small>
-  </label>
+  {#if tokenEditable}
+    <label>
+      <span>Код установки</span>
+      <input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
+      <small class="muted">Он печатается в терминале сразу после команды установки — вставьте его сюда.</small>
+    </label>
+  {:else}
+    <p class="muted small">✓ Код установки получен из ссылки.
+      <button class="linklike" type="button" onclick={() => (tokenEditable = true)}>Изменить</button>
+    </p>
+  {/if}
 
   {#if error}<p class="warn">{error}</p>{/if}
 

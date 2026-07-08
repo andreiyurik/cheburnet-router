@@ -19,6 +19,9 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 // Состояние «роутера»: до установки → в процессе → установлен.
 let installed = false;
 let installPolls = 0;
+// Режим «health-check не прошёл»: движок откатился, done-маркер fail + reason=health.
+// Включается POST /__fail-health — проверка адресной диагностики UI.
+let failHealth = false;
 
 const PROVIDERS = [
   { id: 'adguard', name: 'AdGuard DNS', description: 'блокирует рекламу и трекеры' },
@@ -58,6 +61,9 @@ function ubusReply(method, args) {
     case 'install_progress':
       installPolls += 1;
       if (installPolls < 2) return [0, { done: false, step: 'vpn', log: 'шаг vpn…' }];
+      if (failHealth)
+        return [0, { done: true, result: 'fail', reason: 'health', step: 'health-check',
+                     log: 'install: откат — health-check не пройден\ninstall: откат выполнен' }];
       installed = true;
       return [0, { done: true, result: 'ok', step: 'готово', log: 'установка завершена' }];
     default:
@@ -71,6 +77,12 @@ createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/__reset') {
     installed = false;
     installPolls = 0;
+    failHealth = false;
+    res.end('ok');
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/__fail-health') {
+    failHealth = true;
     res.end('ok');
     return;
   }

@@ -71,8 +71,8 @@
       loginAttempts += 1;
       loginPass = '';
       loginError = loginAttempts >= MAX_LOGIN_ATTEMPTS
-        ? 'Попытки исчерпаны. Перезагрузите страницу или войдите по SSH и проверьте пароль.'
-        : `${e.message} (попытка ${loginAttempts} из ${MAX_LOGIN_ATTEMPTS})`;
+        ? 'Пароль не подошёл. Нужен пароль, заданный при установке роутера. Перезагрузите страницу и попробуйте снова — или обратитесь к тому, кто настраивал роутер.'
+        : `Пароль не подошёл (попытка ${loginAttempts} из ${MAX_LOGIN_ATTEMPTS}). Нужен пароль, заданный при установке роутера.`;
     }
   }
 
@@ -154,10 +154,10 @@
     });
 
   function hs(age) {
-    if (age == null) return 'нет рукопожатия';
+    if (age == null) return 'нет ответа от сервера';
     if (age < 0) return '—';
-    if (age < 120) return `${age} с назад`;
-    return `${Math.floor(age / 60)} мин назад`;
+    if (age < 120) return `отвечал ${age} с назад`;
+    return `отвечал ${Math.floor(age / 60)} мин назад`;
   }
 
   refresh();
@@ -194,10 +194,10 @@
     {/if}
 
     <ul class="status">
-      <li><span>Режим</span><strong>{s.mode === 'travel' ? 'TRAVEL (всё в туннель)' : 'HOME (split)'}</strong></li>
-      <li><span>Домены прямого доступа</span><strong>{s.direct_domains}</strong></li>
+      <li><span>Режим</span><strong>{s.mode === 'travel' ? 'В поездке — весь трафик через VPN' : 'Дома — выбранные сайты напрямую'}</strong></li>
+      <li><span>Сайты напрямую, без VPN</span><strong>{s.direct_domains}</strong></li>
       <li><span>Импортированный список</span><strong>{s.direct_list_loaded ? `${s.imported_domains} доменов` : 'не загружен'}</strong></li>
-      <li><span>Туннель (handshake)</span><strong>{hs(s.awg_handshake_age)}</strong></li>
+      <li class:ok={s.awg_handshake_age != null && s.awg_handshake_age >= 0 && s.awg_handshake_age < 300} class:bad={s.awg_handshake_age == null}><span>VPN-сервер</span><strong>{hs(s.awg_handshake_age)}</strong></li>
       <li class:ok={s.dns_up} class:bad={!s.dns_up}><span>DNS</span><strong>{s.dns_up ? 'работает' : 'нет'}</strong></li>
       <li class:ok={s.doh_up} class:bad={!s.doh_up}><span>Шифрованный DNS</span><strong>{s.doh_up ? 'работает' : 'нет'}</strong></li>
       {#if s.wireless_present}
@@ -209,7 +209,7 @@
     <h3>Управление</h3>
     <div class="row">
       <button disabled={busy} onclick={() => setMode(s.mode === 'travel' ? 'home' : 'travel')}>
-        {s.mode === 'travel' ? 'Включить HOME' : 'Включить TRAVEL'}
+        {s.mode === 'travel' ? 'Режим «Дома» — выбранные сайты напрямую' : 'Режим «В поездке» — весь трафик через VPN'}
       </button>
       <button disabled={busy} onclick={updateList}>Обновить список доменов</button>
     </div>

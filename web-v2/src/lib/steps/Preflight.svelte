@@ -49,7 +49,9 @@
       <p class="ok-msg">Роутер подходит — все {report.total} проверок пройдены.</p>
       <button class="primary" onclick={() => onReady(report.tiers?.full === true)}>Продолжить</button>
     {:else}
-      <p class="warn">Не пройдено {report.failed} из {report.total} проверок. Исправьте отмеченное и нажмите «Перепроверить».</p>
+      <p class="warn">Пока установить нельзя: не пройдено {report.failed} из {report.total} проверок.
+        Ничего на роутере не менялось. Строки с ✗ выше показывают, что именно не так и как это
+        исправить, — после исправления нажмите «Перепроверить».</p>
       <button onclick={run}>Перепроверить</button>
     {/if}
   {/if}
