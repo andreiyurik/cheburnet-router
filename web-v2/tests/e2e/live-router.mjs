@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 
 const ROUTER = 'http://192.168.1.1/cheburnet';
 const TOKEN = process.env.TOKEN || '5dd20304-c0be-4535-a16e-61c536bba8ad';
-const AWG_CONF = '/mnt/c/Users/Fast Station/Downloads/CH(1).conf';
+const AWG_CONF = process.env.AWG_CONF || '/mnt/c/Users/Fast Station/Downloads/CH(1).conf';
 const SHOT = '/tmp/cheburnet-shots';
 mkdirSync(SHOT, { recursive: true });
 
