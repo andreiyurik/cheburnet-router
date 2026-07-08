@@ -8,8 +8,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── T1+T2: статика и mock-тесты (быстрые, на каждый push/PR) ────────────────
+  # ── T1+T2: bats-тесты V1 — только вручную ───────────────────────────────────
+  # v1 ЗАМОРОЖЕН (sunset): интеграционные bats флакают в CI на таймингах
+  # (test 166 replace_awg_conf; локально зелёные) и месяцами красили master.
+  # Гейты push — engine.yml (юниты v2) и qemu-v2-джобы ниже.
   test:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
