@@ -77,17 +77,19 @@ test("enabled_steps: reality-протокол (disable vpn) → туннель =
 // --- decide_outcome ---
 test("decide: нет/проваленный preflight → abort (ничего не трогали)", () => {
 	eq(decide_outcome({ preflight: { ok: false } }).action, "abort");
+	eq(decide_outcome({ preflight: { ok: false } }).code, "preflight");
 	eq(decide_outcome({}).action, "abort");
 	eq(decide_outcome(null).action, "abort");
 });
 
-test("decide: упавший шаг → rollback + список failed", () => {
+test("decide: упавший шаг → rollback + список failed + code первого упавшего", () => {
 	let d = decide_outcome({
 		preflight: { ok: true },
 		steps: [ { name: "vpn", ok: true }, { name: "dns", ok: false }, { name: "doh", ok: false } ],
 	});
 	eq(d.action, "rollback");
 	deep_eq(d.failed, [ "dns", "doh" ]);
+	eq(d.code, "step:dns"); // адресная диагностика UI — по ПЕРВОМУ упавшему (fail-fast)
 });
 
 test("decide: все шаги ок, health провалился → rollback", () => {
@@ -97,6 +99,7 @@ test("decide: все шаги ок, health провалился → rollback", (
 		health: { ok: false },
 	});
 	eq(d.action, "rollback");
+	eq(d.code, "health"); // UI по этому коду говорит «VPN-сервер не ответил», не «упал шаг»
 	ok(index(d.reason, "health") >= 0);
 });
 

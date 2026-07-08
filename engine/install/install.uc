@@ -113,25 +113,29 @@ function dirty_steps(steps) {
 	return out;
 }
 
-// decide_outcome(results) → { action, reason, failed }. action ∈ abort | rollback | commit.
+// decide_outcome(results) → { action, code, reason, failed }. action ∈ abort | rollback | commit.
 //   results = { preflight:{ok}, steps:[{name,ok}...], health:{ok}|null }
 // Порядок проверок = fail-safe: нет preflight → abort (ничего не трогали); упал шаг или
 // health → rollback; всё ок → commit.
+// code — машинный код исхода для UI ("preflight" | "step:<имя>" | "health" | "ok"): по нему
+// веб-мастер показывает адресную диагностику («VPN-сервер не ответил» ≠ «упал шаг»), а не
+// одинаковое «установка не удалась» на всё.
 function decide_outcome(results) {
 	if (!results || !results.preflight || results.preflight.ok !== true)
-		return { action: "abort", reason: "preflight не пройден — изменений нет", failed: [] };
+		return { action: "abort", code: "preflight", reason: "preflight не пройден — изменений нет", failed: [] };
 
 	let failed = [];
 	let steps = results.steps ?? [];
 	for (let i = 0; i < length(steps); i++)
 		if (steps[i].ok !== true) push(failed, steps[i].name);
 	if (length(failed) > 0)
-		return { action: "rollback", reason: sprintf("шаги упали: %s", join(", ", failed)), failed: failed };
+		return { action: "rollback", code: "step:" + failed[0],
+			reason: sprintf("шаги упали: %s", join(", ", failed)), failed: failed };
 
 	if (results.health && results.health.ok !== true)
-		return { action: "rollback", reason: "health-check не пройден", failed: [] };
+		return { action: "rollback", code: "health", reason: "health-check не пройден", failed: [] };
 
-	return { action: "commit", reason: "все фазы успешны", failed: [] };
+	return { action: "commit", code: "ok", reason: "все фазы успешны", failed: [] };
 }
 
 // handshake_state(hs) — состояние AWG-рукопожатия по выводу `awg show <if> latest-handshakes`

@@ -29,6 +29,14 @@ function set_step(name) {
 	if (STATE_FILE) writefile(STATE_FILE, name + "\n");
 }
 
+// set_reason(code) — машинный код исхода (decide_outcome.code) для install_progress.reason:
+// по нему веб-мастер различает «VPN-сервер не ответил» / «упал шаг X» / «preflight» и говорит
+// с пользователем адресно. Путь даёт ubus-слой через env (см. spawn_bg); CLI-запуск — no-op.
+let REASON_FILE = getenv("REASON_FILE");
+function set_reason(code) {
+	if (REASON_FILE) writefile(REASON_FILE, code + "\n");
+}
+
 function step_cmd(name, extra) {
 	return sprintf("ucode -R %s/steps/%s/apply.uc%s", ENGINE, name, extra ?? "");
 }
@@ -168,6 +176,7 @@ let preflight = { ok: (pf_rc == 0) };
 if (!preflight.ok) {
 	// Отчёт preflight уже напечатан check.uc выше (его stdout унаследован). Просто прерываемся.
 	let d = decide_outcome({ preflight: preflight });
+	set_reason(d.code);
 	warn(sprintf("install: %s\n", d.reason));
 	exit(1);
 }
@@ -225,6 +234,7 @@ if (outcome.action == "commit") {
 }
 
 // rollback: единая реализация (см. rollback_all выше).
+set_reason(outcome.code);
 warn(sprintf("install: откат — %s\n", outcome.reason));
 rollback_all(steps, cfg);
 warn("install: откат выполнен — система возвращена к состоянию до установки\n");

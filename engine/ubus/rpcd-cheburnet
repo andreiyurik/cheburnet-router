@@ -32,6 +32,7 @@ const PAYLOAD_FILE  = STATE_DIR + "/install-payload.json"; // вход для ru
 const LOG_FILE      = STATE_DIR + "/install.log";
 const STATE_FILE    = STATE_DIR + "/state";
 const DONE_FILE     = STATE_DIR + "/done";
+const REASON_FILE   = STATE_DIR + "/reason"; // машинный код исхода (decide_outcome.code) для UI
 const PID_FILE      = STATE_DIR + "/pid";
 
 // === I/O-хелперы === (sh/run_stdin — общие, см. lib/proc.uc)
@@ -113,14 +114,15 @@ function check_token(v) {
 // её закрытии иначе убьёт работу до записи done), код выхода → done-маркер, прогресс — через
 // install_progress (общий PID-файл = взаимное исключение длинных операций). Паттерн v1.
 function spawn_bg(cmd, state) {
-	unlink(DONE_FILE); unlink(LOG_FILE);
+	unlink(DONE_FILE); unlink(LOG_FILE); unlink(REASON_FILE);
 	writefile(STATE_FILE, state + "\n");
-	// STATE_FILE в env: длинная операция (run.uc) обновляет его именем текущего шага, чтобы
-	// install_progress показывал «Шаг: vpn/dns/firewall…», а не застывшее "starting". Кто env
-	// игнорирует (reset) — просто не пишет, поведение прежнее.
+	// STATE_FILE/REASON_FILE в env: длинная операция (run.uc) обновляет первый именем текущего
+	// шага («Шаг: vpn/dns/firewall…»), во второй пишет машинный код исхода при провале — UI
+	// говорит адресно («VPN-сервер не ответил» ≠ «упал шаг»). Кто env игнорирует (reset) —
+	// просто не пишет, поведение прежнее.
 	let spawn = sprintf(
-		"STATE_FILE=%s setsid sh -c '%s >> %s 2>&1; echo $? > %s' </dev/null >/dev/null 2>&1 & echo $!",
-		STATE_FILE, cmd, LOG_FILE, DONE_FILE);
+		"STATE_FILE=%s REASON_FILE=%s setsid sh -c '%s >> %s 2>&1; echo $? > %s' </dev/null >/dev/null 2>&1 & echo $!",
+		STATE_FILE, REASON_FILE, cmd, LOG_FILE, DONE_FILE);
 	let pid = trim(sh(spawn));
 	writefile(PID_FILE, pid + "\n");
 	return int(pid);
@@ -274,7 +276,12 @@ function m_install_progress() {
 
 	// Хвост лога (~12 КБ): держим в окне строку «шаг X упал» + причину (как v1).
 	let log = sh(sprintf("tail -c 12000 %s 2>/dev/null", LOG_FILE));
-	respond({ step: step, running: running, done: done, result: result, log: log });
+	// Код исхода (run.uc пишет через REASON_FILE): есть → UI различает причину провала.
+	let resp = { step: step, running: running, done: done, result: result, log: log };
+	let reason = trim(readfile(REASON_FILE) ?? "");
+	if (length(reason) > 0)
+		resp.reason = reason;
+	respond(resp);
 }
 
 function m_set_mode(v) {
