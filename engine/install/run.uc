@@ -160,9 +160,23 @@ if (type(cfg.disable) == "array")
 let steps = enabled_steps({ disable: disable });
 let scope = snapshot_scope(steps);
 
+// restore_cfg_truth() — вернуть install.json к состоянию ДО этой попытки установки.
+// Файл — признак «установлено» для m_status, а m_install пишет его до исхода: был прежний
+// (пере-установка поверх рабочей) — восстановить из .prev, не было — удалить. Иначе провал/
+// отмена оставляли фантомное installed=true, и мастер после отката открывал «панель» пустой
+// системы (поймано живым провал-прогоном 2026-07-09).
+function restore_cfg_truth() {
+	let f = ETC_CHEBURNET + "/install.json";
+	let out = sh(sprintf("[ -f %s.prev ] && mv %s.prev %s && echo restored", f, f, f));
+	if (index(out, "restored") < 0)
+		unlink(f);
+}
+
 // --rollback: только откат, без установки. stdin — {domains?, routing_opts?} для teardown'ов.
+// Зовёт install_cancel — отменённая установка тоже не должна оставлять фантомный install.json.
 if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
 	rollback_all(steps, cfg);
+	restore_cfg_truth();
 	warn("install: откат выполнен (--rollback)\n");
 	exit(0);
 }
@@ -229,6 +243,7 @@ if (outcome.action == "commit") {
 	// продолжал бы пускать install/apply_lan_ip любого в LAN). Только на commit-пути: при откате
 	// токен ОСТАЁТСЯ, чтобы пользователь исправил данные и повторил тем же токеном без bootstrap.
 	unlink(ETC_CHEBURNET + "/install-token");
+	unlink(ETC_CHEBURNET + "/install.json.prev"); // бэкап прежнего cfg больше не нужен
 	printf("install: успешно — %s\n", outcome.reason);
 	exit(0);
 }
@@ -237,5 +252,6 @@ if (outcome.action == "commit") {
 set_reason(outcome.code);
 warn(sprintf("install: откат — %s\n", outcome.reason));
 rollback_all(steps, cfg);
+restore_cfg_truth();
 warn("install: откат выполнен — система возвращена к состоянию до установки\n");
 exit(1);

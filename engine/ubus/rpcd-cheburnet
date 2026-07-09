@@ -238,8 +238,15 @@ function m_install(v) {
 		? v.protocol : default_protocol();
 
 	// Воспроизводимая конфигурация (для set_mode/update_list/set_dns_provider/reset) — БЕЗ секретов.
+	// install.json — ещё и признак «установлено» для m_status, а пишем мы его ДО исхода установки.
+	// Поэтому прежний файл откладываем в .prev: run.uc на откате вернёт его (пере-установка поверх
+	// рабочей), а не было прежнего — удалит новый. Иначе провалившаяся установка оставляла
+	// фантомное installed=true, и мастер после отката открывал «панель» пустой системы.
 	let cfg = { user_domains: v.domains ?? [], domains: domains, routing_opts: routing_opts,
 		dns_provider: dns_provider, protocol: protocol };
+	unlink(CFG_FILE + ".prev");
+	if (access(CFG_FILE))
+		sh(sprintf("cp %s %s.prev", CFG_FILE, CFG_FILE));
 	save_cfg(cfg);
 
 	// Полезная нагрузка для run.uc: его stdin-контракт {protocol, awg_conf|reality_conf, root_password,
