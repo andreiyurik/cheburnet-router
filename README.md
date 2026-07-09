@@ -113,19 +113,26 @@ flowchart LR
 
 **Linux / macOS:**
 ```bash
-ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo "скачивание не удалось (попытка $i из 5) — повторяю через 3 сек..."; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo "ОШИБКА: не удалось скачать установщик. Проверьте, что кабель интернета подключён к роутеру, и запустите команду ещё раз."; fi'
+ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo попытка $i из 5 не удалась, повтор через 3 секунды; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo ОШИБКА: установщик не скачался. Проверьте, что на роутере есть интернет, и запустите команду снова.; fi'
 ```
 
 **Windows (PowerShell / Терминал):**
 ```powershell
-ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo "скачивание не удалось (попытка $i из 5) — повторяю через 3 сек..."; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo "ОШИБКА: не удалось скачать установщик. Проверьте, что кабель интернета подключён к роутеру, и запустите команду ещё раз."; fi'
+ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo попытка $i из 5 не удалась, повтор через 3 секунды; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo ОШИБКА: установщик не скачался. Проверьте, что на роутере есть интернет, и запустите команду снова.; fi'
 ```
 
-<!-- Почему не `wget -qO- … | sh`: raw.githubusercontent.com в реальных сетях флапает
-     (замерено на живой сети: до 1/3 запросов — 0 байт), а `sh` на пустом вводе молча выходит
-     с кодом 0 — пользователь запускает команду, и «ничего не происходит». Поэтому: скачивание
-     в файл с 5 попытками, запуск только непустого файла, внятная ошибка. PowerShell-вариант
-     в ОДИНАРНЫХ кавычках намеренно: в двойных PowerShell сам подставил бы $i. -->
+<!-- Почему именно так:
+     1. Не `wget -qO- … | sh`: raw.githubusercontent.com в реальных сетях флапает (замерено: до
+        1/3 запросов — 0 байт), а `sh` на пустом вводе молча выходит с кодом 0 — «ничего не
+        происходит». Поэтому: скачивание в файл с 5 попытками, запуск только непустого файла.
+     2. Удалённая часть в ОДИНАРНЫХ кавычках (Linux и Windows одинаково) — чтобы `$i` дошёл до
+        шелла роутера, а не подставился локальным shell/PowerShell.
+     3. Внутри — НИКАКИХ двойных кавычек и скобок. Причина: Windows PowerShell 5.1 (дефолт у
+        большинства) при вызове ssh.exe НЕ экранирует вложенные `"` (баг native-arg-passing,
+        починен только в PowerShell 7.3+) — кавычки «съедаются», и незакавыченные `( )` в тексте
+        становились для шелла роутера метасимволами → `Syntax error: "(" unexpected`. Без кавычек
+        и скобок ломать нечего: команда идентична и надёжна на PS 5.1, PS 7.x, bash, zsh.
+        echo печатает слова как есть — потому сообщения без скобок. -->
 
 
 > **🌍 Не ставится? `apk update не прошёл` / «не достучаться до зеркала пакетов»?** В некоторых
