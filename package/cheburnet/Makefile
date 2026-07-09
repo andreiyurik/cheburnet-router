@@ -98,7 +98,31 @@ endef
 # где $IPKG_INSTROOT задан) — мягкий reload, без падения если rpcd ещё не запущен.
 define Package/cheburnet/postinst
 #!/bin/sh
-[ -n "$${IPKG_INSTROOT}" ] || /etc/init.d/rpcd reload 2>/dev/null
+# В imagebuilder ($IPKG_INSTROOT задан) на живой системе ничего не делаем.
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+/etc/init.d/rpcd reload 2>/dev/null
+
+# Самодостаточность установки: пакет мог встать НЕ через bootstrap (LuCI «Software», ручной
+# apk add) — тогда токена мастера нет и мастер не запустить. Засеваем токен и печатаем ссылку в
+# системный лог (виден в LuCI → Status → System Log), чтобы браузерная установка без SSH доходила
+# до мастера так же, как SSH-однострочник. ТОЛЬКО на ненастроенной системе: если install.json уже
+# есть — не трогаем (иначе upgrade пересоздал бы токен и заново открыл путь установки).
+etc=/etc/cheburnet
+if [ ! -f "$$etc/install.json" ]; then
+	mkdir -p "$$etc"
+	umask 077
+	if [ ! -s "$$etc/install-token" ]; then
+		cat /proc/sys/kernel/random/uuid 2>/dev/null > "$$etc/install-token" \
+			|| tr -dc 'a-f0-9' < /dev/urandom | head -c 32 > "$$etc/install-token"
+	fi
+	chmod 600 "$$etc/install-token"
+	tok="$$(cat "$$etc/install-token" 2>/dev/null)"
+	ip="$$(uci -q get network.lan.ipaddr || echo 192.168.1.1)"
+	# ipaddr бывает списком/в CIDR-форме — берём первый адрес и режем маску (как bootstrap).
+	set -- $$ip; ip="$${1%%/*}"
+	logger -t cheburnet "мастер настройки роутера открыт: http://$$ip/cheburnet/?token=$$tok"
+	logger -t cheburnet "если ссылка не открывается — откройте http://$$ip/cheburnet/ и введите код: $$tok"
+fi
 exit 0
 endef
 

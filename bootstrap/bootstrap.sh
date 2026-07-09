@@ -120,9 +120,15 @@ retry 3 3 apk add --allow-untrusted "$WORK/cheburnet.apk" || die "apk add chebur
 # повторно поставить можно только новым запуском bootstrap.
 mkdir -p "$ETC"
 umask 077
-TOKEN="$(cat /proc/sys/kernel/random/uuid 2>/dev/null \
-    || tr -dc 'a-f0-9' < /dev/urandom | head -c 32)"
-printf '%s\n' "$TOKEN" > "$ETC/install-token"
+# Переиспользуем токен, если он уже создан (postinst пакета засевает его при установке через
+# LuCI/apk — см. package/cheburnet/Makefile). Иначе создаём: тогда ссылка мастера из bootstrap и
+# из системного лога совпадают, а не расходятся двумя разными токенами.
+TOKEN="$(cat "$ETC/install-token" 2>/dev/null)"
+if [ -z "$TOKEN" ]; then
+    TOKEN="$(cat /proc/sys/kernel/random/uuid 2>/dev/null \
+        || tr -dc 'a-f0-9' < /dev/urandom | head -c 32)"
+    printf '%s\n' "$TOKEN" > "$ETC/install-token"
+fi
 
 # --- 5. Куда идти дальше. LAN-IP определяем динамически — не хардкодим подсеть (урок v1) ----------
 LAN_IP="$(uci -q get network.lan.ipaddr || echo 192.168.1.1)"
