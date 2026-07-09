@@ -22,6 +22,8 @@ let installPolls = 0;
 // Режим «health-check не прошёл»: движок откатился, done-маркер fail + reason=health.
 // Включается POST /__fail-health — проверка адресной диагностики UI.
 let failHealth = false;
+// Режим «установлено, но VPN-сервер молчит» (handshake=null) — проверка hero-баннера панели.
+let vpnDown = false;
 
 const PROVIDERS = [
   { id: 'adguard', name: 'AdGuard DNS', description: 'блокирует рекламу и трекеры' },
@@ -37,9 +39,10 @@ function ubusReply(method, args) {
         dns_providers: PROVIDERS,
         dns_provider: 'adguard',
         dns_provider_desc: PROVIDERS[0],
-        ...(installed && {
+        ...((installed || vpnDown) && {
+          installed: true,
           mode: 'home', direct_domains: 1, direct_list_loaded: true, imported_domains: 0,
-          awg_handshake_age: 12, dns_up: true, doh_up: true, ssid: 'TestWifi',
+          awg_handshake_age: vpnDown ? null : 12, dns_up: true, doh_up: true, ssid: 'TestWifi',
         }),
       }];
     case 'check_lan_conflict':
@@ -78,11 +81,17 @@ createServer(async (req, res) => {
     installed = false;
     installPolls = 0;
     failHealth = false;
+    vpnDown = false;
     res.end('ok');
     return;
   }
   if (req.method === 'POST' && req.url === '/__fail-health') {
     failHealth = true;
+    res.end('ok');
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/__vpn-down') {
+    vpnDown = true;
     res.end('ok');
     return;
   }

@@ -83,6 +83,18 @@ test('мастер: health-check не прошёл → адресная диаг
   await expect(page.getByRole('button', { name: 'Скачать журнал' })).toBeVisible();
 });
 
+test('панель: VPN-сервер молчит → hero-баннер «VPN не работает» + путь к замене конфига', async ({ page, request }) => {
+  // Установлено, но handshake=null (сервер мёртв/заблокирован) — панель должна с одного взгляда
+  // сказать, что не так и что делать, а не прятать проблему в строке таблицы.
+  await request.post('/__vpn-down');
+  await page.goto('/cheburnet/');
+  await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible();
+  await expect(page.getByText('VPN не работает', { exact: false })).toBeVisible();
+  // Ссылка «загрузить свежий конфиг» ведёт к разделу замены.
+  await expect(page.getByRole('link', { name: 'загрузите свежий конфиг' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Замена VPN-конфига' })).toBeVisible();
+});
+
 test('мастер: неверный токен установки → доменная ошибка движка на экране', async ({ page }) => {
   await page.goto('/cheburnet/?token=WRONG-TOKEN');
   await page.getByRole('button', { name: 'Продолжить' }).click();
