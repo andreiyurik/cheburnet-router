@@ -15,6 +15,7 @@ import { stdin, readfile, writefile, unlink, access, chmod } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { list_descriptor, validate_request, requires_token, make_error } from "./ubus.uc";
 import { cidr_overlap, suggest_lan, valid_lan_ip } from "../preflight/preflight.uc";
+import { parse_wan_route } from "../preflight/parse.uc";
 import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
 import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
 import { default_protocol } from "../install/install.uc";
@@ -296,14 +297,29 @@ function m_set_mode(v) {
 		respond(make_error("операция уже выполняется"));
 	let cfg = load_cfg();
 	cfg.routing_opts.mode = v.mode;
-	save_cfg(cfg);
 
-	// Mode-зависимы только DNS (в travel nftset пуст) и firewall (kill-switch строже + ip rule).
-	// VPN/DoH/adblock от режима не зависят — не трогаем. Идемпотентно: повтор того же режима = no-op.
-	let rc_dns = reapply_step("dns", cfg);
+	// wan_if персистит run.uc на commit-пути установки; для систем, установленных до этого фикса,
+	// повторяем первичный детект (netifd знает WAN, даже когда kernel-default у туннеля). Без
+	// wan_if firewall-план честно откажет: kill-switch не хардкодим (урок v1).
+	if (!cfg.routing_opts.wan_if) {
+		let wr = parse_wan_route(sh("ubus call network.interface.wan status 2>/dev/null"));
+		if (wr) {
+			cfg.routing_opts.wan_if = wr.wan_if;
+			if (wr.wan_gw) cfg.routing_opts.wan_gw = wr.wan_gw;
+		}
+	}
+
+	// Mode-зависимы только firewall (kill-switch строже + ip rule) и DNS (в travel nftset пуст).
+	// VPN/DoH от режима не зависят — не трогаем. Идемпотентно: повтор того же режима = no-op.
+	// Порядок: сначала firewall — откажет он (обычно нет WAN) → система не тронута вовсе; dns
+	// после него в любом исходе fail-safe (пустой/полный nftset → лишнее едет в туннель).
+	// Режим сохраняем ПОСЛЕ успеха обоих шагов: install.json отражает ПРИМЕНЁННОЕ состояние
+	// (раньше провал применения оставлял в status режим, которого на роутере нет).
 	let rc_fw  = reapply_step("firewall", cfg);
-	if (rc_dns != 0 || rc_fw != 0)
-		respond(make_error(sprintf("не удалось применить режим %s", v.mode), { dns: rc_dns, firewall: rc_fw }));
+	let rc_dns = (rc_fw == 0) ? reapply_step("dns", cfg) : -1;
+	if (rc_fw != 0 || rc_dns != 0)
+		respond(make_error(sprintf("не удалось применить режим %s", v.mode), { firewall: rc_fw, dns: rc_dns }));
+	save_cfg(cfg);
 	respond({ status: "ok", mode: v.mode });
 }
 
@@ -312,7 +328,8 @@ function m_update_list(v) {
 		respond(make_error("операция уже выполняется"));
 
 	// Подтянуть свежий community-список (fetch.uc сам гейтит мусор и атомарно меняет кэш;
-	// при сбое кэш не тронут → остаётся старый рабочий список). url необязателен — есть дефолт.
+	// при сбое кэш не тронут → остаётся старый рабочий список). url необязателен — дефолтный
+	// источник задаёт DEFAULT_SOURCE в list/list.uc (там же — проверка его семантики).
 	let url = v.url ?? "";
 	let fetch = engine_cli("list/fetch.uc") + (length(url) ? " " + shellquote(url) : "");
 	let rc = int(trim(sh(fetch + " >/dev/null 2>&1; echo $?")));

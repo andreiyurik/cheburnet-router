@@ -10,7 +10,7 @@
 //
 // Откат честный: чистые шаги возвращает snapshot restore; грязный (firewall) — его --teardown.
 
-import { stdin, writefile, unlink } from "fs";
+import { stdin, readfile, writefile, unlink } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state,
@@ -188,7 +188,10 @@ let pf_rc = run_stdin(sprintf("ucode -R %s/preflight/check.uc", ENGINE), facts);
 let preflight = { ok: (pf_rc == 0) };
 
 if (!preflight.ok) {
-	// Отчёт preflight уже напечатан check.uc выше (его stdout унаследован). Просто прерываемся.
+	// Отчёт preflight уже напечатан check.uc выше (его stdout унаследован). Прерываемся, но
+	// правду install.json возвращаем и здесь: abort гейткипера — такой же не-успех, как rollback
+	// (иначе фантомное installed=true — тот же баг, что чинили на ветках отката 2026-07-09).
+	restore_cfg_truth();
 	let d = decide_outcome({ preflight: preflight });
 	set_reason(d.code);
 	warn(sprintf("install: %s\n", d.reason));
@@ -231,6 +234,20 @@ let health = all_ok ? { ok: healthcheck(cfg) } : null;
 let outcome = decide_outcome({ preflight: preflight, steps: results, health: health });
 if (outcome.action == "commit") {
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
+	// WAN нашли МЫ (детект выше), мастер его не знает → персистим в install.json: set_mode
+	// переприменяет firewall через rpcd БЕЗ run.uc, а без wan_if kill-switch не строится
+	// (firewall-план честно откажет). tunnel_if — туда же (NAT-зона при переприменении).
+	let cfg_file = ETC_CHEBURNET + "/install.json";
+	let saved_raw = readfile(cfg_file);
+	let saved = (saved_raw && substr(trim(saved_raw), 0, 1) == "{") ? json(saved_raw) : null;
+	if (saved && cfg.routing_opts.wan_if) {
+		if (type(saved.routing_opts) != "object") saved.routing_opts = {};
+		saved.routing_opts.wan_if = cfg.routing_opts.wan_if;
+		if (cfg.routing_opts.wan_gw)
+			saved.routing_opts.wan_gw = cfg.routing_opts.wan_gw;
+		saved.routing_opts.tunnel_if = cfg.routing_opts.tunnel_if;
+		writefile(cfg_file, sprintf("%J\n", saved));
+	}
 	// Пароль root — не транзакция (см. steps/rootpass): применяем на успешном пути, отдельно от
 	// uci-снимка. Сбой passwd не валит установку — честный warning, пароль вторичен к data-plane.
 	if (cfg.root_password) {
