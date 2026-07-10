@@ -405,7 +405,7 @@ OpenWrt (официальные сборки на [openwrt.org/toh/cudy](https:/
 
 ## 🙏 Благодарности
 
-**Open-source проекты:** [AmneziaVPN](https://amnezia.org/) · [SagerNet/sing-box](https://github.com/SagerNet/sing-box) · [Slava-Shchipunov/awg-openwrt](https://github.com/Slava-Shchipunov/awg-openwrt) · [lynxthecat/adblock-lean](https://github.com/lynxthecat/adblock-lean) · [hagezi/dns-blocklists](https://github.com/hagezi/dns-blocklists) · [OpenWrt](https://openwrt.org/)
+**Open-source проекты:** [AmneziaVPN](https://amnezia.org/) · [SagerNet/sing-box](https://github.com/SagerNet/sing-box) · [Slava-Shchipunov/awg-openwrt](https://github.com/Slava-Shchipunov/awg-openwrt) · [https-dns-proxy](https://github.com/aarond10/https_dns_proxy) · [OpenWrt](https://openwrt.org/)
 
 **Люди:** проект живёт благодаря тем, кто тестирует, находит баги и пишет с обратной связью — спасибо
 каждому. Особая благодарность **Сергею Ш.** за активное участие и ценные идеи.

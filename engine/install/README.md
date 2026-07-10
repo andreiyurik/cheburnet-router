@@ -19,7 +19,7 @@ preflight → snapshot UCI → шаги по порядку → health-check →
 
 ## Честный откат (clean vs dirty)
 
-- **Чистые шаги** (vpn/dns/doh/adblock/wifi → uci) откатываются **snapshot restore**.
+- **Чистые шаги** (vpn/dns/doh/wifi → uci) откатываются **snapshot restore**.
 - **Грязный шаг** (firewall → runtime nft/ip, не uci) при сбое чистится своим **`apply.uc --teardown`**
   (safe-fail), а НЕ иллюзией uci-отката. `snapshot_scope` намеренно не включает firewall.
 - Kill-switch усиливает безопасность отката: даже полу-применённый firewall фейлит в туннель.

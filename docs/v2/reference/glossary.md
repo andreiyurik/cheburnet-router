@@ -31,10 +31,14 @@ updated: 2026-06-08
 - **WireGuard** — современный VPN-протокол, основа AmneziaWG.
 - **DoH (DNS over HTTPS)** — шифрование DNS внутри HTTPS. → [[encrypted-dns]]
 - **https-dns-proxy** — лёгкий демон DoH (замена этой функции sing-box). → [[encrypted-dns]]
-- **dnsmasq** — DNS/DHCP-сервер OpenWrt; у нас делает adblock + nftset + форвард в DoH.
+- **dnsmasq** — DNS/DHCP-сервер OpenWrt; у нас делает nftset-пометку + форвард в DoH.
 - **FakeIP** — приём sing-box (фейковый IP для перехвата); мы его **не** используем.
   → [[0001-why-not-singbox]]
-- **adblock-lean** — блокировка рекламы через blocklist'ы в dnsmasq. → [[adblock]]
+- **Фильтрующий DNS-провайдер** — публичный DoH-резолвер, который сам не отдаёт рекламные/18+
+  домены; блокировку делаем выбором такого резолвера, а не локальным списком. → [[adblock]],
+  [[0005-dns-filtering-not-local-adblock]]
+- **adblock-lean** — локальный блок-лист в dnsmasq; в v1/раннем v2 давал блокировку рекламы,
+  **больше не используется** (заменён выбором провайдера). → [[0005-dns-filtering-not-local-adblock]]
 
 ## Платформа
 

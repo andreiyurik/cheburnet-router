@@ -36,11 +36,13 @@ flowchart TB
 | Модуль (`engine/`) | Роль | Связь |
 |---|---|---|
 | `preflight/` | проверка arch/RAM/флеша/зависимостей | [[reliability]] |
-| `steps/` | идемпотентные шаги по компонентам | [[reliability]] |
+| `steps/` | идемпотентные шаги по компонентам (vpn, dns, doh, wifi, firewall, rootpass, singbox) | [[reliability]] |
 | `routing/` | генерация [[dnsmasq-nftset]] + [[policy-routing]] | [[data-plane]] |
 | `rollback/` | snapshot/restore UCI там, где откат чистый | [[reliability]] |
+| `install/` | оркестратор: preflight → snapshot → шаги → health → commit/rollback | [[reliability]] |
 | `list/` | импорт и обновление community-списка доменов | [[architecture-overview]] |
 | `ubus/` | RPC-обработчик для [[web-wizard]] | — |
+| `lib/` | общие хелперы (`assert`, `uci`, `proc`, `conf`) | — |
 
 ## Принцип: control-plane, не data-plane
 

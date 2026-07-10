@@ -79,9 +79,11 @@
 | Дистрибуция | GitHub Releases + `apk add --allow-untrusted` | arch-независимый пакет (`PKGARCH:=all`), без хостинга своего feed'а — см. [docs/v2/architecture/bootstrap.md](docs/v2/architecture/bootstrap.md) |
 
 **Многопротокольность по тирам** — [docs/v2/decisions/0004-multi-protocol-tiers.md](docs/v2/decisions/0004-multi-protocol-tiers.md):
-Light (AmneziaWG, ядро) = дефолт и текущая реализация; Full (sing-box) = опциональный фолбэк для
-устойчивости к DPI, **будущая фаза, начинается с PoC**. Не «меню из 3 протоколов», а две оси
-покрытия (UDP/лёгкий ↔ TCP-mimicry/тяжёлый) + автофолбэк. Текущий код = только Light.
+Light (AmneziaWG, ядро) = дефолт и активный путь; Full (sing-box, VLESS+Reality) = опциональный
+фолбэк для устойчивости к DPI, **гейтится на v2.1**. Не «меню из 3 протоколов», а две оси
+покрытия (UDP/лёгкий ↔ TCP-mimicry/тяжёлый) + автофолбэк. Шаг `engine/steps/singbox/` уже написан
+(чистое ядро + тесты), но **не подключён к мастеру** (`fullAvailable=false`) — в мастере пока
+только Light. Осталось до Full: preflight-гейт по железу, маршрутизация в `singtun0`, автофолбэк.
 
 **Надёжность — три простых кирпича** (не generic-движок): строгий **preflight** (гейткипер
 железа), **идемпотентные шаги**, **точечный rollback** только там, где откат чистый.

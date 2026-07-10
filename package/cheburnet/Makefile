@@ -3,7 +3,7 @@
 # Собирается OpenWrt SDK (apk-based ветка, см. .github/workflows). Чистые скрипты — компилировать
 # нечего: Build/Compile пуст, install копирует файлы из репозитория. PKGARCH:=all — пакет
 # arch-независим (ucode интерпретируется), а arch-зависимые зависимости (kmod-amneziawg и т.п.)
-# apk подбирает сам. Проверка реальной сборки/установки — фаза QEMU (отложена мейнтейнером).
+# apk подбирает сам. Реальная сборка/установка проверяется в QEMU (qemu-install-v2, см. Makefile).
 
 include $(TOPDIR)/rules.mk
 
