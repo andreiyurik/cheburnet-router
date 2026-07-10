@@ -44,7 +44,7 @@ define Package/cheburnet/description
   Образовательный роутер на OpenWrt с настраиваемым split-tunnel: домены из direct-списка идут
   напрямую, остальной трафик — через зашифрованный VPN. Light-тир (дефолт): dnsmasq-nftset +
   nftables + policy routing + AmneziaWG (в ядре, для слабого железа). Full-тир (VLESS+Reality
-  через sing-box) — план v2.1, отдельным пакетом.
+  через sing-box) — опциональный пакет cheburnet-full для устойчивости к DPI на мощном железе.
   Логика — движок на ucode; настройка — веб-мастер через ubus RPC.
 endef
 
@@ -132,6 +132,6 @@ define Package/cheburnet-full/install
 endef
 
 $(eval $(call BuildPackage,cheburnet))
-# cheburnet-full НЕ собираем: Full-тир де-скоупнут из первого релиза (ADR 0004 → v2.1).
-# Определения выше оставлены — вернуть = раскомментировать eval.
-# $(eval $(call BuildPackage,cheburnet-full))
+# cheburnet-full — метапакет Full-тира (ADR 0004): добавляет sing-box к базовому cheburnet.
+# Ставится только там, где preflight подтвердил Full (AES-arch, RAM); слабое железо его не тянет.
+$(eval $(call BuildPackage,cheburnet-full))
