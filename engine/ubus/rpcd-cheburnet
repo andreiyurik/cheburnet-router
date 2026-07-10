@@ -101,6 +101,39 @@ function reapply_step(name, cfg) {
 	return run_stdin(engine_cli(sprintf("steps/%s/apply.uc", name)), payload);
 }
 
+// validate_tunnel_conf(protocol, conf) → { ok, error } — СИНХРОННАЯ проверка туннель-конфига
+// ДО фона: битый вход отбиваем сразу, с ПОНЯТНОЙ причиной, а не заставляя пользователя ждать
+// провала всей установки и читать лог. reality: собираем ERROR-строки singbox/plan.uc точечно
+// («нет pbk», «нет sni»); awg: генерик (INI-конфиг обычно бит целиком) — как в replace_awg_conf.
+function validate_tunnel_conf(protocol, conf) {
+	if (protocol == "reality") {
+		if (length(trim(conf ?? "")) == 0)
+			return { ok: false, error: "нужна ссылка vless://… или JSON-конфиг sing-box" };
+		// Секрет (credentials сервера) → 600-temp, чистим сразу. plan.uc печатает ERROR: <причина>
+		// и выходит 1; ловим и код, и текст.
+		let tmp = STATE_DIR + "/reality-validate.txt";
+		writefile(tmp, conf);
+		chmod(tmp, 0o600);
+		let out = sh(sprintf("%s < %s 2>&1; echo __rc=$?", engine_cli("steps/singbox/plan.uc"), tmp));
+		unlink(tmp);
+		let rc = match(out, /__rc=([0-9]+)/);
+		if (rc && rc[1] == "0")
+			return { ok: true };
+		let msgs = [], lines = split(out, "\n");
+		for (let i = 0; i < length(lines); i++) {
+			let m = match(trim(lines[i]), /^ERROR: (.+)$/);
+			if (m) push(msgs, m[1]);
+		}
+		return { ok: false, error: length(msgs) > 0
+			? "ссылка Reality не разобрана: " + join("; ", msgs)
+			: "ссылка Reality не разобрана — проверьте, что вставлена целиком" };
+	}
+	// awg (Light): sync-валидация через vpn/plan.uc (генерик-сообщение достаточно).
+	let rc = run_stdin(engine_cli("steps/vpn/plan.uc") + " >/dev/null 2>&1", conf ?? "");
+	return rc == 0 ? { ok: true }
+		: { ok: false, error: "AWG-конфиг не разобран — проверьте, что вставлен целиком" };
+}
+
 // check_token(v) — гейт pre-install мутаций: сверить значение токена с файлом bootstrap'а.
 // Не вернулось → respond уже отдал ошибку (функция не возвращается при провале).
 function check_token(v) {
@@ -237,6 +270,12 @@ function m_install(v) {
 	// нет → дефолт. run.uc по нему выбирает туннель-шаг (vpn/singbox) и tunnel_if.
 	let protocol = (type(v.protocol) == "string" && length(v.protocol) > 0)
 		? v.protocol : default_protocol();
+
+	// Синхронная валидация туннель-конфига: битую ссылку/конфиг отбиваем ДО фона с понятной
+	// причиной (не гонять весь rollback-цикл и не заставлять читать лог).
+	let vt = validate_tunnel_conf(protocol, protocol == "reality" ? v.reality_conf : v.awg_conf);
+	if (!vt.ok)
+		respond(make_error(vt.error));
 
 	// Воспроизводимая конфигурация (для set_mode/update_list/set_dns_provider/reset) — БЕЗ секретов.
 	// install.json — ещё и признак «установлено» для m_status, а пишем мы его ДО исхода установки.
