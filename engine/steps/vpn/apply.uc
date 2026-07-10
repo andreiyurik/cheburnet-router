@@ -8,7 +8,7 @@
 // Битый/неполный .conf → plan.ok=false → отказ без изменений (граница доверия — вход юзера).
 
 import { stdin, popen } from "fs";
-import { sh } from "../../lib/proc.uc";
+import { sh, uci_batch } from "../../lib/proc.uc";
 import { parse_awg_conf, build_vpn_plan } from "./vpn.uc";
 
 // dev_present(iface) — создал ли netifd kernel-устройство интерфейса (ip link).
@@ -38,13 +38,11 @@ for (let i = 0; i < length(plan.teardown); i++) {
 	if (p) p.close();
 }
 
-// setup атомарно через `uci batch`, затем commit network.
-let w = popen("uci batch", "w");
-if (!w) die("vpn/apply: не смог запустить uci batch");
-for (let i = 0; i < length(plan.setup); i++)
-	w.write(plan.setup[i] + "\n");
-w.write("commit network\n");
-w.close();
+// setup атомарно через `uci batch` + commit. rc проверяем: молча упавший batch =
+// полуприменённый network-конфиг под видом успеха (контракт lib/proc.uc, урок dns/doh).
+let rc = uci_batch(plan.setup, "network");
+if (rc != 0)
+	die(sprintf("vpn/apply: uci batch упал (код %d)", rc));
 
 // Поднять awg0. reload — быстрый путь (мягче restart, не дёргает остальные интерфейсы). НО на
 // свежей установке proto-handler amneziawg только что доставлен пакетом, и netifd о нём ещё не
