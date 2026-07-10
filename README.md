@@ -113,12 +113,12 @@ flowchart LR
 
 **Linux / macOS:**
 ```bash
-ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo попытка $i из 5 не удалась, повтор через 3 секунды; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo ОШИБКА: установщик не скачался. Проверьте, что на роутере есть интернет, и запустите команду снова.; fi'
+ssh-keygen -R 192.168.1.1 2>/dev/null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -T 15 -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo попытка $i из 5 не удалась, повтор через 3 секунды; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo ОШИБКА: установщик не скачался. Проверьте, что на роутере есть интернет, и запустите команду снова.; fi'
 ```
 
 **Windows (PowerShell / Терминал):**
 ```powershell
-ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo попытка $i из 5 не удалась, повтор через 3 секунды; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo ОШИБКА: установщик не скачался. Проверьте, что на роутере есть интернет, и запустите команду снова.; fi'
+ssh-keygen -R 192.168.1.1 2>$null; ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 root@192.168.1.1 'for i in 1 2 3 4 5; do wget -T 15 -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && break; rm -f /tmp/cheburnet-setup.sh; echo попытка $i из 5 не удалась, повтор через 3 секунды; sleep 3; done; if [ -s /tmp/cheburnet-setup.sh ]; then sh /tmp/cheburnet-setup.sh; else echo ОШИБКА: установщик не скачался. Проверьте, что на роутере есть интернет, и запустите команду снова.; fi'
 ```
 
 <!-- Почему именно так:

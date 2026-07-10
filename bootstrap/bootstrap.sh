@@ -54,8 +54,10 @@ retry() {
 }
 
 # fetch URL DEST — uclient-fetch штатен на OpenWrt; wget — fallback. Пустой файл считаем провалом.
+# Таймауты обязательны: без них busybox-wget/uclient-fetch ВИСНУТ на мёртвом соединении (нет
+# интернета на WAN / GitHub недоступен) вместо честного провала — ретрай тогда не срабатывает.
 fetch() {
-    uclient-fetch -qO "$2" "$1" 2>/dev/null || wget -qO "$2" "$1" || return 1
+    uclient-fetch -T 15 -qO "$2" "$1" 2>/dev/null || wget -T 15 -qO "$2" "$1" || return 1
     [ -s "$2" ] || return 1
 }
 
