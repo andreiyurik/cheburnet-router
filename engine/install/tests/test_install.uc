@@ -37,10 +37,11 @@ test("snapshot_scope: объединение чистых конфигов, де
 	deep_eq(scope, [ "network", "sing-box", "dhcp", "https-dns-proxy", "wireless", "firewall" ]);
 });
 
-test("snapshot_scope: reality-протокол (vpn off, singbox on) → sing-box вместо network", () => {
-	// reality: disable vpn (через disabled_tunnels), остаётся singbox
+test("snapshot_scope: reality-протокол (vpn off, singbox on) → sing-box + network (маршрут в туннель)", () => {
+	// reality: disable vpn (через disabled_tunnels), остаётся singbox. Его configs — sing-box И
+	// network (netifd-маршрут в singtun): обе uci-части откатываются snapshot'ом (гибридный шаг).
 	let scope = snapshot_scope(enabled_steps({ disable: [ "vpn" ] }));
-	deep_eq(scope, [ "sing-box", "dhcp", "https-dns-proxy", "wireless", "firewall" ]);
+	deep_eq(scope, [ "sing-box", "network", "dhcp", "https-dns-proxy", "wireless", "firewall" ]);
 });
 
 test("dirty_steps: singbox + firewall (runtime config.json/nft/ip → safe-fail teardown)", () => {

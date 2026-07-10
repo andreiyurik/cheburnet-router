@@ -16,9 +16,10 @@ import { is_clean_config } from "../rollback/rollback.uc";
 const STEPS = [
 	{ name: "vpn",      configs: [ "network" ],                  rollback: "clean", needs: "awg_conf" },
 	// singbox — альтернативный туннель (Full-тир, VLESS+Reality). Взаимоисключающий с vpn:
-	// активен ровно один (см. PROTOCOLS). Гибрид: uci sing-box (чистый откат) + config.json/сервис
-	// (runtime → dirty teardown). По умолчанию ОТКЛЮЧЁН (протокол awg) — Light остаётся дефолтом.
-	{ name: "singbox",  configs: [ "sing-box" ],                 rollback: "dirty", needs: "reality" },
+	// активен ровно один (см. PROTOCOLS). Гибрид: uci sing-box + network-маршрут (чистый откат
+	// snapshot'ом) + config.json/сервис (runtime → dirty teardown). network в configs → интерфейс
+	// singtun откатывается uci-снимком (как NAT-зона у firewall). По умолчанию ОТКЛЮЧЁН (awg).
+	{ name: "singbox",  configs: [ "sing-box", "network" ],      rollback: "dirty", needs: "reality" },
 	{ name: "dns",      configs: [ "dhcp" ],                     rollback: "clean", needs: "domains" },
 	{ name: "doh",      configs: [ "https-dns-proxy", "dhcp" ],  rollback: "clean", needs: "doh" },
 	// wifi — перед firewall: настройка радио независима от split-routing. Нет радио/ключа → no-op.

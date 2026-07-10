@@ -10,8 +10,8 @@
 // Битый/неполный вход → plan.ok=false → отказ без изменений (граница доверия — вход юзера).
 
 import { stdin, popen } from "fs";
-import { build_singbox_plan, config_path, service_name } from "./singbox.uc";
-import { uci_batch } from "../../lib/proc.uc";
+import { build_singbox_plan, build_net_plan, config_path, service_name, network_sections } from "./singbox.uc";
+import { sh, uci_batch } from "../../lib/proc.uc";
 
 let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
 let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
@@ -37,10 +37,18 @@ if (teardown) {
 	let name = service_name({});
 	svc("stop", name);
 	svc("disable", name);
+	// Снять netifd-маршрут: ifdown интерфейса + удалить наши секции network (иначе остаётся
+	// half-route в мёртвый TUN → LAN без интернета). Отсутствие секций — норма (уже снято).
+	sh(sprintf("ifdown %s >/dev/null 2>&1", network_sections({})[0]));
+	let nsects = network_sections({});
+	let nops = [];
+	for (let i = 0; i < length(nsects); i++)
+		push(nops, "delete network." + nsects[i]);
+	uci_batch(nops, "network");
 	// uci-выключение + удаление нашего конфиг-файла (отсутствие — норма).
 	uci_batch([ "set sing-box.main.enabled='0'" ], "sing-box");
 	let r = popen(sprintf("rm -f '%s'", config_path({})), "r"); if (r) r.close();
-	printf("singbox: teardown выполнен (сервис выключен, конфиг убран)\n");
+	printf("singbox: teardown выполнен (сервис выключен, маршрут и конфиг убраны)\n");
 	exit(0);
 }
 
@@ -59,6 +67,8 @@ if (dry) {
 	print(config_text);
 	for (let i = 0; i < length(plan.uci_teardown); i++) print("  " + plan.uci_teardown[i] + "\n");
 	for (let i = 0; i < length(plan.uci_setup); i++) print("  " + plan.uci_setup[i] + "\n");
+	for (let i = 0; i < length(plan.net_teardown); i++) print("  " + plan.net_teardown[i] + "\n");
+	for (let i = 0; i < length(plan.net_setup); i++) print("  " + plan.net_setup[i] + "\n");
 	exit(0);
 }
 
@@ -71,10 +81,24 @@ for (let i = 0; i < length(plan.uci_teardown); i++) {
 }
 let rc = uci_batch(plan.uci_setup, "sing-box");
 if (rc != 0)
-	die(sprintf("singbox/apply: uci batch вернул %d", rc));
+	die(sprintf("singbox/apply: uci batch (sing-box) вернул %d", rc));
+
+// netifd-маршрут в туннель (отдельный конфиг network). teardown с глушением, setup — с проверкой rc:
+// молча упавший batch = нет маршрута в туннель под видом успеха (тот же урок, что dns/doh/vpn).
+for (let i = 0; i < length(plan.net_teardown); i++) {
+	let p = popen(sprintf("uci -q %s", plan.net_teardown[i]), "r");
+	if (p) p.close();
+}
+let nrc = uci_batch(plan.net_setup, "network");
+if (nrc != 0)
+	die(sprintf("singbox/apply: uci batch (network) вернул %d", nrc));
 
 svc("enable", plan.service);
 svc("restart", plan.service);
 
-printf("singbox: применено — конфиг %s, сервис %s, TUN %s\n",
-	plan.config_path, plan.service, plan.tun);
+// Поднять netifd-интерфейс поверх TUN: netifd поставит half-routes, как только sing-box создаст
+// устройство (и переустановит при пересоздании — рестарт sing-box). ifup идемпотентен.
+sh(sprintf("ifup %s >/dev/null 2>&1", plan.net_iface ?? "singtun"));
+
+printf("singbox: применено — конфиг %s, сервис %s, TUN %s, маршрут через netifd (%s)\n",
+	plan.config_path, plan.service, plan.tun, network_sections({})[0]);

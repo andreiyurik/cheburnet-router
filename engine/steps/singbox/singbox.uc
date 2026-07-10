@@ -47,6 +47,60 @@ function service_name(opts) {
 	return resolve_opts(opts).service;
 }
 
+// Имя netifd-интерфейса и route-секций, которыми владеет шаг (для build_net_plan/reset).
+// singtun — тонкий proto-none интерфейс поверх TUN-устройства, чтобы netifd держал маршрут;
+// две route-секции — half-routes (см. build_net_plan). Единый источник имён — нет дрейфа.
+const NET_IFACE = "singtun";
+const NET_ROUTE_SECTIONS = [ "cheburnet_str0", "cheburnet_str1" ];
+
+// network_sections(opts?) → секции network, которыми владеет шаг (интерфейс + route-секции).
+// Для reset.uc: снести ровно наше, имена не хардкодить на той стороне (как vpn.owned_sections).
+function network_sections(opts) {
+	let out = [ NET_IFACE ];
+	for (let i = 0; i < length(NET_ROUTE_SECTIONS); i++)
+		push(out, NET_ROUTE_SECTIONS[i]);
+	return out;
+}
+
+// build_net_plan(opts) → { teardown, setup } — uci network: маршрут «весь трафик в туннель».
+//
+// ПОЧЕМУ netifd, а не sing-box: инвариант auto_route=false — маршрутизацией владеет ядро. У AWG
+// это делает proto-handler (route_allowed_ips=1 ставит default dev awg0). У sing-box TUN такого
+// нет, поэтому маршрут держим сами через netifd — он переустанавливает его при пересоздании
+// устройства (рестарт sing-box), и откатывается обычным uci-snapshot'ом (симметрия с awg0).
+//
+// ПОЧЕМУ half-routes 0.0.0.0/1 + 128.0.0.0/1, а не один default: они СПЕЦИФИЧНЕЕ WAN-дефолта
+// (0.0.0.0/0), поэтому побеждают его в main-таблице БЕЗ удаления WAN. WAN обязан остаться:
+// (1) direct-трафик уходит через него по нашей policy-routing (mark→table→WAN); (2) сам sing-box
+// коннектится к Reality-серверу через WAN (auto_detect_interface читает /0-дефолт = WAN — half-
+// routes его не трогают, петли нет). Тот же приём, что `redirect-gateway def1` у OpenVPN.
+//
+// proto none: интерфейс лишь привязан к устройству singtun0 (адрес назначает сам sing-box,
+// 172.19.0.1/30) — netifd не трогает L3, только держит маршруты и ждёт появления устройства.
+// IPv4-only: TUN у нас v4 (tun_address). IPv6 в туннель не заводим — от утечки v6 защищает
+// kill-switch firewall-шага (drop v6 в туннельном режиме), а не blackhole в v4-only TUN.
+function build_net_plan(opts) {
+	let o = resolve_opts(opts);
+	let teardown = [];
+	for (let i = 0; i < length(network_sections(opts)); i++)
+		push(teardown, "delete network." + network_sections(opts)[i]);
+
+	let setup = [
+		sprintf("set network.%s=interface", NET_IFACE),
+		sprintf("set network.%s.proto='none'", NET_IFACE),
+		sprintf("set network.%s.device='%s'", NET_IFACE, o.tun),
+		// half-route 0.0.0.0/1
+		sprintf("set network.%s=route", NET_ROUTE_SECTIONS[0]),
+		sprintf("set network.%s.interface='%s'", NET_ROUTE_SECTIONS[0], NET_IFACE),
+		sprintf("set network.%s.target='0.0.0.0/1'", NET_ROUTE_SECTIONS[0]),
+		// half-route 128.0.0.0/1
+		sprintf("set network.%s=route", NET_ROUTE_SECTIONS[1]),
+		sprintf("set network.%s.interface='%s'", NET_ROUTE_SECTIONS[1], NET_IFACE),
+		sprintf("set network.%s.target='128.0.0.0/1'", NET_ROUTE_SECTIONS[1]),
+	];
+	return { teardown: teardown, setup: setup, iface: NET_IFACE };
+}
+
 // hexnib(c) → значение hex-цифры 0..15 или -1. ucode без готового urldecode — пишем сами.
 function hexnib(c) {
 	let o = ord(c);
@@ -258,15 +312,22 @@ function build_singbox_plan(text, opts) {
 		sprintf("set sing-box.main.conffile='%s'", o.config_path),
 	];
 
+	// Маршрут «весь трафик в туннель» через netifd (см. build_net_plan) — отдельный uci-конфиг
+	// (network), поэтому отдаём его собственными списками: apply применяет обоими батчами.
+	let net = build_net_plan(opts);
+
 	return {
 		ok: true, errors: [], source: parsed.source,
 		config: parsed.config,
 		config_path: o.config_path,
 		uci_setup: uci_setup,
 		uci_teardown: uci_teardown,
+		net_setup: net.setup,
+		net_teardown: net.teardown,
+		net_iface: net.iface,
 		service: o.service,
 		tun: o.tun,
 	};
 }
 
-export { tun_interface, config_path, service_name, parse_vless_link, build_singbox_config, parse_input, build_singbox_plan };
+export { tun_interface, config_path, service_name, network_sections, build_net_plan, parse_vless_link, build_singbox_config, parse_input, build_singbox_plan };
