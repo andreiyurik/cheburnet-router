@@ -2,7 +2,7 @@
 //   ucode -R engine/list/tests/test_list.uc
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
-import { parse_list, assemble, looks_like_list } from "../list.uc";
+import { parse_list, assemble, looks_like_list, DEFAULT_SOURCE } from "../list.uc";
 
 // --- parse_list: форматы ---
 test("parse_list: plain — по домену в строке, комментарии/пустые мимо", () => {
@@ -42,6 +42,15 @@ test("assemble: stats считают user/imported/valid", () => {
 	eq(r.stats.user, 1);
 	eq(r.stats.imported, 2);
 	eq(r.stats.valid, 3);
+});
+
+// --- дефолтный источник: контракт ubus update_list «без url есть дефолт» ---
+// Разъезд этого контракта уже ловили: обработчик обещал дефолт, а fetch.uc требовал URL —
+// кнопка «Обновить список» в UI падала всегда. Существование и форма дефолта — под тестом.
+test("DEFAULT_SOURCE: https-URL, семантика direct (outside, не inside)", () => {
+	ok(substr(DEFAULT_SOURCE, 0, 8) == "https://", "только https");
+	ok(index(DEFAULT_SOURCE, "outside") >= 0 && index(DEFAULT_SOURCE, "inside-") < 0,
+		"outside = напрямую; inside — противоположная семантика (см. WHY в list.uc)");
 });
 
 // --- looks_like_list: защита от мусора при обновлении ---
