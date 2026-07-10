@@ -125,7 +125,9 @@ umask 077
 # Переиспользуем токен, если он уже создан (postinst пакета засевает его при установке через
 # LuCI/apk — см. package/cheburnet/Makefile). Иначе создаём: тогда ссылка мастера из bootstrap и
 # из системного лога совпадают, а не расходятся двумя разными токенами.
-TOKEN="$(cat "$ETC/install-token" 2>/dev/null)"
+# || true обязателен: отсутствие файла — норма (на настроенной системе движок удалил токен после
+# установки), а провал подстановки в присваивании под set -e молча убивал повторный запуск здесь.
+TOKEN="$(cat "$ETC/install-token" 2>/dev/null || true)"
 if [ -z "$TOKEN" ]; then
     TOKEN="$(cat /proc/sys/kernel/random/uuid 2>/dev/null \
         || tr -dc 'a-f0-9' < /dev/urandom | head -c 32)"
