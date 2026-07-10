@@ -2,7 +2,8 @@
 //   ucode -R engine/install/tests/test_install.uc
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
-import { all_steps, enabled_steps, snapshot_scope, dirty_steps,
+import { route_uses_iface,
+         all_steps, enabled_steps, snapshot_scope, dirty_steps,
          decide_outcome, protocol_ids, default_protocol, tunnel_info,
          disabled_tunnels, handshake_state } from "../install.uc";
 
@@ -145,6 +146,26 @@ test("handshake_state: несколько peer — любой с ненулев�
 	eq(handshake_state("AAA=\t0\nBBB=\t0"), "waiting", "ни один peer не сделал рукопожатие");
 	eq(handshake_state("AAA=\t1782814700\nBBB=\t0"), "up", "первый peer с рукопожатием");
 	eq(handshake_state("AAA=\t0\nBBB=\t1782814700"), "up", "второй peer с рукопожатием");
+});
+
+// --- route_uses_iface (чистая часть connectivity-probe reality) ---
+test("route_uses_iface: маршрут через туннель → true (dev-токен, не подстрока)", () => {
+	ok(route_uses_iface("1.1.1.1 dev singtun0 src 172.19.0.1 uid 0 \n    cache", "singtun0"));
+	ok(route_uses_iface("1.1.1.1 via 10.0.0.1 dev singtun0 src 172.19.0.1", "singtun0"));
+});
+
+test("route_uses_iface: маршрут утёк на WAN → false (мёртвый туннель не выдаём за рабочий)", () => {
+	ok(!route_uses_iface("1.1.1.1 via 192.168.1.1 dev eth0 src 192.168.1.2", "singtun0"));
+});
+
+test("route_uses_iface: точное совпадение имени (dev singtun00 ≠ singtun0)", () => {
+	ok(!route_uses_iface("1.1.1.1 dev singtun00 src x", "singtun0"));
+});
+
+test("route_uses_iface: пустой вход / пустой iface → false (fail-safe)", () => {
+	ok(!route_uses_iface("", "singtun0"));
+	ok(!route_uses_iface(null, "singtun0"));
+	ok(!route_uses_iface("1.1.1.1 dev singtun0", ""));
 });
 
 exit(summary());

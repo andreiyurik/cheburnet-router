@@ -16,6 +16,7 @@ import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state,
          protocol_ids } from "./install.uc";
 import { parse_wan_route } from "../preflight/parse.uc";
+import { reality_connectivity } from "./probe.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -56,13 +57,13 @@ function step_stdin(s, cfg) {
 	return "{}";
 }
 
-// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). reality (Full): туннель —
-// userspace-сервис sing-box → «процесс жив» (глубокая проверка — QEMU/железо). awg (Light): по
-// latest-handshakes — "up" (рукопожатие было) или "none" (vpn не настраивался) считаем готовым,
-// "waiting" (peer есть, рукопожатия ещё нет) — нет.
+// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). reality (Full): НАСТОЯЩИЙ
+// connectivity-probe через туннель (не «pgrep жив» — процесс жив ≠ туннель везёт), см. probe.uc.
+// awg (Light): по latest-handshakes — "up" (рукопожатие было) или "none" (vpn не настраивался)
+// считаем готовым, "waiting" (peer есть, рукопожатия ещё нет) — нет.
 function tunnel_ok(cfg, iface) {
 	if ((cfg.protocol ?? default_protocol()) == "reality")
-		return trim(sh("pgrep -x sing-box >/dev/null 2>&1; echo $?")) == "0";
+		return reality_connectivity(iface);
 	return handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) != "waiting";
 }
 

@@ -161,4 +161,21 @@ function handshake_state(hs) {
 	return "waiting";
 }
 
-export { protocol_ids, default_protocol, tunnel_info, disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome, handshake_state };
+// route_uses_iface(route_out, iface) — идёт ли маршрут через iface по выводу `ip route get <ip>`.
+// ЧИСТАЯ (вход — строка вывода ip): connectivity-probe reality (run.uc/replace_reality, импурно)
+// форсирует host-route на probe-IP через туннель и этой функцией подтверждает, что маршрут реально
+// лёг на singtun0, а не утёк на WAN — иначе рабочий-с-виду fetch мог бы пройти мимо туннеля.
+// Формат первой строки: "<ip> dev <iface> src <...>" (или "... via <gw> dev <iface> ...").
+// Берём токен строго ПОСЛЕ "dev" — не подстрокой (dev singtun0 ≠ dev singtun00).
+function route_uses_iface(route_out, iface) {
+	let s = trim(route_out ?? "");
+	if (length(s) == 0 || length(iface ?? "") == 0) return false;
+	let first = split(s, "\n")[0];
+	let toks = split(trim(first), /[ \t]+/);
+	for (let i = 0; i + 1 < length(toks); i++)
+		if (toks[i] == "dev" && toks[i + 1] == iface)
+			return true;
+	return false;
+}
+
+export { protocol_ids, default_protocol, tunnel_info, disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome, handshake_state, route_uses_iface };
