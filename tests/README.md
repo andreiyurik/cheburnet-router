@@ -1,164 +1,72 @@
 # tests/
 
-Тестовая инфраструктура `cheburnet-router`. Три уровня (см. план в `AGENTS.md`).
+Тестовая инфраструктура `cheburnet-router`. Пирамида уровней описана в `CLAUDE.md`.
 
 ## Структура
 
 ```
 tests/
-├── lint.sh                 # T1 — единая точка статики (CI + локально)
-├── unit/                   # T2 — bats-core тесты pure-функций
-│   ├── test_json_escape.bats
-│   ├── test_awg_conf_parser.bats
-│   ├── test_awg_version_selection.bats
-│   └── test_input_validation.bats
-├── integration/            # T3a — реальный rpcd-cheburnet в sandbox
-│   ├── helpers/sandbox.bash    # инфра: tmpdir + PATH-моки + ETC_*-overrides
-│   ├── mocks/                  # PATH-shim'ы для uci, ubus, awg, jsonfilter ...
-│   ├── test_get_status.bats
-│   ├── test_install_start.bats
-│   ├── test_mutations.bats
-│   ├── test_acl_lockdown.bats
-│   └── test_protocol.bats
-├── fixtures/               # AWG-конфиги для unit-парсера
-├── helpers/                # setup для unit-тестов
-│   └── setup.bash
-└── vendor/                 # git submodules: bats-core + расширения
-    ├── bats-core/
-    ├── bats-support/
-    └── bats-assert/
+├── lint.sh                       # T1 — единая точка статики (CI + локально)
+├── poc/split-routing-netns.sh    # Фаза 0 PoC: split-routing на nft/ip в network namespace
+└── qemu/                         # T3 — живой OpenWrt в qemu/KVM
+    ├── lib.sh                    # общая инфра (образ snapshot'а, serial-консоль)
+    ├── smoke-v2.sh                # T3a: hermetic smoke движка (rpcd, ubus, fw4)
+    ├── install-v2.sh              # T3c: DEPENDS + data-plane через реальный apk-feed
+    └── webui-v2.sh                # T3b: HTTP-слой веб-мастера (uhttpd, ACL, сессии)
 ```
 
-После клона репо подтянуть submodules:
+Юнит-тесты движка (чистая логика на ucode) живут рядом с кодом в `engine/` — см.
+[engine/README.md](../engine/README.md) и `make test-engine`.
 
-```bash
-git submodule update --init --recursive
-```
-
-## T1 — статика (готово)
-
-Один скрипт `tests/lint.sh` гоняется одинаково локально и в CI:
+## T1 — статика
 
 ```bash
 make lint
 ```
 
-Что проверяется:
-
-| # | Проверка | Зачем |
-|---|---|---|
-| 1 | `shellcheck --shell=sh --severity=warning` на 39 POSIX-скриптах | Большинство кода идёт в busybox-ash на роутер; нужен POSIX-режим |
-| 2 | `shellcheck --shell=bash --severity=warning` на `setup.sh` | Хост-тулинг, использует bash-фичи |
-| 3 | `sh -n` / `bash -n` на всех скриптах | Safety net поверх shellcheck |
-| 4 | `python3 -m json.tool` на `web/rpcd-acl.json` + embedded-ACL heredoc'е в `setup/install.sh` | Кривая ACL-JSON ломает rpcd → веб-мастер мёртв |
-| 5 | `sha256(install.sh)` совпадает с хэшем в `README.md` | Если рассинхронить — пользователь запускает установку, проверка подписи проваливается, установка не идёт |
-
-CI: `.github/workflows/lint.yml` (push/PR → ubuntu-latest, `apt-get install shellcheck`, `make lint`).
-
-### Локальные требования
-
-- `bash`, `sh`, `python3` (обычно уже есть)
-- `shellcheck` ≥ 0.8 — `apt-get install shellcheck` / `dnf install ShellCheck` / `brew install shellcheck`
+Один скрипт `tests/lint.sh`, гоняется одинаково локально и в CI (`.github/workflows/lint.yml`):
+shellcheck (POSIX-режим) на shell-скриптах, `sh -n`/`ucode -c` safety-net, JSON-валидация ACL.
 
 ### Если shellcheck ругается
 
-Не глуши `# shellcheck disable=...` без объяснения. Допустимые причины:
-- `SC3043` (`local`) на скриптах для роутера — busybox-ash поддерживает `local`, но POSIX — нет. Подавляй с пометкой "busybox-ash supports local".
-- `SC2034` на `START`/`USE_PROCD` в `init.d/*` — переменные читает `/etc/rc.common`, который сорсит файл. Подавляй с пометкой "consumed by /etc/rc.common".
+Не глуши `# shellcheck disable=...` без объяснения. Известная легитимная причина:
+`SC3043` (`local`) на скриптах для роутера — busybox-ash поддерживает `local`, POSIX — нет.
+Подавляй с пометкой "busybox-ash supports local". Всё остальное — чини, не глуши.
 
-Всё остальное — чини, не глуши.
-
-## T2 — unit-тесты (готово)
+## T2 — юниты движка
 
 ```bash
-make test            # 68 тестов, ~3 секунды
+make test-engine
 ```
 
-Покрыто:
+Чистая логика на ucode (preflight, генерация конфигов, шаги установки) — без роутера, секунды.
+Discovery через `find` в `engine/run-tests.sh`, каждый модуль движка держит тесты рядом с собой
+(`engine/<module>/tests/`). Подробности и конвенции — `engine/README.md`.
 
-| Suite | Что тестирует | Источник истины |
-|---|---|---|
-| `test_json_escape.bats` | `json_escape` — экранирование для JSON-литерала. Round-trip через `python3 json.load`, попытки JSON-инъекции, unicode/emoji, CRLF | `lib/cheburnet-utils.sh` |
-| `test_awg_conf_parser.bats` | `awg_get_iface`/`awg_get_peer`/`awg_endpoint_host`/`awg_endpoint_port`. v1.0 минимальный, v1.5 с CPS, отсутствующая `[Peer]`, IPv6 endpoint в скобках | то же |
-| `test_awg_version_selection.bats` | `awg_pick_version` — выбор подходящего релиза awg-openwrt. wget-shim в `$PATH` мокает HEAD-запросы | то же |
-| `test_input_validation.bats` | `cheburnet_valid_mode`/`tier`/`factory_confirm` — валидаторы пользовательского ввода из ubus. Все известные shell-инъекции отвергаются | то же |
-
-### Зависимости
-
-- `bash` ≥ 4 (для bats-core)
-- `python3` (для round-trip-проверки JSON в `json_escape`)
-- bats-core / bats-support / bats-assert — git submodules в `tests/vendor/`
-
-### Добавление нового теста
-
-1. Если функция новая — добавь в `lib/cheburnet-utils.sh` (только pure-функции, без side-effects).
-2. Создай `tests/unit/test_<feature>.bats`:
-   ```bash
-   #!/usr/bin/env bats
-   load '../helpers/setup'
-
-   @test "функция: что проверяем" {
-       run my_function "input"
-       assert_success
-       assert_output "expected"
-   }
-   ```
-3. `make test` — должно стать N+1 тестов.
-
-### Что НЕ тестируется юнитами (намеренно)
-
-- Императивные `uci set` / `apk add` / `nft` — это тест busybox-uci, не нашего кода
-- Поведение `rpcd-cheburnet` end-to-end (реальный ubus, реальный jsonfilter) — это T3
-- AWG handshake, podkop split-routing — T3 / Уровень 4 (manual)
-
-## T3a — integration через mock-окружение (готово)
+## Фаза 0 — PoC split-routing
 
 ```bash
-make test-integration       # 64 теста, ~6 секунд
-make test                   # unit + integration вместе, ~10 секунд
+make poc-split
 ```
 
-Стенд: реальный `web/rpcd-cheburnet` (без модификаций) запускается в каждом
-тесте с переопределёнными системными путями (`STATE_DIR`, `INSTALL_DIR`,
-`ETC_CHEBURNET`, `ETC_INIT_D` и т.д.) и `PATH`-prepend каталогом моков. Никакого
-QEMU, никакого реального ubus.
+Прогоняет реальный вывод генератора routing (`engine/routing/`) через `nft`/`ip` в rootless
+network namespace — проверяет, что сгенерированные правила реально работают в ядре, а не только
+проходят юнит-ассерты.
 
-| Suite | Тестов | Что покрывает |
-|---|---|---|
-| `test_get_status.bats` | 6 | pre/post-install statе, dns_up probe, валидность JSON |
-| `test_install_start.bats` | 10 | защита токеном (нет файла / нет в payload / неверный / префикс), валидация ssid/wifi_key/root_pass/awg_conf |
-| `test_mutations.bats` | 18 | factory_reset / mode_switch / set_blocklist_tier / service_restart / install_cancel + защита от shell-инъекций |
-| `test_acl_lockdown.bats` | 11 | контракт `web/rpcd-acl.json` (pre-install) + heredoc-ACL в `setup/install.sh` (post-install) — никаких лишних методов в unauth.write, install-токен удаляется после успеха |
-| `test_protocol.bats` | 13 | `list` возвращает все 8 методов, `install_progress` (idle / step / done / crashed), unknown method → JSON-error |
+## T3 — QEMU (живой OpenWrt)
 
-### Что НЕ покрывает T3a (намеренно)
+```bash
+make qemu-v2           # T3a: hermetic smoke, без интернета, ~2 мин
+make qemu-webui-v2     # T3b: + HTTP/ubus через uhttpd, нужен интернет, ~3 мин
+make qemu-install-v2   # T3c: DEPENDS + data-plane на реальном apk-feed, ~5-8 мин
+```
 
-- Реальный ACL-enforcement (это делает rpcd-демон по `acl.d/*.json`, не сам
-  скрипт). Здесь проверяется только структура файлов; реальный enforce —
-  ручной чек в `docs/RELEASE-CHECKLIST.md`.
-- Полный путь install.sh → setup/install.sh → ACL-lock через сеть (uhttpd, реальный
-  ubus). Это T3b (QEMU-стенд, не реализован — нужен либо self-hosted runner с
-  KVM, либо `libguestfs-tools`. См. `AGENTS.md`).
-- Поведение setup-скриптов на роутере (apk add, modprobe, uci commit network).
-  Это покрывается ручным smoke в чек-листе.
+Поднимают OpenWrt-snapshot x86-64 в qemu/KVM и гоняют движок на **реальном** busybox-окружении
+(не host-bash/gawk, на которых работают T1/T2). Детали и что именно каждый уровень покрывает —
+[tests/qemu/README.md](qemu/README.md). Гейтят CI: `qemu-v2-smoke` на каждый push/PR,
+`qemu-install-v2` — release-gate (нужен интернет, не гоняется на PR).
 
-### Refactor в `web/rpcd-cheburnet` для тестируемости
+## T4 — живой роутер
 
-В рамках T3a добавлены env-overrides системных путей (`ETC_CHEBURNET`,
-`ETC_AWG_DIR`, `ETC_ADBLOCK_CFG`, `ETC_INIT_D`, `USR_BIN_VPN_MODE`).
-Значения по умолчанию = жёсткие `/etc/cheburnet`,
-`/etc/init.d` и т.п. — поведение в проде идентично. Тесты переопределяют их
-через export.
-
-## T3b — реальный QEMU+OpenWrt (не реализовано)
-
-См. `docs/RELEASE-CHECKLIST.md`. Будет nightly или manual-trigger; через
-self-hosted runner с KVM либо `libguestfs-tools`. Покрывает 3-4 жирных
-сценария, которые принципиально нельзя замокать (ACL-enforcement через
-реальный rpcd, POST через uhttpd с реальной сессией).
-
-## T3c — RELEASE-CHECKLIST (готово)
-
-`docs/RELEASE-CHECKLIST.md` — пункты, которые **нельзя** автоматизировать
-(физическая кнопка, WPA3-handshake, реальный AWG, 24-часовой uptime). Гоняется
-руками перед каждым тегом.
+Ручной прогон на реальном железе перед тегом — не автоматизирован (physical Wi-Fi, реальный
+AWG-handshake, reboot). См. [docs/v2/meta/release-checklist.md](../docs/v2/meta/release-checklist.md).

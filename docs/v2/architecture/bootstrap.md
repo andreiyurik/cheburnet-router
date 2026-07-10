@@ -1,5 +1,5 @@
 ---
-title: Bootstrap и дистрибуция (feed + apk)
+title: Bootstrap и дистрибуция (GitHub Releases + apk)
 tags: [architecture, distribution]
 aliases: [bootstrap, distribution, feed, apk]
 updated: 2026-06-08
@@ -8,28 +8,45 @@ updated: 2026-06-08
 # 📦 Bootstrap и дистрибуция
 
 > [!tip] TL;DR
-> Установка = одна команда. Тонкий shell-bootstrap добавляет наш **OpenWrt-feed** и делает
-> `apk add cheburnet`. `apk` сам подбирает пакет под архитектуру и тянет зависимости — отсюда
-> **универсальность** под все подходящие роутеры.
+> Установка = одна команда. Тонкий shell-bootstrap ставит **kmod-amneziawg** (arch/ядро-
+> зависимый, через vendored-инсталлятор `awg-openwrt`) и пакет **cheburnet** (`PKGARCH:=all` —
+> arch-независимый, один `.apk` на всех) с наших **GitHub Releases**, `apk add
+> --allow-untrusted`. Остальные зависимости (`dnsmasq-full`, `https-dns-proxy`, …) `apk`
+> доустанавливает сам из штатного, уже подписанного feed'а OpenWrt.
 
-## Почему feed, а не «один бинарь под всё»
+## Почему два источника пакетов, а не свой feed
 
-«Универсально под все роутеры» технически = **разные архитектуры** (mips, arm, aarch64, x86_64).
-Решать это вручную (детектить arch, качать правильный файл) — хрупко. Пакетный менеджер уже
-решает обе задачи:
+Своего пакетного feed'а (репозитория с подписанным `APKINDEX`) у проекта **нет** — это
+осознанный MVP-выбор, не пробел. Два разных источника закрывают два разных случая:
 
-> `apk`/`opkg` сами выбирают **правильный пакет под arch** и доустанавливают **зависимости**.
-
-Поэтому дистрибуция — это **feed** (репозиторий пакетов), а не самодельный установщик.
+- **`kmod-amneziawg`** — модуль ядра, привязан к vermagic конкретной сборки. Собирать его самим
+  под каждую OpenWrt-версию×target — неподъёмная матрица для соло-мейнтейнера. Его уже собирает
+  upstream `awg-openwrt` под каждый стоковый релиз (сам детектит version/target/arch) —
+  импортируем, а не владеем.
+- **`cheburnet`** — arch-независим (ucode + shell + web, `PKGARCH:=all`), поэтому нужен ровно
+  **один `.apk`**, а не матрица под arch. Собирается один раз в CI и лежит ассетом в наших
+  GitHub Releases; `bootstrap.sh` качает его напрямую (`releases/latest/download/…`) — хостинг
+  feed-индекса не нужен.
+- Ставится `apk add --allow-untrusted`: apk-tools 3 доверяет пакету только через подписанный
+  индекс репозитория (`APKINDEX`), а не через подпись отдельного файла — `apk add ./x.apk`
+  всегда «untrusted», даже для официального пакета OpenWrt (проверено вживую). Аутентичность
+  здесь = HTTPS с нашего GitHub Release, тот же уровень доверия, что и unsigned kmod из
+  `awg-openwrt`. Настоящий подписанный feed (свой `APKINDEX` на GitHub Pages) — возможная
+  будущая фаза, не текущее состояние.
+- Всё остальное (`dnsmasq-full`, `https-dns-proxy`, `nftables`, …) — обычные пакеты из
+  штатного, уже подписанного feed'а OpenWrt, который есть на любой установке из коробки. Здесь
+  добавлять нечего, `apk` тянет их сам как зависимости пакета `cheburnet`.
 
 ## Поток установки
 
 ```mermaid
 flowchart TB
     user[Пользователь на OpenWrt] -->|одна команда| boot[bootstrap.sh]
-    boot --> feed[добавить feed cheburnet]
-    feed --> add["apk add cheburnet<br/>(apk: arch + зависимости)"]
-    add --> pre{preflight}
+    boot --> awg["kmod-amneziawg + tools<br/>(vendored awg-openwrt, детектит arch/ядро)"]
+    boot --> pkg["cheburnet.apk с GitHub Releases<br/>(PKGARCH=all, apk add --allow-untrusted)"]
+    pkg --> deps["apk доустанавливает зависимости<br/>из штатного feed'а OpenWrt"]
+    awg --> pre{preflight}
+    deps --> pre
     pre -->|✅ железо ок| open[открыть http://192.168.1.1/cheburnet/]
     pre -->|❌ не подходит| msg[понятное сообщение: нужно ≥ X]
     open --> wizard[веб-мастер Svelte]
@@ -56,8 +73,25 @@ OpenWrt firmware-selector. Всё после — одна команда.
 
 ## Сборка пакета
 
-Пакет собирается через **OpenWrt SDK** в CI (матрица архитектур), публикуется в feed при
-git-теге. Воспроизводимо и проверяемо — см. пирамиду тестов в [[reliability]].
+Пакет собирается через **OpenWrt SDK** в CI (`release.yml`, один SDK-контейнер — `PKGARCH:=all`
+даёт одинаковый `.apk` независимо от arch сборки) и публикуется **ассетом GitHub Release** по
+git-тегу `v*` (не в feed — см. выше). Воспроизводимо и проверяемо — см. пирамиду тестов в
+[[reliability]].
+
+## Обновление
+
+Отдельного механизма обновления нет — **та же команда, что и установка**. Повторный запуск
+`bootstrap.sh` (или ручной `apk add --allow-untrusted cheburnet.apk` свежей версии) скачивает
+актуальный ассет с `releases/latest/download/…` и ставит его: `apk` сравнивает `PKG_VERSION` из
+`package/cheburnet/Makefile` с уже установленным и заменяет пакет, если версия выросла — если
+версия не поднята, `apk add` молча ничего не делает (урок: перед тегом релиза `PKG_VERSION`
+обязан быть увеличен, иначе апгрейд на роутерах не доедет).
+
+Конфигурация не теряется: `postinst` пакета сеет install-токен и печатает ссылку мастера
+**только если `/etc/cheburnet/install.json` ещё нет** — то есть только при установке на чистую
+систему. На уже настроенном роутере upgrade — no-op сверх замены файлов пакета и `rpcd reload`
+(подхватить новый обработчик/ACL); сам `bootstrap.sh` тоже переиспользует существующий
+install-token, если он уже создан, вместо того чтобы всегда генерировать новый.
 
 ## Дальше
 

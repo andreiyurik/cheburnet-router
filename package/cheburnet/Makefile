@@ -89,7 +89,7 @@ define Package/cheburnet/install
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(CHEBURNET_REPO)/engine/ubus/rpcd-acl.json $(1)/usr/share/rpcd/acl.d/cheburnet.json
 
-	# Веб-мастер (пока заглушка; SPA на Svelte — в фазе web).
+	# Веб-мастер: SPA на Svelte, бандл собран Vite из web-v2/ и закоммичен в files/web/.
 	$(INSTALL_DIR) $(1)/www/cheburnet
 	$(CP) ./files/web/. $(1)/www/cheburnet/
 endef

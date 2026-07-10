@@ -1,8 +1,8 @@
 # 🌅 Sunset v1 — чек-лист удаления старой версии
 
-> **Статус:** план. Удаление v1 — **последний** шаг миграции, отдельным коммитом,
-> **только после** релиза v2 и прохождения всех гейтов ниже. До тех пор v1 заморожен,
-> но живёт (страховка по стратегии strangler-fig).
+> **Статус: выполнено (2026-07-10).** v1 удалён из репозитория одним заходом правок вслед за
+> релизом v2.0.1. Документ оставлен как исторический след решения — гейты ниже отмечены по
+> факту на момент удаления, включая два принятых мейнтейнером компромисса (см. пометки).
 
 Этот документ отвечает на вопрос «когда и как безопасно удалить v1, ничего не сломав».
 Принцип: **сначала зелёный и зарелиженный v2, потом удаление** — не наоборот.
@@ -11,84 +11,75 @@
 
 ## 🚦 Гейты: удалять v1 нельзя, пока не выполнено ВСЁ
 
-Снимаем галочки сверху вниз. Любая незакрытая — стоп.
-
-- [ ] **Паритет фич v2 ≥ v1.** Всё, что обещано пользователю, работает в v2:
-  - [ ] AmneziaWG (Light-тир) — ✅ готово, покрыто `make qemu-v2`.
-  - [ ] Кастомный DNS-фильтр (реклама / 18+) — ✅ готово (`steps/doh`, 5 провайдеров).
+- [x] **Паритет фич v2 ≥ v1.** Всё, что обещано пользователю, работает в v2:
+  - [x] AmneziaWG (Light-тир) — покрыто `make qemu-v2` + живым роутером.
+  - [x] Кастомный DNS-фильтр (реклама / 18+) — `steps/doh`, 5 провайдеров.
   - [x] **VLESS+Reality (Full-тир) — НЕ блокер релиза** (решение мейнтейнера 2026-07-03:
         де-скоуп первого релиза, возврат в v2.1). v1 его тоже не имел, так что паритет
         не страдает; код Full-тира в дереве, но мастер его не предлагает и пакет
         cheburnet-full не собирается.
         См. [0004-multi-protocol-tiers](../decisions/0004-multi-protocol-tiers.md).
-- [ ] **v2 проверен «живьём».** Зелёные в CI:
-  - [ ] `make qemu-v2` (hermetic smoke движка) — ✅ проходит.
-  - [ ] `make qemu-install-v2` (DEPENDS + data-plane на реальных сервисах).
-  - [ ] Прогон на **реальном роутере** (Beryl AX / Cudy или совместимый):
-        bootstrap → install через RPC → HOME и TRAVEL → DNS-фильтр → reboot+steady-state.
-  - [ ] Желательно: QEMU-матрица arch (mipsel / aarch64), а не только x86_64.
-- [ ] **Дистрибуция настоящая, не плейсхолдер.**
-  - [ ] Реальный feed-URL + ключ подписи (убрать `feed.cheburnet.example` из
-        `bootstrap/bootstrap.sh`).
-  - [ ] Публикация пакета по git-тегу в CI (`package-build` → feed + Release).
-  - [ ] Пользователь реально ставит `apk add cheburnet` из feed'а и проходит мастер.
-- [ ] **Релиз v2 выпущен** (git-тег + GitHub Release), и прошёл разумный обкаточный
-      период без критичных регрессий.
-- [ ] **Документация v2 самодостаточна** — `docs/v2/` объясняет всё, что объясняли
-      главы v1 (flash OpenWrt, AmneziaWG, split-routing, DNS, kill-switch, режимы,
-      troubleshooting). Ничего важного не теряется при удалении старых глав.
+- [x] **v2 проверен «живьём».**
+  - [x] `make qemu-v2` (hermetic smoke движка).
+  - [x] `make qemu-install-v2` (DEPENDS + data-plane на реальных сервисах).
+  - [x] Прогон на **реальном роутере** (GL-MT3000): bootstrap → install через веб-мастер →
+        живой AWG-трафик и kill-switch → DNS-фильтр.
+  - [ ] ⚠️ **Принято как компромисс:** QEMU-матрица arch (mipsel / aarch64) не прогонялась —
+        только x86_64. Пункт был помечен «желательно», не блокирующим; риск на будущее —
+        первый релиз под слабую arch может вскрыть то, что x86_64-QEMU не ловит.
+- [x] **Дистрибуция настоящая, не плейсхолдер.** Своего feed'а нет осознанно (MVP-выбор, см.
+      [docs/v2/architecture/bootstrap.md](../architecture/bootstrap.md)) — вместо него
+      arch-независимый `.apk` (`PKGARCH:=all`) как ассет GitHub Release,
+      `apk add --allow-untrusted`. Публикация по git-тегу в CI (`release.yml`) подтверждена
+      живьём: v2.0.1 собран и опубликован, реальный однострочник поставил и обновил пакет
+      на роутере.
+- [x] **Релиз v2 выпущен** (тег `v2.0.1` + GitHub Release).
+  - [ ] ⚠️ **Принято как компромисс:** обкаточный период — около 2 дней между релизом и
+        удалением v1, короче, чем «разумный» подразумевал этот чек-лист изначально. Решение
+        мейнтейнера — не блокирующий гейт задним числом.
+- [x] **Документация v2 самодостаточна** — `docs/v2/` покрывает flash OpenWrt, AmneziaWG,
+      split-routing, DNS, kill-switch, режимы, troubleshooting, upgrade, LAN-конфликт.
 
 ---
 
-## 🗑 Что удаляем (после прохождения гейтов)
+## 🗑 Что удалено
 
-Один коммит `chore: sunset v1` (или серия логически связанных). Перечень артефактов v1:
+**Корень:** `install.sh`, `setup.sh`, `AGENTS.md` (уроки перенесены в `CLAUDE.md`, раздел
+«Уроки предыдущей архитектуры»).
 
-**Корень:**
-- [ ] `install.sh`, `setup.sh` — v1-инсталляторы.
-- [ ] `AGENTS.md` — гид по v1-коду (контент перенести/проверить против `CLAUDE.md`).
+**Каталоги v1:** `setup/`, `lib/`, `scripts/`, `configs/`, `backup/`, `web/`,
+`vendor/podkop-install.sh` + `vendor/abl-install.sh` (`vendor/amneziawg-install.sh` остался —
+используется bootstrap'ом v2). `assets/` — проверено, используется актуальным README, оставлен.
 
-**Каталоги v1:**
-- [ ] `setup/` — 11 setup-скриптов (`00-prerequisites` … `10-quality`), `install.sh`,
-      `manifest.txt`, `post-upgrade.sh`, `README.md`.
-- [ ] `lib/` — v1-хелперы (`cheburnet-*.sh`, `install-awg.sh`, `install-podkop.sh`,
-      `net-detect.sh`, `podkop-config.sh`, `family-filter.sh`).
-- [ ] `scripts/` — рантайм-скрипты v1 (`awg-watchdog`, `dns-*`, `vpn-mode`, `hotplug`,
-      `conntrack-*`, `sqm-tune`, `net-benchmark`, `log-snapshot`, `install-via-tether.sh`).
-- [ ] `configs/` — примеры конфигов v1 (podkop/adblock/awg/wireless/sysupgrade).
-- [ ] `vendor/` — vendored-инсталляторы podkop/abl (структурный долг ручного обновления).
-- [ ] `backup/` — `backup.sh` / `restore.sh` (если не переосмыслены под v2).
-- [ ] `web/` — монолитный `index.html` v1 + `rpcd-cheburnet` v1 (заменён на `web-v2/`).
-- [ ] `assets/` — проверить, что не используется v2; иначе оставить.
+**Тесты v1:** `tests/unit/*.bats`, `tests/integration/` (+ `helpers/`, `mocks/`),
+`tests/hardware/`, `tests/manual-release-checklist.md`, `tests/fixtures/` (были нужны только
+удалённым unit-тестам), bats-submodules (`tests/vendor/`, `.gitmodules`),
+`tests/qemu/{smoke,smoke-http,install,audit-setup}.sh`. Остались `smoke-v2.sh`,
+`webui-v2.sh`, `install-v2.sh`, `lib.sh`.
 
-**Тесты v1 (bats):**
-- [ ] `tests/unit/*.bats` — 4 файла (v1 pure-функции).
-- [ ] `tests/integration/*.bats` + `helpers/` + `mocks/` — 10 файлов (моки v1 rpcd).
-- [ ] `tests/qemu/smoke.sh`, `smoke-http.sh`, `install.sh`, `audit-setup.sh` — v1 QEMU.
-  - ⚠️ **Оставить** `smoke-v2.sh`, `install-v2.sh`, `lib.sh` — это v2.
+**Документация v1:** `docs/01-architecture.md` … `docs/10-upgrades.md`, `docs/commands.md`,
+`docs/RELEASE-CHECKLIST.md` (заменён на [release-checklist.md](release-checklist.md)),
+`docs/test-lan-conflict.md` (контент перенесён в
+[reference/troubleshooting.md](../reference/troubleshooting.md)), `docs/router-too-small.md`
+(решаемая им проблема — v1-specific, в v2 не воспроизводится), `docs/images/luci-podkop-*.png`.
+`docs/00-flash-openwrt.md` **не удалён** — контент не зависит от v1/v2 (прошивка стокового
+OpenWrt), переклассифицирован как общий шаг.
 
-**Документация v1:**
-- [ ] `docs/00-flash-openwrt.md` … `docs/10-upgrades.md`, `docs/01-architecture.md`,
-      `docs/03-podkop-routing.md`, `docs/04-adblock.md` — главы про podkop/sing-box.
-  - ⚠️ Сверить с `docs/v2/`: если глава v1 объясняет что-то, чего нет в v2 — сначала
-        перенести, потом удалять.
-- [ ] `docs/RELEASE-CHECKLIST.md` — заменить на v2-версию (или обновить).
-
-**CI:**
-- [ ] Job'ы `qemu-smoke` / `qemu-install` (v1) в `.github/workflows/test.yml` —
-      удалить после того, как v2-аналоги стабильны в CI.
-- [ ] `make` цели `qemu`, `qemu-http`, `qemu-install`, `test-unit`, `test-integration`
-      (v1) — вычистить из `Makefile`.
+**CI/Makefile:** job'ы `test`/`qemu-smoke`/`qemu-install` из `test.yml`, targets
+`qemu`/`qemu-http`/`qemu-install`/`test-unit`/`test-integration`/`hardware` из `Makefile`,
+ветка `feat/v2` из триггеров `engine.yml` (сама ветка удалена ранее после merge).
 
 ---
 
 ## ✅ После удаления
 
-- [ ] `make lint && make test-engine && make qemu-v2` — зелёные.
-- [ ] `grep -ri "podkop\|sing-box\|setup/\|install.sh" --include='*.md' docs/` — нет
-      висячих ссылок на удалённое.
-- [ ] `README.md` описывает только v2-путь установки.
-- [ ] Обновить `CLAUDE.md`: убрать раздел «миграция v1→v2», снять упоминания AGENTS.md.
+- [x] `grep -ri "podkop\|sing-box\|setup/\|install.sh\|AGENTS.md"` по `docs/` и корню — не
+      осталось висячих ссылок на удалённое (за вычетом этого исторического документа).
+- [x] `README.md` описывает только путь установки через `bootstrap.sh`.
+- [x] `CLAUDE.md` обновлён: раздел «миграция v1→v2» переписан в прошедшем времени, упоминания
+      `AGENTS.md` убраны, раздел hard-won-уроков переформулирован (уже внутри v2, не «переносим»).
+- [ ] `make lint && make test-engine` — прогнать после этого коммита (QEMU — руки мейнтейнера,
+      нужен KVM/интернет, недоступны в среде правки).
 
 ---
 

@@ -265,29 +265,3 @@ vm_boot_and_setup() {
     done
     echo "  ✓ SSH OK ($(vm_ssh 'uname -smr'))"
 }
-
-# ─── деплой нашего handler/ACL/lib (для обоих smoke-сценариев) ───────────────
-vm_deploy_handler() {
-    echo "→ Раскладываю handler / ACL / lib"
-    vm_ssh "command -v rpcd >/dev/null && command -v jsonfilter >/dev/null && command -v ubus >/dev/null" \
-        || { echo "✗ snapshot не имеет rpcd/jsonfilter/ubus"; exit 1; }
-    vm_ssh "mkdir -p /opt/cheburnet/lib /etc/cheburnet /tmp/cheburnet \
-            /usr/libexec/rpcd /usr/share/rpcd/acl.d"
-    vm_scp "$REPO_ROOT/web/rpcd-cheburnet"     "/usr/libexec/rpcd/cheburnet"
-    vm_scp "$REPO_ROOT/web/rpcd-acl.json"      "/usr/share/rpcd/acl.d/cheburnet.json"
-    # rpcd-cheburnet source'ит lib-файлы БЕЗУСЛОВНО (`.` без `[ -f ]` гарда).
-    # На busybox-ash если хоть один источник отсутствует — весь скрипт падает,
-    # rpcd считает handler сломанным, ubus list cheburnet возвращает пусто.
-    # Поэтому список ОБЯЗАТЕЛЬНО держать в синхроне с .-цепочкой в начале
-    # web/rpcd-cheburnet — каждая правка source'ов там → правка здесь.
-    # Forgetting podkop-config.sh здесь приводило к падению make qemu на
-    # `ubus list cheburnet` с error «Not found», полностью маскируя любые
-    # реальные регрессии в нашем коде.
-    vm_scp "$REPO_ROOT/lib/cheburnet-utils.sh" "/opt/cheburnet/lib/cheburnet-utils.sh"
-    vm_scp "$REPO_ROOT/lib/net-detect.sh"      "/opt/cheburnet/lib/net-detect.sh"
-    vm_scp "$REPO_ROOT/lib/family-filter.sh"   "/opt/cheburnet/lib/family-filter.sh"
-    vm_scp "$REPO_ROOT/lib/podkop-config.sh"   "/opt/cheburnet/lib/podkop-config.sh"
-    vm_ssh "chmod +x /usr/libexec/rpcd/cheburnet"
-    vm_ssh "/etc/init.d/rpcd restart"
-    sleep 2
-}
