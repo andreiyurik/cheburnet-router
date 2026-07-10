@@ -485,6 +485,26 @@ function m_replace_awg_conf(v) {
 	respond({ status: "started", pid: pid });
 }
 
+function m_replace_reality_conf(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+	if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) != "y")
+		respond(make_error("Full-тир не установлен — пройдите мастер с протоколом VLESS+Reality"));
+
+	// Синхронная валидация ссылки/конфига ДО фона: битый вход отбиваем сразу с понятной
+	// причиной (нет pbk/sni/…), не тратя rollback-цикл. Тот же валидатор, что в m_install.
+	let vt = validate_tunnel_conf("reality", v.reality_conf);
+	if (!vt.ok)
+		respond(make_error(vt.error));
+
+	// Фон: replace_reality.uc (бэкап config.json → snapshot → apply → probe → commit/restore).
+	// reality_conf содержит credentials Reality-сервера → payload 600.
+	writefile(PAYLOAD_FILE, v.reality_conf);
+	chmod(PAYLOAD_FILE, 0o600);
+	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/replace_reality.uc"), PAYLOAD_FILE), "replacing-reality");
+	respond({ status: "started", pid: pid });
+}
+
 function m_factory_reset(v) {
 	// Защитное слово против случайного клика: ровно "RESET" (как в v1).
 	if (v.confirm != "RESET")
@@ -540,5 +560,6 @@ else if (method == "update_list")           m_update_list(v);
 else if (method == "service_restart")       m_service_restart(v);
 else if (method == "set_dns_provider")      m_set_dns_provider(v);
 else if (method == "replace_awg_conf")      m_replace_awg_conf(v);
+else if (method == "replace_reality_conf")  m_replace_reality_conf(v);
 else if (method == "factory_reset")         m_factory_reset(v);
 else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

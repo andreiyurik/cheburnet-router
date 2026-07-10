@@ -83,6 +83,11 @@ const REGISTRY = [
 	{ name: "replace_awg_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
 	] },
+	// Смена Reality-сервера без переустановки (Full-тир). Аналог replace_awg_conf: снапшот →
+	// применить → connectivity-probe → commit/restore. reality_conf — vless://… или JSON sing-box.
+	{ name: "replace_reality_conf", access: "write", auth: "admin", token: false, args: [
+		{ name: "reality_conf", type: "string", required: true },
+	] },
 	{ name: "factory_reset", access: "write", auth: "admin", token: false, args: [
 		// защитное слово; значение ("RESET") сверяет импурный слой — здесь лишь обязательность
 		{ name: "confirm", type: "string", required: true },

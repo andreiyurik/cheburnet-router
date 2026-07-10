@@ -10,6 +10,7 @@
   let action = $state(''); // текст результата/ошибки управляющего действия
   let busy = $state(false);
   let awgConf = $state('');
+  let realityConf = $state(''); // vless://… или JSON sing-box (Full-тир)
   let awgPhase = $state('idle'); // idle | running | ok | fail
   let awgLog = $state('');
   let resetWord = $state('');
@@ -103,16 +104,24 @@
     awgConf = await f.text();
   }
 
-  async function replaceAwg() {
-    if (awgConf.trim().length === 0) {
-      action = 'Вставьте или загрузите новый AWG-конфиг.';
+  // Замена туннель-конфига. Метод и поле зависят от активного протокола: reality (Full) →
+  // replace_reality_conf, awg (Light) → replace_awg_conf. Оба идут одним фон+poll-каналом
+  // (install_progress), поэтому прогресс-состояние awg* переиспользуется.
+  async function replaceTunnel() {
+    const reality = s?.protocol === 'reality';
+    const conf = reality ? realityConf : awgConf;
+    if (conf.trim().length === 0) {
+      action = reality ? 'Вставьте новую ссылку vless:// или конфиг.' : 'Вставьте или загрузите новый AWG-конфиг.';
       return;
     }
     busy = true;
     action = '';
     awgLog = '';
     try {
-      await cheburnet('replace_awg_conf', { awg_conf: awgConf });
+      if (reality)
+        await cheburnet('replace_reality_conf', { reality_conf: conf });
+      else
+        await cheburnet('replace_awg_conf', { awg_conf: conf });
       awgPhase = 'running';
       awgTimer = setInterval(pollAwg, 2000);
     } catch (e) {
@@ -129,18 +138,26 @@
         clearInterval(awgTimer);
         awgTimer = null;
         busy = false;
+        const reality = s?.protocol === 'reality';
         if (p.result === 'ok') {
           awgPhase = 'ok';
           awgConf = '';
-          action = 'Новый AWG-конфиг применён (handshake получен).';
+          realityConf = '';
+          action = reality
+            ? 'Новый Reality-сервер применён (трафик идёт через туннель).'
+            : 'Новый AWG-конфиг применён (handshake получен).';
         } else {
           awgPhase = 'fail';
-          // Честный намёк на случай, когда виноват не сервер, а сеть (режет VPN-UDP) — иначе
-          // пользователь меняет один AWG-конфиг на другой по кругу без понимания, почему все падают.
-          action = 'Новый конфиг тоже не поднялся — прежний возвращён автоматически. '
-            + 'Если несколько свежих конфигов подряд не работают, возможно, ваша сеть блокирует '
-            + 'этот тип VPN (AmneziaWG работает по UDP) — попробуйте конфиг другого сервера или '
-            + 'другую сеть/провайдера.';
+          // Честный намёк на случай, когда виноват не сервер, а сеть — иначе пользователь меняет
+          // один конфиг на другой по кругу без понимания, почему все падают.
+          action = reality
+            ? 'Новый сервер тоже не отозвался — прежний возвращён автоматически. Проверьте, что '
+              + 'ссылка vless:// свежая и сервер жив; если несколько серверов подряд не работают, '
+              + 'возможно, сеть блокирует и его.'
+            : 'Новый конфиг тоже не поднялся — прежний возвращён автоматически. '
+              + 'Если несколько свежих конфигов подряд не работают, возможно, ваша сеть блокирует '
+              + 'этот тип VPN (AmneziaWG работает по UDP) — попробуйте конфиг другого сервера или '
+              + 'другую сеть/провайдера.';
         }
         await refresh();
       }
@@ -255,21 +272,33 @@
     </div>
     <p class="muted small">«Семейный» провайдер блокирует сайты 18+ и форсит безопасный поиск. Выбор провайдера = уровень фильтрации.</p>
 
-    <h3 id="replace-awg">Замена VPN-конфига</h3>
-    <p class="muted small">Если VPN перестал работать — возьмите свежий <code>.conf</code> у вашего
-      VPN-провайдера (или другого сервера/локации) и загрузите здесь. Если новый конфиг не
-      поднимется, прежний вернётся автоматически — сломать нельзя.</p>
-    <label>
-      <span>Новый AWG-конфиг</span>
-      <textarea bind:value={awgConf} rows="5" disabled={busy}
-        placeholder="[Interface]&#10;PrivateKey = …&#10;[Peer]&#10;…"></textarea>
-    </label>
-    <label class="file">
-      <span>…или загрузить файлом</span>
-      <input type="file" accept=".conf,text/plain" onchange={onAwgFile} disabled={busy} />
-    </label>
+    {#if s.protocol === 'reality'}
+      <h3 id="replace-reality">Замена Reality-сервера</h3>
+      <p class="muted small">Если туннель перестал работать — возьмите свежую ссылку
+        <code>vless://…</code> из панели вашего Reality-сервера (3x-ui / Hiddify) и вставьте здесь.
+        Если новый сервер не отзовётся, прежний вернётся автоматически — сломать нельзя.</p>
+      <label>
+        <span>Новая ссылка vless:// или конфиг</span>
+        <textarea bind:value={realityConf} rows="5" disabled={busy}
+          placeholder="vless://uuid@host:443?security=reality&pbk=…&sni=…&#10;…или JSON-конфиг sing-box"></textarea>
+      </label>
+    {:else}
+      <h3 id="replace-awg">Замена VPN-конфига</h3>
+      <p class="muted small">Если VPN перестал работать — возьмите свежий <code>.conf</code> у вашего
+        VPN-провайдера (или другого сервера/локации) и загрузите здесь. Если новый конфиг не
+        поднимется, прежний вернётся автоматически — сломать нельзя.</p>
+      <label>
+        <span>Новый AWG-конфиг</span>
+        <textarea bind:value={awgConf} rows="5" disabled={busy}
+          placeholder="[Interface]&#10;PrivateKey = …&#10;[Peer]&#10;…"></textarea>
+      </label>
+      <label class="file">
+        <span>…или загрузить файлом</span>
+        <input type="file" accept=".conf,text/plain" onchange={onAwgFile} disabled={busy} />
+      </label>
+    {/if}
     <div class="row">
-      <button disabled={busy || awgConf.trim().length === 0} onclick={replaceAwg}>
+      <button disabled={busy || (s.protocol === 'reality' ? realityConf : awgConf).trim().length === 0} onclick={replaceTunnel}>
         {awgPhase === 'running' ? 'Применяю…' : 'Заменить конфиг'}
       </button>
     </div>

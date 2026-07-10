@@ -151,9 +151,11 @@ test("validate: set_dns_provider — enum из каталога; dns_provider в
 		false, "невалидный провайдер в install");
 });
 
-test("validate: replace_awg_conf и factory_reset — обязательные строки", () => {
+test("validate: replace_awg_conf/replace_reality_conf и factory_reset — обязательные строки", () => {
 	eq(validate_request("replace_awg_conf", { awg_conf: "[Interface]\n" }).ok, true);
 	eq(validate_request("replace_awg_conf", {}).ok, false, "awg_conf обязателен");
+	eq(validate_request("replace_reality_conf", { reality_conf: "vless://…" }).ok, true);
+	eq(validate_request("replace_reality_conf", {}).ok, false, "reality_conf обязателен");
 	eq(validate_request("factory_reset", { confirm: "RESET" }).ok, true);
 	eq(validate_request("factory_reset", {}).ok, false, "confirm обязателен");
 });

@@ -44,6 +44,7 @@
                     "service_restart",
                     "set_dns_provider",
                     "replace_awg_conf",
+                    "replace_reality_conf",
                     "factory_reset"
                 ]
             }
