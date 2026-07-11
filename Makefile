@@ -9,7 +9,7 @@
 #   make qemu-install-v2  — T3c: DEPENDS + data-plane против реальных сервисов (~5-8мин,
 #                            нужен интернет). Release-gate.
 
-.PHONY: lint test-engine poc-split qemu-v2 qemu-webui-v2 qemu-install-v2
+.PHONY: lint test-engine poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2
 
 lint:
 	@bash tests/lint.sh
@@ -41,3 +41,10 @@ qemu-install-v2:
 # без деструктивных эффектов. Нужен интернет в VM (apk add uhttpd-mod-ubus).
 qemu-webui-v2:
 	@./tests/qemu/webui-v2.sh
+
+# T3d-v2 — Full-тир (VLESS+Reality) data-plane WIRING на живом OpenWrt: singbox-шаг
+# применяет config.json + netifd-маршрут singtun0 (half-routes), connectivity-probe
+# корректно отвергает недостижимый сервер (fail-safe), teardown чистит. Рабочий
+# Reality-сервер НЕ нужен (герметично). Нужен интернет для apk. ~4-6 мин с KVM.
+qemu-reality-v2:
+	@./tests/qemu/reality-v2.sh
