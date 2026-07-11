@@ -43,6 +43,7 @@
                     "update_list",
                     "service_restart",
                     "set_dns_provider",
+                    "install_full_tier",
                     "replace_awg_conf",
                     "replace_reality_conf",
                     "factory_reset"

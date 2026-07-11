@@ -33,10 +33,9 @@
   let dnsProviders = $state([]);
   let dnsProviderDefault = $state('');
 
-  // Full-тир (VLESS+Reality, ADR 0004): предлагаем выбор протокола только там, где железо его
-  // тянет. Источник правды — preflight.tiers.full (AES-arch, RAM/флеш, sing-box ставится);
-  // Preflight отдаёт его в onReady. Слабое железо → остаётся false → мастер показывает только
-  // AmneziaWG (fail-safe: Light всегда доступен).
+  // Full-тир (VLESS+Reality, ADR 0004) — opt-in: sing-box ставится кнопкой в панели отдельно.
+  // Мастер предлагает Reality только когда sing-box УЖЕ стоит (preflight.tiers.full_installed);
+  // Preflight отдаёт это в onReady. Свежая установка → false → только AmneziaWG (лёгкий дефолт).
   let fullAvailable = $state(false);
 
   // Конфиг для установки накапливается на экране Setup, подтверждается на Confirm и

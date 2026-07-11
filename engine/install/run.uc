@@ -154,7 +154,9 @@ if (type(cfg.routing_opts.wan_if) != "string" || length(cfg.routing_opts.wan_if)
 }
 
 // Отключаем неактивные туннель-шаги (vpn/singbox взаимоисключающие) + пользовательский disable.
-let disable = disabled_tunnels(protocol);
+let tunnel_disable = disabled_tunnels(protocol); // именно туннели — их ещё и teardown'им ниже
+let disable = [];
+for (let i = 0; i < length(tunnel_disable); i++) push(disable, tunnel_disable[i]);
 if (type(cfg.disable) == "array")
 	for (let i = 0; i < length(cfg.disable); i++) push(disable, cfg.disable[i]);
 
@@ -211,6 +213,12 @@ if (dry) {
 // --- 2. snapshot UCI (для чистого отката) ---
 set_step("snapshot");
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
+
+// Смена протокола: снять НЕактивный туннель начисто (awg0 при reality и наоборот) — иначе оба
+// держат свой default-маршрут и конфликтуют. Снимок выше (network в scope) вернёт при откате.
+// Идемпотентно: не был установлен → no-op. vpn/singbox поддерживают --teardown.
+for (let i = 0; i < length(tunnel_disable); i++)
+	run_stdin(step_cmd(tunnel_disable[i], " --teardown"), "");
 
 // --- 3. шаги по порядку (fail-fast) ---
 let results = [];

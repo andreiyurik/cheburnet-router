@@ -41,12 +41,18 @@ for (let i = 0; i < length(req.deps); i++) {
 let fr = full_requirements();
 deps_installable[fr.dep] = cmd_rc(sprintf("apk add --simulate %s", fr.dep));
 
+// Full-тир — opt-in: sing-box ставится ОТДЕЛЬНО (кнопка в панели → apk add sing-box), не при
+// bootstrap. Поэтому «установлен ли» (бинарь есть) ≠ «устанавливаем ли» (--simulate выше).
+// evaluate_tiers по этому факту различает: показать кнопку «включить» vs предложить Reality.
+let sing_box_installed = cmd_rc(sprintf("command -v %s", fr.dep));
+
 let facts = {
 	arch: parse_arch(sh("uname -m")),
 	openwrt_version: parse_board(sh("ubus call system board 2>/dev/null")),
 	flash_free_mb: parse_df(sh("df -k /overlay 2>/dev/null || df -k /")),
 	ram_total_mb: parse_meminfo(readfile("/proc/meminfo") ?? ""),
 	deps_installable: deps_installable,
+	sing_box_installed: sing_box_installed,
 	lan_cidr: parse_iface_cidr(sh("ubus call network.interface.lan status 2>/dev/null")),
 	wan_cidr: parse_iface_cidr(sh("ubus call network.interface.wan status 2>/dev/null")),
 };

@@ -185,6 +185,25 @@ test("evaluate_tiers: sing-box не ставится → full недоступе
 	ok(index(c.detail, "sing-box") >= 0);
 });
 
+// full_installed (opt-in): «железо потянет» (full) ≠ «sing-box стоит» (full_installed).
+// Мастер предлагает Reality по full_installed; кнопка включения — по full (capable).
+test("evaluate_tiers: full_installed отражает факт sing_box_installed, независим от capable", () => {
+	let f = full_facts(); f.sing_box_installed = false;
+	let rep = evaluate_tiers(f, null);
+	ok(rep.full, "железо потянет (capable)");
+	ok(!rep.full_installed, "но sing-box ещё не стоит → Reality не предлагаем");
+	f.sing_box_installed = true;
+	ok(evaluate_tiers(f, null).full_installed, "поставили sing-box → Reality доступен");
+});
+
+test("evaluate_tiers: full_installed=true даже когда железо слабое (сигналы независимы)", () => {
+	// full_installed — это факт наличия бинаря, не гейт железа. capable отдельно.
+	let f = full_facts(); f.arch = "mipsel"; f.sing_box_installed = true;
+	let rep = evaluate_tiers(f, null);
+	ok(!rep.full, "слабая arch → не capable");
+	ok(rep.full_installed, "но бинарь стоит — это отдельный факт");
+});
+
 test("evaluate_tiers: провал базового light → full тоже false", () => {
 	let f = full_facts(); f.openwrt_version = "24.10.0";  // light провалится по версии
 	let rep = evaluate_tiers(f, null);

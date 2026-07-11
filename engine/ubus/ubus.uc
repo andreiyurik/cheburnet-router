@@ -80,6 +80,9 @@ const REGISTRY = [
 	{ name: "set_dns_provider", access: "write", auth: "admin", token: false, args: [
 		{ name: "provider", type: "string", required: true, enum: PROVIDER_IDS },
 	] },
+	// Full-тир (VLESS+Reality) — opt-in: догрузить sing-box по кнопке (apk add sing-box), НЕ при
+	// bootstrap. Дефолт остаётся лёгким AWG; слабое железо sing-box вообще не качает.
+	{ name: "install_full_tier", access: "write", auth: "admin", token: false, args: [] },
 	{ name: "replace_awg_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
 	] },

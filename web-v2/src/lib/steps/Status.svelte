@@ -15,8 +15,11 @@
   let awgLog = $state('');
   let resetWord = $state('');
   let resetArmed = $state(false);
+  let fullPhase = $state('idle'); // Full-тир (sing-box): idle | running | ok | fail
+  let fullLog = $state('');
   let timer = null;
   let awgTimer = null;
+  let fullTimer = null;
 
   // Вход (admin-сессия root). Лимит 3 попытки — дальше отсылаем к SSH.
   const MAX_LOGIN_ATTEMPTS = 3;
@@ -188,7 +191,45 @@
   onDestroy(() => {
     if (timer) clearInterval(timer);
     if (awgTimer) clearInterval(awgTimer);
+    if (fullTimer) clearInterval(fullTimer);
   });
+
+  // Full-тир (opt-in): кнопка догружает sing-box (apk add sing-box) фоном. Прогресс — тот же
+  // канал install_progress. AmneziaWG при этом не трогается (ставим только пакет).
+  async function enableFullTier() {
+    busy = true; action = ''; fullLog = '';
+    try {
+      await cheburnet('install_full_tier');
+      fullPhase = 'running';
+      fullTimer = setInterval(pollFull, 2000);
+    } catch (e) {
+      busy = false;
+      if (e.message.includes('PERMISSION_DENIED')) {
+        logout(); loggedIn = false; loginOpen = true;
+        action = 'Установка VLESS+Reality: нужен вход — введите пароль роутера.';
+      } else {
+        action = `Установка VLESS+Reality: ${e.message}`;
+      }
+    }
+  }
+
+  async function pollFull() {
+    try {
+      const p = await cheburnet('install_progress');
+      fullLog = p.log ?? '';
+      if (p.done) {
+        clearInterval(fullTimer); fullTimer = null; busy = false;
+        if (p.result === 'ok') {
+          fullPhase = 'ok';
+          action = 'sing-box установлен. Чтобы переключиться на VLESS+Reality — нажмите «Настроить заново» внизу и выберите протокол в мастере.';
+        } else {
+          fullPhase = 'fail';
+          action = 'Не удалось скачать sing-box — проверьте, что роутер в интернете, и попробуйте ещё раз. AmneziaWG не затронут.';
+        }
+        await refresh();
+      }
+    } catch { /* единичный сбой поллинга — следующий тик повторит */ }
+  }
 </script>
 
 <section>
@@ -271,6 +312,35 @@
       <button disabled={busy || !providerSel || providerSel === s.dns_provider} onclick={setProvider}>Применить</button>
     </div>
     <p class="muted small">«Семейный» провайдер блокирует сайты 18+ и форсит безопасный поиск. Выбор провайдера = уровень фильтрации.</p>
+
+    <!-- Full-тир (VLESS+Reality) — opt-in. Показываем только на подходящем железе (full_capable).
+         Не установлен → кнопка догрузки sing-box. Установлен, но активен AWG → подсказка переключиться. -->
+    {#if s.full_capable && !s.full_installed}
+      <h3 id="full-tier">VLESS + Reality (для сетей с жёстким DPI)</h3>
+      <p class="muted small">По умолчанию туннель — AmneziaWG (лёгкий, быстрый). Если ваша сеть его
+        блокирует, можно добавить <strong>VLESS+Reality</strong>: он маскируется под обычный HTTPS.
+        Это догрузит компонент <code>sing-box</code> (~15 МБ) — ставится один раз, по кнопке.
+        AmneziaWG при этом продолжит работать.</p>
+      <div class="row">
+        <button disabled={busy || fullPhase === 'running'} onclick={enableFullTier}>
+          {fullPhase === 'running' ? 'Устанавливаю…' : 'Включить VLESS+Reality'}
+        </button>
+      </div>
+      {#if fullPhase === 'running'}
+        <p><span class="spinner"></span> Скачиваю sing-box — это может занять минуту.</p>
+      {/if}
+      {#if fullLog && fullPhase !== 'idle'}
+        <details open={fullPhase === 'fail'}>
+          <summary>Журнал установки</summary>
+          <pre class="log">{fullLog}</pre>
+        </details>
+      {/if}
+    {:else if s.full_installed && s.protocol !== 'reality'}
+      <h3 id="full-tier">VLESS + Reality установлен</h3>
+      <p class="muted small">Компонент <code>sing-box</code> установлен. Сейчас активен AmneziaWG.
+        Чтобы переключиться на VLESS+Reality — нажмите «Настроить заново» внизу и выберите протокол
+        в мастере (понадобится ссылка <code>vless://</code> от вашего Reality-сервера).</p>
+    {/if}
 
     {#if s.protocol === 'reality'}
       <h3 id="replace-reality">Замена Reality-сервера</h3>

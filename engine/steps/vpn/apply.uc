@@ -2,6 +2,7 @@
 //
 //   cat awg0.conf | ucode -R apply.uc              # применить
 //   cat awg0.conf | ucode -R apply.uc --dry-run    # только показать план
+//   ucode -R apply.uc --teardown                   # снять awg0 (при смене протокола на reality)
 //
 // teardown (delete-before-add, || true) → setup (uci batch) → commit → перезапуск сети, чтобы
 // netifd поднял awg0. Проверяется в QEMU; логика плана — под юнит-тестами (vpn/tests).
@@ -9,16 +10,30 @@
 
 import { stdin, popen } from "fs";
 import { sh, uci_batch } from "../../lib/proc.uc";
-import { parse_awg_conf, build_vpn_plan } from "./vpn.uc";
+import { parse_awg_conf, build_vpn_plan, owned_sections } from "./vpn.uc";
 
 // dev_present(iface) — создал ли netifd kernel-устройство интерфейса (ip link).
 function dev_present(iface) {
 	return trim(sh(sprintf("ip link show %s >/dev/null 2>&1; echo $?", iface))) == "0";
 }
 
-let conf = stdin.read("all") ?? "";
-let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
+let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
+let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
+// --teardown — снять awg0 (смена протокола awg→reality): ifdown + удалить наши секции network
+// (иначе awg0 держит свой default-маршрут и конфликтует с singtun0). Отсутствие секций — норма.
+if (teardown) {
+	let sects = owned_sections({});
+	sh(sprintf("ifdown %s >/dev/null 2>&1", sects[0])); // sects[0] = интерфейс awg0
+	let ops = [];
+	for (let i = 0; i < length(sects); i++)
+		push(ops, "delete network." + sects[i]);
+	uci_batch(ops, "network");
+	printf("vpn: teardown выполнен (интерфейс %s снят из network)\n", sects[0]);
+	exit(0);
+}
+
+let conf = stdin.read("all") ?? "";
 let plan = build_vpn_plan(parse_awg_conf(conf), {});
 if (!plan.ok) {
 	for (let i = 0; i < length(plan.errors); i++)

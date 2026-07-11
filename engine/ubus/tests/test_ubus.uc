@@ -137,6 +137,12 @@ test("validate: service_restart — только v2-сервисы (без podko
 	eq(validate_request("service_restart", {}).ok, false, "service обязателен");
 });
 
+test("validate: install_full_tier — admin, без аргументов и токена (opt-in sing-box)", () => {
+	eq(validate_request("install_full_tier", {}).ok, true, "без аргументов — ок");
+	eq(validate_request("install_full_tier", { junk: 1 }).ok, true, "лишнее отбрасывается");
+	eq(requires_token("install_full_tier"), false, "admin-метод, не pre-install — токен не нужен");
+});
+
 test("validate: set_dns_provider — enum из каталога; dns_provider в install опционален", () => {
 	eq(validate_request("set_dns_provider", { provider: "adguard" }).ok, true, "каталожный id ок");
 	eq(validate_request("set_dns_provider", { provider: "adguard-family" }).ok, true, "семейный ок");

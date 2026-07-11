@@ -14,7 +14,7 @@
 import { stdin, readfile, writefile, unlink, access, chmod } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { list_descriptor, validate_request, requires_token, make_error } from "./ubus.uc";
-import { cidr_overlap, suggest_lan, valid_lan_ip } from "../preflight/preflight.uc";
+import { cidr_overlap, suggest_lan, valid_lan_ip, full_requirements } from "../preflight/preflight.uc";
 import { parse_wan_route } from "../preflight/parse.uc";
 import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
 import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
@@ -189,6 +189,11 @@ function m_status() {
 		"echo \"doh=$(/etc/init.d/https-dns-proxy status 2>/dev/null | grep -qi running && echo up)\"; " +
 		"echo \"radios=$(uci -q show wireless 2>/dev/null | grep -c '=wifi-device')\"; " +
 		"echo \"ssid=$(uci -q get wireless.@wifi-iface[0].ssid 2>/dev/null)\"; " +
+		// Full-тир (opt-in): бинарь sing-box стоит? + arch/ram для «потянет ли» (лёгкая проверка
+		// для видимости кнопки; авторитетный гейт — preflight при установке). arch — прокси AES.
+		"echo \"sbx=$(command -v sing-box)\"; " +
+		"echo \"march=$(uname -m)\"; " +
+		"echo \"mram=$(awk '/MemTotal/{print int(\\$2/1024)}' /proc/meminfo 2>/dev/null)\"; " +
 		// Пустой pid ОБЯЗАТЕЛЬНО отсекаем ДО kill: busybox парсит "" как 0 → kill(0,0) —
 		// сигнал собственной process-группе → всегда успех → ложный installing=true.
 		// Хостовый shell на "" отвечает ошибкой — юниты этот gap не видят (поймано в QEMU).
@@ -221,6 +226,15 @@ function m_status() {
 	// DNS-провайдер (= уровень фильтрации) из воспроизводимой конфигурации + каталог для UI.
 	let dns_provider = cfg.dns_provider;
 
+	// Full-тир (opt-in): full_installed — бинарь sing-box стоит (можно предлагать Reality);
+	// full_capable — железо потянет (показать кнопку «включить»). Пороги — из full_requirements
+	// (единый источник с preflight, не дрейфует): arch = прокси AES, ram — минимум. flash/simulate
+	// не проверяем на каждый поллинг (тяжело) — их авторитетно проверит preflight при установке.
+	let fr = full_requirements();
+	let full_installed = length(facts.sbx ?? "") > 0;
+	let full_capable = (index(fr.arch, facts.march ?? "") >= 0)
+		&& (match(facts.mram ?? "", /^[0-9]+$/) && int(facts.mram) >= fr.min_ram_mb);
+
 	// Здоровье импортированного списка: кэш community-списка direct-доменов (list/fetch.uc).
 	// Пустой/отсутствующий кэш — повод для баннера в UI (direct-домены поедут через туннель —
 	// fail-safe, но пользователь должен знать).
@@ -249,6 +263,8 @@ function m_status() {
 		dns_providers: catalog_for_ui(),
 		direct_list_loaded: imported_domains > 0,
 		imported_domains: imported_domains,
+		full_capable: full_capable,      // железо потянет Full → показать кнопку включения
+		full_installed: full_installed,  // sing-box стоит → можно предлагать/переключать на Reality
 	});
 }
 
@@ -505,6 +521,23 @@ function m_replace_reality_conf(v) {
 	respond({ status: "started", pid: pid });
 }
 
+function m_install_full_tier(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+	if (length(trim(sh("command -v sing-box"))) > 0)
+		respond(make_error("Full-тир уже установлен (sing-box стоит)"));
+
+	// Догрузка sing-box по кнопке (opt-in Full-тир). apk по сети флапает (downloads.openwrt.org
+	// из фильтрующих сетей рвётся — README про иронию знает) → ретраи. Итоговый код — от
+	// `command -v sing-box`: успех = бинарь появился. БЕЗ одинарных кавычек (spawn_bg оборачивает
+	// команду в sh -c '…'). Не трогает работающий AWG: это только установка пакета.
+	let cmd = "echo \"Ставлю sing-box (apk add)…\"; apk update; i=0; " +
+		"while [ $i -lt 4 ]; do apk add sing-box && break; i=$((i+1)); echo \"повтор $i…\"; sleep 3; done; " +
+		"command -v sing-box";
+	let pid = spawn_bg(cmd, "installing-full");
+	respond({ status: "started", pid: pid });
+}
+
 function m_factory_reset(v) {
 	// Защитное слово против случайного клика: ровно "RESET" (как в v1).
 	if (v.confirm != "RESET")
@@ -561,5 +594,6 @@ else if (method == "service_restart")       m_service_restart(v);
 else if (method == "set_dns_provider")      m_set_dns_provider(v);
 else if (method == "replace_awg_conf")      m_replace_awg_conf(v);
 else if (method == "replace_reality_conf")  m_replace_reality_conf(v);
+else if (method == "install_full_tier")     m_install_full_tier(v);
 else if (method == "factory_reset")         m_factory_reset(v);
 else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

@@ -205,12 +205,14 @@ function full_requirements() {
 	return resolve_full_req(null);
 }
 
-// evaluate_tiers(facts, req) → { light, full, full_checks, full_failed }.
-//   light — проходит ли базовый гейткипер (тот же evaluate; Full использует тот же базовый стек).
-//   full  — light И дополнительные пороги Full (AES-arch, RAM/флеш, sing-box ставится).
-// ИНФОРМАЦИОННО: предлагать Reality только где железо потянет; Light это НЕ блокирует
-// (fail-safe — слабый роутер просто остаётся на AmneziaWG). req.full — вложенные кастомные
-// пороги Full (для тестов/тюнинга); req (верхний) идёт в Light-evaluate как раньше.
+// evaluate_tiers(facts, req) → { light, full, full_installed, full_checks, full_failed }.
+//   light         — проходит ли базовый гейткипер (тот же evaluate; Full на том же базовом стеке).
+//   full          — «железо ПОТЯНЕТ Full» (capable): light И пороги (AES-arch, RAM/флеш, sing-box
+//                   УСТАНОВИМ через apk --simulate). Это сигнал «показать кнопку включения».
+//   full_installed — sing-box РЕАЛЬНО стоит (opt-in: ставится кнопкой отдельно, не при bootstrap).
+//                   Это сигнал «можно предлагать Reality» (мастер/панель). capable ≠ installed.
+// ИНФОРМАЦИОННО: Light это НЕ блокирует (fail-safe — слабый роутер остаётся на AmneziaWG).
+// req.full — вложенные кастомные пороги Full (тесты); req (верхний) идёт в Light-evaluate.
 function evaluate_tiers(facts, req) {
 	let light = evaluate(facts, req);
 	let fr = resolve_full_req(req ? req.full : null);
@@ -242,6 +244,7 @@ function evaluate_tiers(facts, req) {
 	return {
 		light: light.passed,
 		full: light.passed && failed == 0,
+		full_installed: facts.sing_box_installed === true,
 		full_checks: checks,
 		full_failed: failed,
 	};

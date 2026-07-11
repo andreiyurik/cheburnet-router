@@ -1,8 +1,9 @@
 <script>
   import { cheburnet } from '../ubus.js';
 
-  // onReady(fullAvailable) — вызвать, когда железо подходит. fullAvailable (report.tiers.full)
-  // сейчас игнорируется App'ом: Full-тир де-скоупнут на v2.1, текст о тирах тут не показываем.
+  // onReady(fullAvailable) — вызвать, когда железо подходит. fullAvailable = tiers.full_installed
+  // (sing-box РЕАЛЬНО стоит), НЕ tiers.full (железо лишь потянет): Full-тир opt-in — sing-box
+  // ставится кнопкой в панели отдельно. Пока не установлен — мастер предлагает только AmneziaWG.
   let { onReady } = $props();
 
   let report = $state(null);
@@ -47,7 +48,7 @@
 
     {#if report.passed}
       <p class="ok-msg">Роутер подходит — все {report.total} проверок пройдены.</p>
-      <button class="primary" onclick={() => onReady(report.tiers?.full === true)}>Продолжить</button>
+      <button class="primary" onclick={() => onReady(report.tiers?.full_installed === true)}>Продолжить</button>
     {:else}
       <p class="warn">Пока установить нельзя: не пройдено {report.failed} из {report.total} проверок.
         Ничего на роутере не менялось. Строки с ✗ выше показывают, что именно не так и как это
