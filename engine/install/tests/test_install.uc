@@ -49,6 +49,28 @@ test("dirty_steps: singbox + firewall (runtime config.json/nft/ip → safe-fail 
 	deep_eq(dirty_steps(all_steps()), [ "singbox", "firewall" ]);
 });
 
+// КРИТИЧНО для чистой смены протокола: перед шагами run.uc делает teardown НЕактивного туннеля
+// (awg0 при reality и наоборот) — он мутирует network. Значит network ОБЯЗАН быть в snapshot-
+// scope при ЛЮБОМ активном протоколе, иначе откат не вернёт снятый туннель. Проверяем оба.
+test("snapshot_scope: network защищён при обоих протоколах (иначе смена протокола не откатна)", () => {
+	let awg = snapshot_scope(enabled_steps({ disable: disabled_tunnels("awg") }));
+	ok(index(awg, "network") >= 0, "awg: network в снимке (vpn.configs)");
+	let reality = snapshot_scope(enabled_steps({ disable: disabled_tunnels("reality") }));
+	ok(index(reality, "network") >= 0, "reality: network в снимке (singbox.configs)");
+});
+
+// Teardown неактивного туннеля адресуется по имени ШАГА (vpn/singbox) — у обоих есть --teardown.
+// Если сюда попадёт не-туннельный шаг, run.uc дёрнул бы у него несуществующий режим.
+test("disabled_tunnels возвращает только туннель-шаги (у них есть --teardown)", () => {
+	let protos = [ "awg", "reality" ];
+	for (let i = 0; i < length(protos); i++) {
+		let dt = disabled_tunnels(protos[i]);
+		for (let j = 0; j < length(dt); j++)
+			ok(index([ "vpn", "singbox" ], dt[j]) >= 0,
+				sprintf("%s: '%s' — туннель-шаг", protos[i], dt[j]));
+	}
+});
+
 // --- модель протокола (две оси покрытия, ADR 0004) ---
 test("protocol_ids / default_protocol: awg (дефолт) и reality", () => {
 	deep_eq(protocol_ids(), [ "awg", "reality" ]);

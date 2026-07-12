@@ -205,6 +205,17 @@ function full_requirements() {
 	return resolve_full_req(null);
 }
 
+// supports_full_hw(arch, ram_mb, req) → «железо ПОТЯНЕТ Full» по лёгким признакам (arch = прокси
+// AES + RAM ≥ порог). Для m_status (видимость кнопки «Включить VLESS+Reality» на каждый поллинг)
+// — БЕЗ тяжёлых apk --simulate/df, их авторитетно проверит preflight при самой установке. ЧИСТАЯ,
+// толерантна к строке/мусору в ram_mb (приходит из shell-батча): не-число → -1 → false (fail-safe).
+function supports_full_hw(arch, ram_mb, req) {
+	let r = resolve_full_req(req);
+	let ram = (type(ram_mb) == "int") ? ram_mb
+		: (match("" + (ram_mb ?? ""), /^[0-9]+$/) ? int(ram_mb) : -1);
+	return index(r.arch, arch ?? "") >= 0 && ram >= r.min_ram_mb;
+}
+
 // evaluate_tiers(facts, req) → { light, full, full_installed, full_checks, full_failed }.
 //   light         — проходит ли базовый гейткипер (тот же evaluate; Full на том же базовом стеке).
 //   full          — «железо ПОТЯНЕТ Full» (capable): light И пороги (AES-arch, RAM/флеш, sing-box
@@ -267,4 +278,4 @@ function render_report(report) {
 	return out;
 }
 
-export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, full_requirements, evaluate_tiers, render_report };
+export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, full_requirements, supports_full_hw, evaluate_tiers, render_report };

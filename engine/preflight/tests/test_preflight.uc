@@ -3,7 +3,8 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { cmp_version, cidr_overlap, evaluate, render_report,
-         suggest_lan, valid_lan_ip, evaluate_tiers, full_requirements } from "../preflight.uc";
+         suggest_lan, valid_lan_ip, evaluate_tiers, full_requirements,
+         supports_full_hw } from "../preflight.uc";
 
 // Хорошие факты — каждый тест портит одно поле, чтобы проверить ровно его проверку.
 function good_facts() {
@@ -202,6 +203,25 @@ test("evaluate_tiers: full_installed=true даже когда железо сл�
 	let rep = evaluate_tiers(f, null);
 	ok(!rep.full, "слабая arch → не capable");
 	ok(rep.full_installed, "но бинарь стоит — это отдельный факт");
+});
+
+// --- supports_full_hw: лёгкий гейт железа для видимости кнопки (m_status, каждый поллинг) ---
+test("supports_full_hw: годная arch + RAM ≥ порог → true", () => {
+	ok(supports_full_hw("aarch64", 512, null));
+	ok(supports_full_hw("x86_64", 256, null), "ровно порог 256 проходит");
+});
+
+test("supports_full_hw: RAM ниже порога / слабая arch → false", () => {
+	ok(!supports_full_hw("aarch64", 255, null), "255 < 256 — не тянет");
+	ok(!supports_full_hw("mipsel", 512, null), "нет AES-arch");
+	ok(!supports_full_hw("armv7l", 1024, null), "armv7 без AES-гарантии — отсекаем");
+});
+
+test("supports_full_hw: mram строкой и мусором (приходит из shell-батча m_status)", () => {
+	ok(supports_full_hw("aarch64", "496", null), "число строкой — парсится");
+	ok(!supports_full_hw("aarch64", "", null), "пустая строка → false (fail-safe)");
+	ok(!supports_full_hw("aarch64", "n/a", null), "мусор → false, не падаем");
+	ok(!supports_full_hw("", 512, null), "пустая arch → false");
 });
 
 test("evaluate_tiers: провал базового light → full тоже false", () => {

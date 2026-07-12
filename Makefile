@@ -9,7 +9,7 @@
 #   make qemu-install-v2  — T3c: DEPENDS + data-plane против реальных сервисов (~5-8мин,
 #                            нужен интернет). Release-gate.
 
-.PHONY: lint test-engine poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2
+.PHONY: lint test-engine test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2
 
 lint:
 	@bash tests/lint.sh
@@ -17,6 +17,11 @@ lint:
 # Юнит-тесты движка (чистая логика на ucode, секунды, без роутера).
 test-engine:
 	@sh engine/run-tests.sh
+
+# Тесты shell-скриптов роутера с изоляцией через фейки (без сети/пакетов): ретраи/код
+# выхода install-singbox.sh (кнопка Full-тира) — самое глючеопасное место.
+test-shell:
+	@bash tests/install-singbox-test.sh
 
 # Фаза 0 PoC + e2e: split-routing на примитивах И из реального вывода генератора,
 # прогон через network namespace. Нужны nft/ip/unshare; ucode — для фазы B.
