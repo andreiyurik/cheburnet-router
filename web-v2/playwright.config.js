@@ -5,6 +5,9 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 30_000,
+  // Мок-роутер ОДИН на все spec-файлы и держит состояние в памяти — параллельные
+  // worker'ы топтали бы его /__reset'ом друг друга (wizard видел панель вместо мастера).
+  workers: 1,
   use: {
     baseURL: 'http://127.0.0.1:4317',
     // chromium в WSL/CI без user-namespaces требует --no-sandbox; тест герметичный.
