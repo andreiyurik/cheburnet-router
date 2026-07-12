@@ -33,10 +33,10 @@
   let dnsProviders = $state([]);
   let dnsProviderDefault = $state('');
 
-  // Full-тир (VLESS+Reality) де-скоупнут из первого релиза (ADR 0004 → v2.1): движок и preflight
-  // его умеют, но мастер не предлагает — всегда AmneziaWG (Light). Вернуть: fullAvailable из
-  // onReady Preflight (report.tiers.full).
-  const fullAvailable = false;
+  // Full-тир (VLESS+Reality, ADR 0004) — opt-in: sing-box ставится кнопкой в панели отдельно.
+  // Мастер предлагает Reality только когда sing-box УЖЕ стоит (preflight.tiers.full_installed);
+  // Preflight отдаёт это в onReady. Свежая установка → false → только AmneziaWG (лёгкий дефолт).
+  let fullAvailable = $state(false);
 
   // Конфиг для установки накапливается на экране Setup, подтверждается на Confirm и
   // читается экраном Installing.
@@ -107,7 +107,7 @@
     <LanConflict info={lanConflict} {urlToken} onSkip={() => (step = 'preflight')} />
   {:else if step === 'preflight'}
     {#if bootError}<p class="warn">Статус недоступен: {bootError}</p>{/if}
-    <Preflight onReady={() => (step = 'setup')} />
+    <Preflight onReady={(full) => { fullAvailable = full; step = 'setup'; }} />
   {:else if step === 'setup'}
     <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} {fullAvailable} {urlToken} initial={installArgs} />
   {:else if step === 'confirm'}

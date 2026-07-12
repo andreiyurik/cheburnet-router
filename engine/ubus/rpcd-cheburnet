@@ -14,7 +14,8 @@
 import { stdin, readfile, writefile, unlink, access, chmod } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { list_descriptor, validate_request, requires_token, make_error } from "./ubus.uc";
-import { cidr_overlap, suggest_lan, valid_lan_ip } from "../preflight/preflight.uc";
+import { cidr_overlap, suggest_lan, valid_lan_ip, supports_full_hw } from "../preflight/preflight.uc";
+import { parse_wan_route } from "../preflight/parse.uc";
 import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
 import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
 import { default_protocol } from "../install/install.uc";
@@ -100,6 +101,39 @@ function reapply_step(name, cfg) {
 	return run_stdin(engine_cli(sprintf("steps/%s/apply.uc", name)), payload);
 }
 
+// validate_tunnel_conf(protocol, conf) → { ok, error } — СИНХРОННАЯ проверка туннель-конфига
+// ДО фона: битый вход отбиваем сразу, с ПОНЯТНОЙ причиной, а не заставляя пользователя ждать
+// провала всей установки и читать лог. reality: собираем ERROR-строки singbox/plan.uc точечно
+// («нет pbk», «нет sni»); awg: генерик (INI-конфиг обычно бит целиком) — как в replace_awg_conf.
+function validate_tunnel_conf(protocol, conf) {
+	if (protocol == "reality") {
+		if (length(trim(conf ?? "")) == 0)
+			return { ok: false, error: "нужна ссылка vless://… или JSON-конфиг sing-box" };
+		// Секрет (credentials сервера) → 600-temp, чистим сразу. plan.uc печатает ERROR: <причина>
+		// и выходит 1; ловим и код, и текст.
+		let tmp = STATE_DIR + "/reality-validate.txt";
+		writefile(tmp, conf);
+		chmod(tmp, 0o600);
+		let out = sh(sprintf("%s < %s 2>&1; echo __rc=$?", engine_cli("steps/singbox/plan.uc"), tmp));
+		unlink(tmp);
+		let rc = match(out, /__rc=([0-9]+)/);
+		if (rc && rc[1] == "0")
+			return { ok: true };
+		let msgs = [], lines = split(out, "\n");
+		for (let i = 0; i < length(lines); i++) {
+			let m = match(trim(lines[i]), /^ERROR: (.+)$/);
+			if (m) push(msgs, m[1]);
+		}
+		return { ok: false, error: length(msgs) > 0
+			? "ссылка Reality не разобрана: " + join("; ", msgs)
+			: "ссылка Reality не разобрана — проверьте, что вставлена целиком" };
+	}
+	// awg (Light): sync-валидация через vpn/plan.uc (генерик-сообщение достаточно).
+	let rc = run_stdin(engine_cli("steps/vpn/plan.uc") + " >/dev/null 2>&1", conf ?? "");
+	return rc == 0 ? { ok: true }
+		: { ok: false, error: "AWG-конфиг не разобран — проверьте, что вставлен целиком" };
+}
+
 // check_token(v) — гейт pre-install мутаций: сверить значение токена с файлом bootstrap'а.
 // Не вернулось → respond уже отдал ошибку (функция не возвращается при провале).
 function check_token(v) {
@@ -155,6 +189,11 @@ function m_status() {
 		"echo \"doh=$(/etc/init.d/https-dns-proxy status 2>/dev/null | grep -qi running && echo up)\"; " +
 		"echo \"radios=$(uci -q show wireless 2>/dev/null | grep -c '=wifi-device')\"; " +
 		"echo \"ssid=$(uci -q get wireless.@wifi-iface[0].ssid 2>/dev/null)\"; " +
+		// Full-тир (opt-in): бинарь sing-box стоит? + arch/ram для «потянет ли» (лёгкая проверка
+		// для видимости кнопки; авторитетный гейт — preflight при установке). arch — прокси AES.
+		"echo \"sbx=$(command -v sing-box)\"; " +
+		"echo \"march=$(uname -m)\"; " +
+		"echo \"mram=$(awk '/MemTotal/{print int(\\$2/1024)}' /proc/meminfo 2>/dev/null)\"; " +
 		// Пустой pid ОБЯЗАТЕЛЬНО отсекаем ДО kill: busybox парсит "" как 0 → kill(0,0) —
 		// сигнал собственной process-группе → всегда успех → ложный installing=true.
 		// Хостовый shell на "" отвечает ошибкой — юниты этот gap не видят (поймано в QEMU).
@@ -187,6 +226,12 @@ function m_status() {
 	// DNS-провайдер (= уровень фильтрации) из воспроизводимой конфигурации + каталог для UI.
 	let dns_provider = cfg.dns_provider;
 
+	// Full-тир (opt-in): full_installed — бинарь sing-box стоит (можно предлагать Reality);
+	// full_capable — железо потянет (показать кнопку «включить»). Логика гейта железа — чистая
+	// supports_full_hw (единый источник с preflight, под юнит-тестами: граница RAM, мусор в mram).
+	let full_installed = length(facts.sbx ?? "") > 0;
+	let full_capable = supports_full_hw(facts.march, facts.mram, null);
+
 	// Здоровье импортированного списка: кэш community-списка direct-доменов (list/fetch.uc).
 	// Пустой/отсутствующий кэш — повод для баннера в UI (direct-домены поедут через туннель —
 	// fail-safe, но пользователь должен знать).
@@ -215,6 +260,8 @@ function m_status() {
 		dns_providers: catalog_for_ui(),
 		direct_list_loaded: imported_domains > 0,
 		imported_domains: imported_domains,
+		full_capable: full_capable,      // железо потянет Full → показать кнопку включения
+		full_installed: full_installed,  // sing-box стоит → можно предлагать/переключать на Reality
 	});
 }
 
@@ -236,6 +283,12 @@ function m_install(v) {
 	// нет → дефолт. run.uc по нему выбирает туннель-шаг (vpn/singbox) и tunnel_if.
 	let protocol = (type(v.protocol) == "string" && length(v.protocol) > 0)
 		? v.protocol : default_protocol();
+
+	// Синхронная валидация туннель-конфига: битую ссылку/конфиг отбиваем ДО фона с понятной
+	// причиной (не гонять весь rollback-цикл и не заставлять читать лог).
+	let vt = validate_tunnel_conf(protocol, protocol == "reality" ? v.reality_conf : v.awg_conf);
+	if (!vt.ok)
+		respond(make_error(vt.error));
 
 	// Воспроизводимая конфигурация (для set_mode/update_list/set_dns_provider/reset) — БЕЗ секретов.
 	// install.json — ещё и признак «установлено» для m_status, а пишем мы его ДО исхода установки.
@@ -296,14 +349,29 @@ function m_set_mode(v) {
 		respond(make_error("операция уже выполняется"));
 	let cfg = load_cfg();
 	cfg.routing_opts.mode = v.mode;
-	save_cfg(cfg);
 
-	// Mode-зависимы только DNS (в travel nftset пуст) и firewall (kill-switch строже + ip rule).
-	// VPN/DoH/adblock от режима не зависят — не трогаем. Идемпотентно: повтор того же режима = no-op.
-	let rc_dns = reapply_step("dns", cfg);
+	// wan_if персистит run.uc на commit-пути установки; для систем, установленных до этого фикса,
+	// повторяем первичный детект (netifd знает WAN, даже когда kernel-default у туннеля). Без
+	// wan_if firewall-план честно откажет: kill-switch не хардкодим (урок v1).
+	if (!cfg.routing_opts.wan_if) {
+		let wr = parse_wan_route(sh("ubus call network.interface.wan status 2>/dev/null"));
+		if (wr) {
+			cfg.routing_opts.wan_if = wr.wan_if;
+			if (wr.wan_gw) cfg.routing_opts.wan_gw = wr.wan_gw;
+		}
+	}
+
+	// Mode-зависимы только firewall (kill-switch строже + ip rule) и DNS (в travel nftset пуст).
+	// VPN/DoH от режима не зависят — не трогаем. Идемпотентно: повтор того же режима = no-op.
+	// Порядок: сначала firewall — откажет он (обычно нет WAN) → система не тронута вовсе; dns
+	// после него в любом исходе fail-safe (пустой/полный nftset → лишнее едет в туннель).
+	// Режим сохраняем ПОСЛЕ успеха обоих шагов: install.json отражает ПРИМЕНЁННОЕ состояние
+	// (раньше провал применения оставлял в status режим, которого на роутере нет).
 	let rc_fw  = reapply_step("firewall", cfg);
-	if (rc_dns != 0 || rc_fw != 0)
-		respond(make_error(sprintf("не удалось применить режим %s", v.mode), { dns: rc_dns, firewall: rc_fw }));
+	let rc_dns = (rc_fw == 0) ? reapply_step("dns", cfg) : -1;
+	if (rc_fw != 0 || rc_dns != 0)
+		respond(make_error(sprintf("не удалось применить режим %s", v.mode), { firewall: rc_fw, dns: rc_dns }));
+	save_cfg(cfg);
 	respond({ status: "ok", mode: v.mode });
 }
 
@@ -312,7 +380,8 @@ function m_update_list(v) {
 		respond(make_error("операция уже выполняется"));
 
 	// Подтянуть свежий community-список (fetch.uc сам гейтит мусор и атомарно меняет кэш;
-	// при сбое кэш не тронут → остаётся старый рабочий список). url необязателен — есть дефолт.
+	// при сбое кэш не тронут → остаётся старый рабочий список). url необязателен — дефолтный
+	// источник задаёт DEFAULT_SOURCE в list/list.uc (там же — проверка его семантики).
 	let url = v.url ?? "";
 	let fetch = engine_cli("list/fetch.uc") + (length(url) ? " " + shellquote(url) : "");
 	let rc = int(trim(sh(fetch + " >/dev/null 2>&1; echo $?")));
@@ -429,6 +498,77 @@ function m_replace_awg_conf(v) {
 	respond({ status: "started", pid: pid });
 }
 
+function m_replace_reality_conf(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+	if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) != "y")
+		respond(make_error("Full-тир не установлен — пройдите мастер с протоколом VLESS+Reality"));
+
+	// Синхронная валидация ссылки/конфига ДО фона: битый вход отбиваем сразу с понятной
+	// причиной (нет pbk/sni/…), не тратя rollback-цикл. Тот же валидатор, что в m_install.
+	let vt = validate_tunnel_conf("reality", v.reality_conf);
+	if (!vt.ok)
+		respond(make_error(vt.error));
+
+	// Фон: replace_reality.uc (бэкап config.json → snapshot → apply → probe → commit/restore).
+	// reality_conf содержит credentials Reality-сервера → payload 600.
+	writefile(PAYLOAD_FILE, v.reality_conf);
+	chmod(PAYLOAD_FILE, 0o600);
+	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/replace_reality.uc"), PAYLOAD_FILE), "replacing-reality");
+	respond({ status: "started", pid: pid });
+}
+
+function m_install_full_tier(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+	if (length(trim(sh("command -v sing-box"))) > 0)
+		respond(make_error("Full-тир уже установлен (sing-box стоит)"));
+
+	// Догрузка sing-box по кнопке (opt-in Full-тир) — вынесена в install-singbox.sh (ретраи +
+	// код выхода по факту наличия бинаря; логика под tests/install-singbox-test.sh). Не трогает
+	// работающий AWG: ставит только пакет.
+	let pid = spawn_bg(sprintf("sh %s/install/install-singbox.sh", ENGINE), "installing-full");
+	respond({ status: "started", pid: pid });
+}
+
+function m_switch_to_reality(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+	if (!access(CFG_FILE))
+		respond(make_error("система ещё не настроена — сначала пройдите мастер"));
+	if (length(trim(sh("command -v sing-box"))) == 0)
+		respond(make_error("sing-box не установлен — сначала нажмите «Включить VLESS+Reality»"));
+
+	let cfg = load_cfg();
+	if (cfg.protocol == "reality")
+		respond(make_error("уже используется VLESS+Reality — меняйте сервер через «Замена Reality-сервера»"));
+
+	// Синхронная валидация ссылки ДО фона (понятная ошибка, не rollback-цикл).
+	let vt = validate_tunnel_conf("reality", v.reality_conf);
+	if (!vt.ok)
+		respond(make_error(vt.error));
+
+	// Переиспользуем run.uc целиком: он делает snapshot → teardown awg0 (неактивный туннель) →
+	// apply singbox+dns+doh+firewall(singtun0) → connectivity-probe → commit/rollback. Домены/DNS/
+	// режим берём из сохранённого cfg (мастер НЕ проходим), пароль/Wi-Fi не трогаем.
+	// protocol в install.json меняем ЗАРАНЕЕ (+.prev): на commit run.uc допишет wan_if в этот же
+	// файл, на откате вернёт .prev (protocol=awg) — как у обычной установки.
+	cfg.protocol = "reality";
+	unlink(CFG_FILE + ".prev");
+	sh(sprintf("cp %s %s.prev", CFG_FILE, CFG_FILE));
+	save_cfg(cfg);
+
+	// domains — свежая сборка user+imported (как в m_install), а не устаревший снимок.
+	writefile(PAYLOAD_FILE, sprintf("%J", {
+		protocol: "reality", reality_conf: v.reality_conf,
+		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
+		dns_provider: cfg.dns_provider,
+	}));
+	chmod(PAYLOAD_FILE, 0o600);
+	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/run.uc"), PAYLOAD_FILE), "switching-reality");
+	respond({ status: "started", pid: pid });
+}
+
 function m_factory_reset(v) {
 	// Защитное слово против случайного клика: ровно "RESET" (как в v1).
 	if (v.confirm != "RESET")
@@ -484,5 +624,8 @@ else if (method == "update_list")           m_update_list(v);
 else if (method == "service_restart")       m_service_restart(v);
 else if (method == "set_dns_provider")      m_set_dns_provider(v);
 else if (method == "replace_awg_conf")      m_replace_awg_conf(v);
+else if (method == "replace_reality_conf")  m_replace_reality_conf(v);
+else if (method == "install_full_tier")     m_install_full_tier(v);
+else if (method == "switch_to_reality")     m_switch_to_reality(v);
 else if (method == "factory_reset")         m_factory_reset(v);
 else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

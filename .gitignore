@@ -1,18 +1,11 @@
 # Секреты — НИКОГДА не коммитим
 *.key
 *.pem
-# исключение: ПУБЛИЧНЫЙ ключ подписи пакета (приватный — только в секрете GitHub Actions)
 *.crt
 *.p12
 secrets/
-configs/*.real
-configs/awg0.conf
-configs/wireless-actual.*
-configs/wireless.uci.txt
-!configs/*.example*
 
-# Локальные бэкапы
-backup/snapshots/
+# Артефакты
 *.tar.gz
 *.tar.zst
 

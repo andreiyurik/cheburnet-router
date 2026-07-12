@@ -18,6 +18,18 @@
 `auto_detect_interface: true` — серверное соединение sing-box уходит в реальный WAN, не
 зацикливаясь обратно в TUN.
 
+## Кто ставит маршрут «весь трафик в туннель»
+
+Раз `auto_route: false`, маршрут в `singtun0` держит **netifd**, а не sing-box (симметрия с
+`route_allowed_ips=1` у AWG, где маршрут ставит proto-handler). Шаг создаёт тонкий интерфейс
+`network.singtun` (`proto none` поверх устройства `singtun0` — адрес назначает сам sing-box) и
+две **half-route** `0.0.0.0/1` + `128.0.0.0/1`. Они специфичнее WAN-дефолта `0.0.0.0/0`, поэтому
+побеждают его в main-таблице **без удаления WAN** (приём `redirect-gateway def1` у OpenVPN). WAN
+обязан остаться: по нему уходит direct-трафик (policy-routing) и сам sing-box коннектится к
+Reality-серверу. netifd переустанавливает маршрут при пересоздании TUN (рестарт sing-box) и
+откатывается обычным uci-snapshot'ом. IPv4-only: TUN у нас v4; от утечки IPv6 защищает
+kill-switch firewall-шага, а не blackhole в v4-only TUN.
+
 ## Почему sing-box возвращается (осознанно)
 
 ADR 0001 убрал sing-box из v1 ради образовательности (no black box). Full-тир возвращает его

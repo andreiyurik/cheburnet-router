@@ -10,12 +10,13 @@
 //
 // Откат честный: чистые шаги возвращает snapshot restore; грязный (firewall) — его --teardown.
 
-import { stdin, writefile, unlink } from "fs";
+import { stdin, readfile, writefile, unlink } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state,
          protocol_ids } from "./install.uc";
 import { parse_wan_route } from "../preflight/parse.uc";
+import { reality_connectivity } from "./probe.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -56,13 +57,13 @@ function step_stdin(s, cfg) {
 	return "{}";
 }
 
-// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). reality (Full): туннель —
-// userspace-сервис sing-box → «процесс жив» (глубокая проверка — QEMU/железо). awg (Light): по
-// latest-handshakes — "up" (рукопожатие было) или "none" (vpn не настраивался) считаем готовым,
-// "waiting" (peer есть, рукопожатия ещё нет) — нет.
+// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). reality (Full): НАСТОЯЩИЙ
+// connectivity-probe через туннель (не «pgrep жив» — процесс жив ≠ туннель везёт), см. probe.uc.
+// awg (Light): по latest-handshakes — "up" (рукопожатие было) или "none" (vpn не настраивался)
+// считаем готовым, "waiting" (peer есть, рукопожатия ещё нет) — нет.
 function tunnel_ok(cfg, iface) {
 	if ((cfg.protocol ?? default_protocol()) == "reality")
-		return trim(sh("pgrep -x sing-box >/dev/null 2>&1; echo $?")) == "0";
+		return reality_connectivity(iface);
 	return handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) != "waiting";
 }
 
@@ -153,7 +154,9 @@ if (type(cfg.routing_opts.wan_if) != "string" || length(cfg.routing_opts.wan_if)
 }
 
 // Отключаем неактивные туннель-шаги (vpn/singbox взаимоисключающие) + пользовательский disable.
-let disable = disabled_tunnels(protocol);
+let tunnel_disable = disabled_tunnels(protocol); // именно туннели — их ещё и teardown'им ниже
+let disable = [];
+for (let i = 0; i < length(tunnel_disable); i++) push(disable, tunnel_disable[i]);
 if (type(cfg.disable) == "array")
 	for (let i = 0; i < length(cfg.disable); i++) push(disable, cfg.disable[i]);
 
@@ -188,7 +191,10 @@ let pf_rc = run_stdin(sprintf("ucode -R %s/preflight/check.uc", ENGINE), facts);
 let preflight = { ok: (pf_rc == 0) };
 
 if (!preflight.ok) {
-	// Отчёт preflight уже напечатан check.uc выше (его stdout унаследован). Просто прерываемся.
+	// Отчёт preflight уже напечатан check.uc выше (его stdout унаследован). Прерываемся, но
+	// правду install.json возвращаем и здесь: abort гейткипера — такой же не-успех, как rollback
+	// (иначе фантомное installed=true — тот же баг, что чинили на ветках отката 2026-07-09).
+	restore_cfg_truth();
 	let d = decide_outcome({ preflight: preflight });
 	set_reason(d.code);
 	warn(sprintf("install: %s\n", d.reason));
@@ -207,6 +213,12 @@ if (dry) {
 // --- 2. snapshot UCI (для чистого отката) ---
 set_step("snapshot");
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
+
+// Смена протокола: снять НЕактивный туннель начисто (awg0 при reality и наоборот) — иначе оба
+// держат свой default-маршрут и конфликтуют. Снимок выше (network в scope) вернёт при откате.
+// Идемпотентно: не был установлен → no-op. vpn/singbox поддерживают --teardown.
+for (let i = 0; i < length(tunnel_disable); i++)
+	run_stdin(step_cmd(tunnel_disable[i], " --teardown"), "");
 
 // --- 3. шаги по порядку (fail-fast) ---
 let results = [];
@@ -231,6 +243,20 @@ let health = all_ok ? { ok: healthcheck(cfg) } : null;
 let outcome = decide_outcome({ preflight: preflight, steps: results, health: health });
 if (outcome.action == "commit") {
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
+	// WAN нашли МЫ (детект выше), мастер его не знает → персистим в install.json: set_mode
+	// переприменяет firewall через rpcd БЕЗ run.uc, а без wan_if kill-switch не строится
+	// (firewall-план честно откажет). tunnel_if — туда же (NAT-зона при переприменении).
+	let cfg_file = ETC_CHEBURNET + "/install.json";
+	let saved_raw = readfile(cfg_file);
+	let saved = (saved_raw && substr(trim(saved_raw), 0, 1) == "{") ? json(saved_raw) : null;
+	if (saved && cfg.routing_opts.wan_if) {
+		if (type(saved.routing_opts) != "object") saved.routing_opts = {};
+		saved.routing_opts.wan_if = cfg.routing_opts.wan_if;
+		if (cfg.routing_opts.wan_gw)
+			saved.routing_opts.wan_gw = cfg.routing_opts.wan_gw;
+		saved.routing_opts.tunnel_if = cfg.routing_opts.tunnel_if;
+		writefile(cfg_file, sprintf("%J\n", saved));
+	}
 	// Пароль root — не транзакция (см. steps/rootpass): применяем на успешном пути, отдельно от
 	// uci-снимка. Сбой passwd не валит установку — честный warning, пароль вторичен к data-plane.
 	if (cfg.root_password) {

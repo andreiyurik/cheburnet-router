@@ -131,4 +131,12 @@ test("owned_sections: имена секций шага (источник для 
 	deep_eq(owned_sections({ interface: "awg1" }), [ "awg1", "awg1_peer" ]);
 });
 
+// КОНТРАКТ для vpn/apply --teardown (смена протокола awg→reality): элемент [0] — это ИНТЕРФЕЙС,
+// его teardown делает `ifdown`. Если порядок перевернуть, ifdown дёрнет peer-секцию (не устройство)
+// и awg0 останется поднятым → конфликт маршрутов с singtun0. Фиксируем порядок явно.
+test("owned_sections[0] — интерфейс (vpn --teardown его ifdown'ит), [1] — peer", () => {
+	eq(owned_sections(null)[0], "awg0", "первый — интерфейс (цель ifdown)");
+	eq(owned_sections(null)[1], "awg0_peer", "второй — peer");
+});
+
 exit(summary());

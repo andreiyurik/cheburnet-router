@@ -28,8 +28,8 @@ updated: 2026-06-08
 | **Архитектура** | любой 2-ядерный MIPS (MT7621) и выше | ARMv8 c crypto-ext (Cortex-A53+) или x86_64 |
 | **OpenWrt** | ≥ 25.12 (apk-based) | ≥ 25.12 |
 | **Флеш (свободно)** | ≥ ~16 МБ | ≥ ~128 МБ или USB/extroot |
-| **RAM** | ≥ ~128 МБ (64 — эксперимент, без adblock) | ≥ ~256 МБ |
-| **Зависимости** | `kmod-amneziawg` + `https-dns-proxy`/`dnsmasq`/`adblock-lean` | `+ sing-box` под arch |
+| **RAM** | ≥ ~128 МБ (64 — эксперимент) | ≥ ~256 МБ |
+| **Зависимости** | `kmod-amneziawg` + `https-dns-proxy` + `dnsmasq` | `+ sing-box` под arch |
 
 > [!tip] Почему CPU и крипто решают
 > **AmneziaWG в ядре** шифрует ChaCha20 — быстр даже без AES-ускорения (потому годится для

@@ -20,7 +20,8 @@ import { sh, run_stdin, uci_batch } from "../lib/proc.uc";
 import { owned_sections } from "../steps/vpn/vpn.uc";
 import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
 import { listen_prefix } from "../steps/doh/doh.uc";
-import { config_path as sb_config, service_name as sb_service } from "../steps/singbox/singbox.uc";
+import { config_path as sb_config, service_name as sb_service,
+         network_sections as sb_net_sections } from "../steps/singbox/singbox.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -35,9 +36,12 @@ print("reset: снимаю data-plane (nft/ip/NAT-зона)\n");
 run_stdin(sprintf("ucode -R %s/steps/firewall/apply.uc --teardown", ENGINE),
 	sprintf("%J", { domains: [], routing_opts: ro }));
 
-// network: секции туннеля — имена даёт vpn-шаг.
+// network: секции туннеля — имена дают шаги-владельцы (vpn: awg0+peer; singbox: singtun+routes).
+// Снимаем обе группы независимо от активного протокола: reset идемпотентен и чистит всё наше.
 print("reset: убираю туннель из network\n");
 let net = owned_sections(null);
+for (let i = 0; i < length(sb_net_sections(null)); i++)
+	push(net, sb_net_sections(null)[i]);
 let nops = [];
 for (let i = 0; i < length(net); i++)
 	push(nops, "delete network." + net[i]);

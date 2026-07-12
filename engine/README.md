@@ -5,16 +5,15 @@ Control-plane на [ucode](https://ucode.mediatek.org/): настраивает 
 [data-plane](../docs/v2/architecture/data-plane.md)). Поэтому логика движка — **чистые
 функции**, юнит-тестируемые без роутера за секунды.
 
-Целевая раскладка по модулям — [architecture-v2.md](../docs/architecture-v2.md#-предлагаемая-структура-репозитория).
-Строится по фазам (strangler-fig), параллельно живому v1.
+Целевая раскладка по модулям — [architecture-v2.md](../docs/architecture-v2.md#-структура-репозитория-v2).
 
 | Модуль | Роль | Статус |
 |---|---|---|
 | `routing/` | генерация конфигов split-routing (dnsmasq-nftset + nft + ip rule) | ✅ есть |
 | `preflight/` | гейткипер железа/версии/зависимостей (чистая оценка + парсеры + router-side gather) | ✅ есть |
 | `rollback/` | snapshot/restore UCI там, где откат чистый (политика clean/dirty + router-side snapshot) | ✅ есть |
-| `lib/` | общие хелперы (`assert.uc`, `uci.uc` list-reconcile, `conf.uc` shell-конфиг) | ✅ есть |
-| `steps/` | идемпотентные шаги по компонентам | 🟢 `dns/`, `firewall/`, `vpn/`, `doh/`, `adblock/` есть |
+| `lib/` | общие хелперы (`assert.uc`, `uci.uc` list-reconcile, `proc.uc` shell/процессы) | ✅ есть |
+| `steps/` | идемпотентные шаги по компонентам | 🟢 `vpn/`, `dns/`, `doh/`, `wifi/`, `firewall/`, `rootpass/` есть; `singbox/` (Full-тир, не в мастере) |
 | `list/` | импорт и обновление community-списка доменов (чистая сборка + router-side fetch) | ✅ есть |
 | `install/` | оркестратор: preflight→snapshot→шаги→health→commit/rollback (политика + router-side run) | ✅ есть |
 | `ubus/` | RPC-фасад для web-мастера (чистая валидация/роутинг + rpcd-обработчик + ACL из реестра) | ✅ есть |

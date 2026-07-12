@@ -12,6 +12,13 @@
 
 import { normalize_domain, is_valid_domain } from "../routing/routing.uc";
 
+// Дефолтный источник импорта: кнопка «Обновить список» в UI зовёт update_list БЕЗ url — fetch.uc
+// берёт этот. Это дефолт пользовательской настройки, не политика: свой url передаётся аргументом.
+// СЕМАНТИКА ПРОВЕРЕНА ПО СОДЕРЖИМОМУ (урок v1 — названия community-листов контринтуитивны):
+// outside-raw = «ресурсы, доступные только из домашней зоны» → идут НАПРЯМУЮ (наша семантика).
+// Соседний inside-raw — ПРОТИВОПОЛОЖНЫЙ (домены для туннеля): не перепутать при смене ссылки.
+const DEFAULT_SOURCE = "https://raw.githubusercontent.com/itdoginfo/allow-domains/main/Russia/outside-raw.lst";
+
 // Адреса-«заглушки» в hosts-формате блок-/направляющих списков: 0.0.0.0 domain / 127.0.0.1 domain.
 const HOST_SINKS = [ "0.0.0.0", "127.0.0.1", "::", "::1" ];
 
@@ -91,4 +98,4 @@ function looks_like_list(text, min_valid) {
 	return false;
 }
 
-export { parse_list, assemble, looks_like_list };
+export { parse_list, assemble, looks_like_list, DEFAULT_SOURCE };

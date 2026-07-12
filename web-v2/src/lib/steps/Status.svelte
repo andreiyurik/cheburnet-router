@@ -10,12 +10,20 @@
   let action = $state(''); // текст результата/ошибки управляющего действия
   let busy = $state(false);
   let awgConf = $state('');
+  let realityConf = $state(''); // vless://… или JSON sing-box (Full-тир)
   let awgPhase = $state('idle'); // idle | running | ok | fail
   let awgLog = $state('');
   let resetWord = $state('');
   let resetArmed = $state(false);
+  let fullPhase = $state('idle'); // Full-тир (sing-box): idle | running | ok | fail
+  let fullLog = $state('');
+  let switchConf = $state('');    // vless:// для in-place переключения AWG→Reality
+  let switchPhase = $state('idle');
+  let switchLog = $state('');
   let timer = null;
   let awgTimer = null;
+  let fullTimer = null;
+  let switchTimer = null;
 
   // Вход (admin-сессия root). Лимит 3 попытки — дальше отсылаем к SSH.
   const MAX_LOGIN_ATTEMPTS = 3;
@@ -103,16 +111,24 @@
     awgConf = await f.text();
   }
 
-  async function replaceAwg() {
-    if (awgConf.trim().length === 0) {
-      action = 'Вставьте или загрузите новый AWG-конфиг.';
+  // Замена туннель-конфига. Метод и поле зависят от активного протокола: reality (Full) →
+  // replace_reality_conf, awg (Light) → replace_awg_conf. Оба идут одним фон+poll-каналом
+  // (install_progress), поэтому прогресс-состояние awg* переиспользуется.
+  async function replaceTunnel() {
+    const reality = s?.protocol === 'reality';
+    const conf = reality ? realityConf : awgConf;
+    if (conf.trim().length === 0) {
+      action = reality ? 'Вставьте новую ссылку vless:// или конфиг.' : 'Вставьте или загрузите новый AWG-конфиг.';
       return;
     }
     busy = true;
     action = '';
     awgLog = '';
     try {
-      await cheburnet('replace_awg_conf', { awg_conf: awgConf });
+      if (reality)
+        await cheburnet('replace_reality_conf', { reality_conf: conf });
+      else
+        await cheburnet('replace_awg_conf', { awg_conf: conf });
       awgPhase = 'running';
       awgTimer = setInterval(pollAwg, 2000);
     } catch (e) {
@@ -129,18 +145,26 @@
         clearInterval(awgTimer);
         awgTimer = null;
         busy = false;
+        const reality = s?.protocol === 'reality';
         if (p.result === 'ok') {
           awgPhase = 'ok';
           awgConf = '';
-          action = 'Новый AWG-конфиг применён (handshake получен).';
+          realityConf = '';
+          action = reality
+            ? 'Новый Reality-сервер применён (трафик идёт через туннель).'
+            : 'Новый AWG-конфиг применён (handshake получен).';
         } else {
           awgPhase = 'fail';
-          // Честный намёк на случай, когда виноват не сервер, а сеть (режет VPN-UDP) — иначе
-          // пользователь меняет один AWG-конфиг на другой по кругу без понимания, почему все падают.
-          action = 'Новый конфиг тоже не поднялся — прежний возвращён автоматически. '
-            + 'Если несколько свежих конфигов подряд не работают, возможно, ваша сеть блокирует '
-            + 'этот тип VPN (AmneziaWG работает по UDP) — попробуйте конфиг другого сервера или '
-            + 'другую сеть/провайдера.';
+          // Честный намёк на случай, когда виноват не сервер, а сеть — иначе пользователь меняет
+          // один конфиг на другой по кругу без понимания, почему все падают.
+          action = reality
+            ? 'Новый сервер тоже не отозвался — прежний возвращён автоматически. Проверьте, что '
+              + 'ссылка vless:// свежая и сервер жив; если несколько серверов подряд не работают, '
+              + 'возможно, сеть блокирует и его.'
+            : 'Новый конфиг тоже не поднялся — прежний возвращён автоматически. '
+              + 'Если несколько свежих конфигов подряд не работают, возможно, ваша сеть блокирует '
+              + 'этот тип VPN (AmneziaWG работает по UDP) — попробуйте конфиг другого сервера или '
+              + 'другую сеть/провайдера.';
         }
         await refresh();
       }
@@ -171,7 +195,89 @@
   onDestroy(() => {
     if (timer) clearInterval(timer);
     if (awgTimer) clearInterval(awgTimer);
+    if (fullTimer) clearInterval(fullTimer);
+    if (switchTimer) clearInterval(switchTimer);
   });
+
+  // In-place переключение AWG→Reality: приносим только ссылку, домены/DNS берутся из сохранённого
+  // конфига (мастер не проходим). run.uc делает snapshot→teardown awg0→apply→probe→commit/rollback,
+  // прогресс — тот же канал install_progress. При сбое AWG возвращается автоматически.
+  async function switchToReality() {
+    if (switchConf.trim().length === 0) {
+      action = 'Вставьте ссылку vless:// от вашего Reality-сервера.';
+      return;
+    }
+    busy = true; action = ''; switchLog = '';
+    try {
+      await cheburnet('switch_to_reality', { reality_conf: switchConf });
+      switchPhase = 'running';
+      switchTimer = setInterval(pollSwitch, 2000);
+    } catch (e) {
+      busy = false;
+      if (e.message.includes('PERMISSION_DENIED')) {
+        logout(); loggedIn = false; loginOpen = true;
+        action = 'Переключение: нужен вход — введите пароль роутера.';
+      } else {
+        action = `Переключение: ${e.message}`;
+      }
+    }
+  }
+
+  async function pollSwitch() {
+    try {
+      const p = await cheburnet('install_progress');
+      switchLog = p.log ?? '';
+      if (p.done) {
+        clearInterval(switchTimer); switchTimer = null; busy = false;
+        if (p.result === 'ok') {
+          switchPhase = 'ok';
+          switchConf = '';
+          action = 'Переключено на VLESS+Reality — туннель работает.';
+        } else {
+          switchPhase = 'fail';
+          action = 'Не удалось поднять VLESS+Reality — прежний туннель (AmneziaWG) возвращён автоматически. Проверьте ссылку и что сервер жив.';
+        }
+        await refresh();
+      }
+    } catch { /* единичный сбой поллинга — следующий тик повторит */ }
+  }
+
+  // Full-тир (opt-in): кнопка догружает sing-box (apk add sing-box) фоном. Прогресс — тот же
+  // канал install_progress. AmneziaWG при этом не трогается (ставим только пакет).
+  async function enableFullTier() {
+    busy = true; action = ''; fullLog = '';
+    try {
+      await cheburnet('install_full_tier');
+      fullPhase = 'running';
+      fullTimer = setInterval(pollFull, 2000);
+    } catch (e) {
+      busy = false;
+      if (e.message.includes('PERMISSION_DENIED')) {
+        logout(); loggedIn = false; loginOpen = true;
+        action = 'Установка VLESS+Reality: нужен вход — введите пароль роутера.';
+      } else {
+        action = `Установка VLESS+Reality: ${e.message}`;
+      }
+    }
+  }
+
+  async function pollFull() {
+    try {
+      const p = await cheburnet('install_progress');
+      fullLog = p.log ?? '';
+      if (p.done) {
+        clearInterval(fullTimer); fullTimer = null; busy = false;
+        if (p.result === 'ok') {
+          fullPhase = 'ok';
+          action = 'sing-box установлен. Чтобы переключиться на VLESS+Reality — нажмите «Настроить заново» внизу и выберите протокол в мастере.';
+        } else {
+          fullPhase = 'fail';
+          action = 'Не удалось скачать sing-box — проверьте, что роутер в интернете, и попробуйте ещё раз. AmneziaWG не затронут.';
+        }
+        await refresh();
+      }
+    } catch { /* единичный сбой поллинга — следующий тик повторит */ }
+  }
 </script>
 
 <section>
@@ -255,21 +361,82 @@
     </div>
     <p class="muted small">«Семейный» провайдер блокирует сайты 18+ и форсит безопасный поиск. Выбор провайдера = уровень фильтрации.</p>
 
-    <h3 id="replace-awg">Замена VPN-конфига</h3>
-    <p class="muted small">Если VPN перестал работать — возьмите свежий <code>.conf</code> у вашего
-      VPN-провайдера (или другого сервера/локации) и загрузите здесь. Если новый конфиг не
-      поднимется, прежний вернётся автоматически — сломать нельзя.</p>
-    <label>
-      <span>Новый AWG-конфиг</span>
-      <textarea bind:value={awgConf} rows="5" disabled={busy}
-        placeholder="[Interface]&#10;PrivateKey = …&#10;[Peer]&#10;…"></textarea>
-    </label>
-    <label class="file">
-      <span>…или загрузить файлом</span>
-      <input type="file" accept=".conf,text/plain" onchange={onAwgFile} disabled={busy} />
-    </label>
+    <!-- Full-тир (VLESS+Reality) — opt-in. Показываем только на подходящем железе (full_capable).
+         Не установлен → кнопка догрузки sing-box. Установлен, но активен AWG → подсказка переключиться. -->
+    {#if s.full_capable && !s.full_installed}
+      <h3 id="full-tier">VLESS + Reality (для сетей с жёстким DPI)</h3>
+      <p class="muted small">По умолчанию туннель — AmneziaWG (лёгкий, быстрый). Если ваша сеть его
+        блокирует, можно добавить <strong>VLESS+Reality</strong>: он маскируется под обычный HTTPS.
+        Это догрузит компонент <code>sing-box</code> (~15 МБ) — ставится один раз, по кнопке.
+        AmneziaWG при этом продолжит работать.</p>
+      <div class="row">
+        <button disabled={busy || fullPhase === 'running'} onclick={enableFullTier}>
+          {fullPhase === 'running' ? 'Устанавливаю…' : 'Включить VLESS+Reality'}
+        </button>
+      </div>
+      {#if fullPhase === 'running'}
+        <p><span class="spinner"></span> Скачиваю sing-box — это может занять минуту.</p>
+      {/if}
+      {#if fullLog && fullPhase !== 'idle'}
+        <details open={fullPhase === 'fail'}>
+          <summary>Журнал установки</summary>
+          <pre class="log">{fullLog}</pre>
+        </details>
+      {/if}
+    {:else if s.full_installed && s.protocol !== 'reality'}
+      <h3 id="switch-reality">Переключиться на VLESS+Reality</h3>
+      <p class="muted small">Компонент <code>sing-box</code> установлен, сейчас активен AmneziaWG.
+        Вставьте ссылку <code>vless://</code> от вашего Reality-сервера — переключим туннель на месте
+        (домены и DNS сохранятся, мастер проходить не нужно). Если новый туннель не поднимется,
+        AmneziaWG вернётся автоматически.</p>
+      <label>
+        <span>Ссылка vless:// или конфиг sing-box</span>
+        <textarea bind:value={switchConf} rows="5" disabled={busy}
+          placeholder="vless://uuid@host:443?security=reality&pbk=…&sni=…&#10;…или JSON-конфиг sing-box"></textarea>
+      </label>
+      <div class="row">
+        <button disabled={busy || switchConf.trim().length === 0} onclick={switchToReality}>
+          {switchPhase === 'running' ? 'Переключаю…' : 'Переключиться на VLESS+Reality'}
+        </button>
+      </div>
+      {#if switchPhase === 'running'}
+        <p><span class="spinner"></span> Поднимаю VLESS+Reality — при сбое вернётся AmneziaWG.</p>
+      {/if}
+      {#if switchLog && switchPhase !== 'idle'}
+        <details open={switchPhase === 'fail'}>
+          <summary>Журнал переключения</summary>
+          <pre class="log">{switchLog}</pre>
+        </details>
+      {/if}
+    {/if}
+
+    {#if s.protocol === 'reality'}
+      <h3 id="replace-reality">Замена Reality-сервера</h3>
+      <p class="muted small">Если туннель перестал работать — возьмите свежую ссылку
+        <code>vless://…</code> из панели вашего Reality-сервера (3x-ui / Hiddify) и вставьте здесь.
+        Если новый сервер не отзовётся, прежний вернётся автоматически — сломать нельзя.</p>
+      <label>
+        <span>Новая ссылка vless:// или конфиг</span>
+        <textarea bind:value={realityConf} rows="5" disabled={busy}
+          placeholder="vless://uuid@host:443?security=reality&pbk=…&sni=…&#10;…или JSON-конфиг sing-box"></textarea>
+      </label>
+    {:else}
+      <h3 id="replace-awg">Замена VPN-конфига</h3>
+      <p class="muted small">Если VPN перестал работать — возьмите свежий <code>.conf</code> у вашего
+        VPN-провайдера (или другого сервера/локации) и загрузите здесь. Если новый конфиг не
+        поднимется, прежний вернётся автоматически — сломать нельзя.</p>
+      <label>
+        <span>Новый AWG-конфиг</span>
+        <textarea bind:value={awgConf} rows="5" disabled={busy}
+          placeholder="[Interface]&#10;PrivateKey = …&#10;[Peer]&#10;…"></textarea>
+      </label>
+      <label class="file">
+        <span>…или загрузить файлом</span>
+        <input type="file" accept=".conf,text/plain" onchange={onAwgFile} disabled={busy} />
+      </label>
+    {/if}
     <div class="row">
-      <button disabled={busy || awgConf.trim().length === 0} onclick={replaceAwg}>
+      <button disabled={busy || (s.protocol === 'reality' ? realityConf : awgConf).trim().length === 0} onclick={replaceTunnel}>
         {awgPhase === 'running' ? 'Применяю…' : 'Заменить конфиг'}
       </button>
     </div>

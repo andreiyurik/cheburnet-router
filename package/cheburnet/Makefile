@@ -3,7 +3,7 @@
 # Собирается OpenWrt SDK (apk-based ветка, см. .github/workflows). Чистые скрипты — компилировать
 # нечего: Build/Compile пуст, install копирует файлы из репозитория. PKGARCH:=all — пакет
 # arch-независим (ucode интерпретируется), а arch-зависимые зависимости (kmod-amneziawg и т.п.)
-# apk подбирает сам. Проверка реальной сборки/установки — фаза QEMU (отложена мейнтейнером).
+# apk подбирает сам. Реальная сборка/установка проверяется в QEMU (qemu-install-v2, см. Makefile).
 
 include $(TOPDIR)/rules.mk
 
@@ -44,7 +44,7 @@ define Package/cheburnet/description
   Образовательный роутер на OpenWrt с настраиваемым split-tunnel: домены из direct-списка идут
   напрямую, остальной трафик — через зашифрованный VPN. Light-тир (дефолт): dnsmasq-nftset +
   nftables + policy routing + AmneziaWG (в ядре, для слабого железа). Full-тир (VLESS+Reality
-  через sing-box) — план v2.1, отдельным пакетом.
+  через sing-box) — опциональный пакет cheburnet-full для устойчивости к DPI на мощном железе.
   Логика — движок на ucode; настройка — веб-мастер через ubus RPC.
 endef
 
@@ -89,7 +89,7 @@ define Package/cheburnet/install
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(CHEBURNET_REPO)/engine/ubus/rpcd-acl.json $(1)/usr/share/rpcd/acl.d/cheburnet.json
 
-	# Веб-мастер (пока заглушка; SPA на Svelte — в фазе web).
+	# Веб-мастер: SPA на Svelte, бандл собран Vite из web-v2/ и закоммичен в files/web/.
 	$(INSTALL_DIR) $(1)/www/cheburnet
 	$(CP) ./files/web/. $(1)/www/cheburnet/
 endef
@@ -132,6 +132,6 @@ define Package/cheburnet-full/install
 endef
 
 $(eval $(call BuildPackage,cheburnet))
-# cheburnet-full НЕ собираем: Full-тир де-скоупнут из первого релиза (ADR 0004 → v2.1).
-# Определения выше оставлены — вернуть = раскомментировать eval.
-# $(eval $(call BuildPackage,cheburnet-full))
+# cheburnet-full — метапакет Full-тира (ADR 0004): добавляет sing-box к базовому cheburnet.
+# Ставится только там, где preflight подтвердил Full (AES-arch, RAM); слабое железо его не тянет.
+$(eval $(call BuildPackage,cheburnet-full))

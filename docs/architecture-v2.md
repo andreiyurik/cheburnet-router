@@ -1,9 +1,8 @@
 # 🏗 Архитектура v2
 
-> **Статус:** целевая архитектура; ядро реализовано в ветке `feat/v2` (движок, шаги,
-> ubus, веб-мастер, пакет, QEMU-тесты). Мотивация решений — здесь; детали надёжности —
-> [v2/architecture/reliability.md](v2/architecture/reliability.md); текущая v1 —
-> [01-architecture.md](01-architecture.md).
+> **Статус:** реализовано и смерджено в `master` (движок, шаги, ubus, веб-мастер, пакет,
+> QEMU-тесты); v1 удалён по чек-листу [Sunset v1](v2/meta/sunset-v1.md). Мотивация решений —
+> здесь; детали надёжности — [v2/architecture/reliability.md](v2/architecture/reliability.md).
 
 ## TL;DR
 
@@ -180,9 +179,8 @@ flowchart LR
 ```mermaid
 flowchart TB
     unit["🟢 Unit (ucode): логика движка<br/>preflight, шаги, rollback, ubus — без роутера, секунды"]
-    integ["🟡 Integration: моки uci/ubus<br/>(tests/integration)"]
-    qemu["🔴 QEMU: живой OpenWrt<br/>смоук + install на реальных сервисах"]
-    unit --> integ --> qemu
+    qemu["🔴 QEMU: живой OpenWrt<br/>смоук движка + install на реальных сервисах"]
+    unit --> qemu
 ```
 
 ```
@@ -218,23 +216,26 @@ cheburnet-router/
 ├── web-v2/               # SPA (Svelte + Vite) → бандл коммитится в package/
 ├── package/cheburnet/    # OpenWrt Makefile (SDK), файлы пакета
 ├── tests/
-│   ├── integration/      # моки
-│   └── qemu/             # смоук v2 + install-тест v2 (+ наследие v1 до sunset)
+│   ├── lint.sh           # T1: shellcheck + sh -n + JSON
+│   ├── poc/              # Фаза 0: split-routing на примитивах в netns
+│   └── qemu/             # смоук движка v2 + install-тест v2 на реальных сервисах
 ├── docs/
 └── .github/workflows/    # CI: unit → SDK build → QEMU → release
 ```
 
 ---
 
-## 🔀 Миграция v1 → v2 (strangler-fig)
+## 🔀 Миграция v1 → v2 (strangler-fig) — завершена
 
-v1 (bash + монолитный web) остаётся рабочей страховкой, пока v2 не выйдет в релиз;
-удаление v1 — строго по чек-листу [Sunset v1](v2/meta/sunset-v1.md).
+Переход шёл по стратегии strangler-fig: v1 (bash + монолитный web) работал страховкой, пока
+куски переезжали по одному. После релиза v2, живой проверки на роутере и обкатки старый стек
+**удалён** по чек-листу [Sunset v1](v2/meta/sunset-v1.md) — он сохранён как исторический
+документ решения. Весь код теперь в `master`.
 
-Выполнено: движок целиком (preflight, шаги, rollback, install, ubus), пакет + SDK-сборка,
+Сделано: движок целиком (preflight, шаги, rollback, install, ubus), пакет + SDK-сборка,
 веб-мастер и панель на Svelte, QEMU-смоук и install-тест в CI, живой прогон движка на
-реальном железе. Осталось до релиза: настоящий feed с подписью (+kmod-amneziawg под
-поддерживаемые target'ы), полный install на реальном роутере, обкатка.
+реальном железе. Осталось до полноценного релиза: настоящий feed с подписью (+kmod-amneziawg
+под поддерживаемые target'ы), полный install на реальном роутере.
 
 ---
 

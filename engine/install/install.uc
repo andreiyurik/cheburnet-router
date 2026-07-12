@@ -16,9 +16,10 @@ import { is_clean_config } from "../rollback/rollback.uc";
 const STEPS = [
 	{ name: "vpn",      configs: [ "network" ],                  rollback: "clean", needs: "awg_conf" },
 	// singbox — альтернативный туннель (Full-тир, VLESS+Reality). Взаимоисключающий с vpn:
-	// активен ровно один (см. PROTOCOLS). Гибрид: uci sing-box (чистый откат) + config.json/сервис
-	// (runtime → dirty teardown). По умолчанию ОТКЛЮЧЁН (протокол awg) — Light остаётся дефолтом.
-	{ name: "singbox",  configs: [ "sing-box" ],                 rollback: "dirty", needs: "reality" },
+	// активен ровно один (см. PROTOCOLS). Гибрид: uci sing-box + network-маршрут (чистый откат
+	// snapshot'ом) + config.json/сервис (runtime → dirty teardown). network в configs → интерфейс
+	// singtun откатывается uci-снимком (как NAT-зона у firewall). По умолчанию ОТКЛЮЧЁН (awg).
+	{ name: "singbox",  configs: [ "sing-box", "network" ],      rollback: "dirty", needs: "reality" },
 	{ name: "dns",      configs: [ "dhcp" ],                     rollback: "clean", needs: "domains" },
 	{ name: "doh",      configs: [ "https-dns-proxy", "dhcp" ],  rollback: "clean", needs: "doh" },
 	// wifi — перед firewall: настройка радио независима от split-routing. Нет радио/ключа → no-op.
@@ -160,4 +161,21 @@ function handshake_state(hs) {
 	return "waiting";
 }
 
-export { protocol_ids, default_protocol, tunnel_info, disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome, handshake_state };
+// route_uses_iface(route_out, iface) — идёт ли маршрут через iface по выводу `ip route get <ip>`.
+// ЧИСТАЯ (вход — строка вывода ip): connectivity-probe reality (run.uc/replace_reality, импурно)
+// форсирует host-route на probe-IP через туннель и этой функцией подтверждает, что маршрут реально
+// лёг на singtun0, а не утёк на WAN — иначе рабочий-с-виду fetch мог бы пройти мимо туннеля.
+// Формат первой строки: "<ip> dev <iface> src <...>" (или "... via <gw> dev <iface> ...").
+// Берём токен строго ПОСЛЕ "dev" — не подстрокой (dev singtun0 ≠ dev singtun00).
+function route_uses_iface(route_out, iface) {
+	let s = trim(route_out ?? "");
+	if (length(s) == 0 || length(iface ?? "") == 0) return false;
+	let first = split(s, "\n")[0];
+	let toks = split(trim(first), /[ \t]+/);
+	for (let i = 0; i + 1 < length(toks); i++)
+		if (toks[i] == "dev" && toks[i + 1] == iface)
+			return true;
+	return false;
+}
+
+export { protocol_ids, default_protocol, tunnel_info, disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome, handshake_state, route_uses_iface };

@@ -137,6 +137,18 @@ test("validate: service_restart — только v2-сервисы (без podko
 	eq(validate_request("service_restart", {}).ok, false, "service обязателен");
 });
 
+test("validate: install_full_tier — admin, без аргументов и токена (opt-in sing-box)", () => {
+	eq(validate_request("install_full_tier", {}).ok, true, "без аргументов — ок");
+	eq(validate_request("install_full_tier", { junk: 1 }).ok, true, "лишнее отбрасывается");
+	eq(requires_token("install_full_tier"), false, "admin-метод, не pre-install — токен не нужен");
+});
+
+test("validate: switch_to_reality — admin, reality_conf обязателен, без токена", () => {
+	eq(validate_request("switch_to_reality", { reality_conf: "vless://…" }).ok, true);
+	eq(validate_request("switch_to_reality", {}).ok, false, "reality_conf обязателен");
+	eq(requires_token("switch_to_reality"), false, "admin-метод — токен не нужен");
+});
+
 test("validate: set_dns_provider — enum из каталога; dns_provider в install опционален", () => {
 	eq(validate_request("set_dns_provider", { provider: "adguard" }).ok, true, "каталожный id ок");
 	eq(validate_request("set_dns_provider", { provider: "adguard-family" }).ok, true, "семейный ок");
@@ -151,9 +163,11 @@ test("validate: set_dns_provider — enum из каталога; dns_provider в
 		false, "невалидный провайдер в install");
 });
 
-test("validate: replace_awg_conf и factory_reset — обязательные строки", () => {
+test("validate: replace_awg_conf/replace_reality_conf и factory_reset — обязательные строки", () => {
 	eq(validate_request("replace_awg_conf", { awg_conf: "[Interface]\n" }).ok, true);
 	eq(validate_request("replace_awg_conf", {}).ok, false, "awg_conf обязателен");
+	eq(validate_request("replace_reality_conf", { reality_conf: "vless://…" }).ok, true);
+	eq(validate_request("replace_reality_conf", {}).ok, false, "reality_conf обязателен");
 	eq(validate_request("factory_reset", { confirm: "RESET" }).ok, true);
 	eq(validate_request("factory_reset", {}).ok, false, "confirm обязателен");
 });
