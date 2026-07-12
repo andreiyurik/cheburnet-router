@@ -143,6 +143,12 @@ test("validate: install_full_tier — admin, без аргументов и то
 	eq(requires_token("install_full_tier"), false, "admin-метод, не pre-install — токен не нужен");
 });
 
+test("validate: switch_to_reality — admin, reality_conf обязателен, без токена", () => {
+	eq(validate_request("switch_to_reality", { reality_conf: "vless://…" }).ok, true);
+	eq(validate_request("switch_to_reality", {}).ok, false, "reality_conf обязателен");
+	eq(requires_token("switch_to_reality"), false, "admin-метод — токен не нужен");
+});
+
 test("validate: set_dns_provider — enum из каталога; dns_provider в install опционален", () => {
 	eq(validate_request("set_dns_provider", { provider: "adguard" }).ok, true, "каталожный id ок");
 	eq(validate_request("set_dns_provider", { provider: "adguard-family" }).ok, true, "семейный ок");

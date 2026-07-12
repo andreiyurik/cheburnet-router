@@ -17,9 +17,13 @@
   let resetArmed = $state(false);
   let fullPhase = $state('idle'); // Full-тир (sing-box): idle | running | ok | fail
   let fullLog = $state('');
+  let switchConf = $state('');    // vless:// для in-place переключения AWG→Reality
+  let switchPhase = $state('idle');
+  let switchLog = $state('');
   let timer = null;
   let awgTimer = null;
   let fullTimer = null;
+  let switchTimer = null;
 
   // Вход (admin-сессия root). Лимит 3 попытки — дальше отсылаем к SSH.
   const MAX_LOGIN_ATTEMPTS = 3;
@@ -192,7 +196,51 @@
     if (timer) clearInterval(timer);
     if (awgTimer) clearInterval(awgTimer);
     if (fullTimer) clearInterval(fullTimer);
+    if (switchTimer) clearInterval(switchTimer);
   });
+
+  // In-place переключение AWG→Reality: приносим только ссылку, домены/DNS берутся из сохранённого
+  // конфига (мастер не проходим). run.uc делает snapshot→teardown awg0→apply→probe→commit/rollback,
+  // прогресс — тот же канал install_progress. При сбое AWG возвращается автоматически.
+  async function switchToReality() {
+    if (switchConf.trim().length === 0) {
+      action = 'Вставьте ссылку vless:// от вашего Reality-сервера.';
+      return;
+    }
+    busy = true; action = ''; switchLog = '';
+    try {
+      await cheburnet('switch_to_reality', { reality_conf: switchConf });
+      switchPhase = 'running';
+      switchTimer = setInterval(pollSwitch, 2000);
+    } catch (e) {
+      busy = false;
+      if (e.message.includes('PERMISSION_DENIED')) {
+        logout(); loggedIn = false; loginOpen = true;
+        action = 'Переключение: нужен вход — введите пароль роутера.';
+      } else {
+        action = `Переключение: ${e.message}`;
+      }
+    }
+  }
+
+  async function pollSwitch() {
+    try {
+      const p = await cheburnet('install_progress');
+      switchLog = p.log ?? '';
+      if (p.done) {
+        clearInterval(switchTimer); switchTimer = null; busy = false;
+        if (p.result === 'ok') {
+          switchPhase = 'ok';
+          switchConf = '';
+          action = 'Переключено на VLESS+Reality — туннель работает.';
+        } else {
+          switchPhase = 'fail';
+          action = 'Не удалось поднять VLESS+Reality — прежний туннель (AmneziaWG) возвращён автоматически. Проверьте ссылку и что сервер жив.';
+        }
+        await refresh();
+      }
+    } catch { /* единичный сбой поллинга — следующий тик повторит */ }
+  }
 
   // Full-тир (opt-in): кнопка догружает sing-box (apk add sing-box) фоном. Прогресс — тот же
   // канал install_progress. AmneziaWG при этом не трогается (ставим только пакет).
@@ -336,10 +384,30 @@
         </details>
       {/if}
     {:else if s.full_installed && s.protocol !== 'reality'}
-      <h3 id="full-tier">VLESS + Reality установлен</h3>
-      <p class="muted small">Компонент <code>sing-box</code> установлен. Сейчас активен AmneziaWG.
-        Чтобы переключиться на VLESS+Reality — нажмите «Настроить заново» внизу и выберите протокол
-        в мастере (понадобится ссылка <code>vless://</code> от вашего Reality-сервера).</p>
+      <h3 id="switch-reality">Переключиться на VLESS+Reality</h3>
+      <p class="muted small">Компонент <code>sing-box</code> установлен, сейчас активен AmneziaWG.
+        Вставьте ссылку <code>vless://</code> от вашего Reality-сервера — переключим туннель на месте
+        (домены и DNS сохранятся, мастер проходить не нужно). Если новый туннель не поднимется,
+        AmneziaWG вернётся автоматически.</p>
+      <label>
+        <span>Ссылка vless:// или конфиг sing-box</span>
+        <textarea bind:value={switchConf} rows="5" disabled={busy}
+          placeholder="vless://uuid@host:443?security=reality&pbk=…&sni=…&#10;…или JSON-конфиг sing-box"></textarea>
+      </label>
+      <div class="row">
+        <button disabled={busy || switchConf.trim().length === 0} onclick={switchToReality}>
+          {switchPhase === 'running' ? 'Переключаю…' : 'Переключиться на VLESS+Reality'}
+        </button>
+      </div>
+      {#if switchPhase === 'running'}
+        <p><span class="spinner"></span> Поднимаю VLESS+Reality — при сбое вернётся AmneziaWG.</p>
+      {/if}
+      {#if switchLog && switchPhase !== 'idle'}
+        <details open={switchPhase === 'fail'}>
+          <summary>Журнал переключения</summary>
+          <pre class="log">{switchLog}</pre>
+        </details>
+      {/if}
     {/if}
 
     {#if s.protocol === 'reality'}
