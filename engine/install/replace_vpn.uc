@@ -11,6 +11,7 @@
 
 import { stdin } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
+import { fresh_handshake } from "./install.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -29,12 +30,13 @@ if (rc != 0) {
 }
 
 // --- 3. health: ждать СВЕЖИЙ handshake (новее старта). До 30 с: peer-серверу нужно время. ---
-let started = int(trim(sh("date +%s")));
+// Разбор — чистая fresh_handshake (multi-peer-корректно, под юнит-тестами): единый regex по
+// выводу awk ломался на 2+ peer'ах (многострочный hs) и ложно откатывал рабочий конфиг.
+let started = time();
 let ok = false;
 for (let i = 0; i < 15; i++) {
 	sh("sleep 2");
-	let hs = trim(sh("awg show awg0 latest-handshakes 2>/dev/null | awk '{print $2}'"));
-	if (match(hs, /^[0-9]+$/) && int(hs) >= started) { ok = true; break; }
+	if (fresh_handshake(sh("awg show awg0 latest-handshakes 2>/dev/null"), started)) { ok = true; break; }
 }
 
 // --- 4. commit / restore ---

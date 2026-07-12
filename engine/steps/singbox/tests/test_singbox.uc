@@ -201,4 +201,76 @@ test("owned: tun_interface / config_path / service_name уважают opts", ()
 	eq(service_name(null), "sing-box");
 });
 
+// --- краевые случаи пользовательского входа (граница доверия) ---
+test("urldecode: '+' в query — литерал, не пробел (standard-base64 pbk не бьётся)", () => {
+	let r = parse_vless_link("vless://u@h:443?security=reality&pbk=AB+CD/EF=&sni=s");
+	ok(r.ok);
+	eq(r.fields.pbk, "AB+CD/EF=", "'+' обязан пережить разбор: пробел = битый ключ, провал только на probe");
+});
+
+test("urldecode: битый/обрезанный %XX не теряет символы", () => {
+	let r = parse_vless_link("vless://u@h:443?security=reality&pbk=k&sni=s#My%2GServer%4");
+	ok(r.ok);
+	eq(r.fields.label, "My%2GServer%4", "невалидный percent-код остаётся как есть");
+});
+
+test("parse_vless_link: CRLF-хвост (вставка из Windows) не портит поля", () => {
+	let r = parse_vless_link("vless://u@h:443?security=reality&pbk=k&sni=s\r\n");
+	ok(r.ok);
+	eq(r.fields.port, "443");
+	eq(r.fields.sni, "s", "внешний \\r\\n снят trim'ом, поля чисты");
+});
+
+test("parse_vless_link: голый IPv6 без скобок → ok=false (не мусорные host:port)", () => {
+	// Резать "2001:db8::1" по последнему ':' давало host="2001:db8:", port="1" — план проходил,
+	// а туннель умирал только после установки. Требуем [скобки] — честный отказ на границе.
+	ok(!parse_vless_link("vless://u@2001:db8::1?security=reality&pbk=k&sni=s").ok);
+	ok(!parse_vless_link("vless://u@2001:db8::1:8443?security=reality&pbk=k&sni=s").ok);
+});
+
+test("parse_vless_link: порт вне 1..65535 → ok=false", () => {
+	ok(!parse_vless_link("vless://u@h:99999?security=reality&pbk=k&sni=s").ok);
+	ok(!parse_vless_link("vless://u@h:0?security=reality&pbk=k&sni=s").ok);
+	ok(!parse_vless_link("vless://u@[2001:db8::1]:99999?security=reality&pbk=k&sni=s").ok);
+	ok(parse_vless_link("vless://u@h:65535?security=reality&pbk=k&sni=s").ok, "граница включительно");
+});
+
+test("parse_vless_link: host без порта и мусорный порт → ok=false", () => {
+	ok(!parse_vless_link("vless://u@hostonly?security=reality&pbk=k&sni=s").ok);
+	ok(!parse_vless_link("vless://u@[2001:db8::1]?security=reality&pbk=k&sni=s").ok);
+	ok(!parse_vless_link("vless://u@h:443a?security=reality&pbk=k&sni=s").ok);
+});
+
+test("parse_vless_link: без query/label разбирается; конфиг без pbk/sni не строится", () => {
+	let r = parse_vless_link("vless://u@h:443");
+	ok(r.ok);
+	eq(r.fields.security, "");
+	ok(!build_singbox_config(r.fields, null).ok);
+});
+
+test("parse_query: пара без '=', пустой ключ, '=' внутри значения", () => {
+	let r = parse_vless_link("vless://u@h:443?flag&=x&sid=v=w&security=reality&pbk=k&sni=s");
+	ok(r.ok);
+	eq(r.fields.sid, "v=w", "режем по ПЕРВОМУ '='");
+});
+
+test("build_singbox_config: типы значений (address массив, mtu/port числа)", () => {
+	let r = build_singbox_config(parse_vless_link(LINK).fields, null);
+	ok(r.ok);
+	deep_eq(r.config.inbounds[0].address, [ "172.19.0.1/30" ]);
+	ok(r.config.inbounds[0].mtu === 1500, "mtu обязан быть числом — строку sing-box отвергнет");
+	ok(r.config.outbounds[0].server_port === 443, "server_port обязан быть числом");
+});
+
+test("parse_input: JSON-массив и JSON без outbounds → ok=false", () => {
+	ok(!parse_input("[1,2]", null).ok);
+	ok(!parse_input('{"outbounds":[]}', null).ok, "пустой массив outbounds — не конфиг");
+});
+
+test("resolve_opts: неизвестный ключ opts не протекает в план", () => {
+	let plan = build_singbox_plan(LINK, { bogus_key: "x" });
+	ok(plan.ok);
+	ok(index(sprintf("%J", plan), "bogus_key") < 0);
+});
+
 exit(summary());

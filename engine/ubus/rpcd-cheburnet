@@ -50,7 +50,12 @@ function respond(obj) {
 }
 
 // pid_alive() — идёт ли уже фоновая операция (install/run.uc). kill -0 через shell.
+// DONE-маркер проверяем ПЕРВЫМ: PID-файл после завершения операции не чистится, и когда ядро
+// переиспользует pid (wrap-around) для чужого долгоживущего процесса, kill -0 отвечал бы «жив»
+// вечно — все мутации отбивались бы «операция уже выполняется» до ребута. done есть → операция
+// завершена, чей бы процесс ни носил этот pid сейчас (spawn_bg снимает done перед новой).
 function pid_alive() {
+	if (access(DONE_FILE)) return false;
 	let pid = trim(readfile(PID_FILE) ?? "");
 	if (length(pid) == 0) return false;
 	return trim(sh(sprintf("kill -0 %s 2>/dev/null; echo $?", pid))) == "0";
@@ -154,9 +159,12 @@ function spawn_bg(cmd, state) {
 	// шага («Шаг: vpn/dns/firewall…»), во второй пишет машинный код исхода при провале — UI
 	// говорит адресно («VPN-сервер не ответил» ≠ «упал шаг»). Кто env игнорирует (reset) —
 	// просто не пишет, поведение прежнее.
+	// rm -f payload ДО done-маркера: файл несёт секреты (awg-ключ, root-пароль, reality-
+	// credentials) и нужен только как stdin длинной операции — после её конца не оставляем
+	// секреты лежать в /tmp до ребута. -f: операций без payload (reset, install-full) это не касается.
 	let spawn = sprintf(
-		"STATE_FILE=%s REASON_FILE=%s setsid sh -c '%s >> %s 2>&1; echo $? > %s' </dev/null >/dev/null 2>&1 & echo $!",
-		STATE_FILE, REASON_FILE, cmd, LOG_FILE, DONE_FILE);
+		"STATE_FILE=%s REASON_FILE=%s setsid sh -c '%s >> %s 2>&1; rc=$?; rm -f %s; echo $rc > %s' </dev/null >/dev/null 2>&1 & echo $!",
+		STATE_FILE, REASON_FILE, cmd, LOG_FILE, PAYLOAD_FILE, DONE_FILE);
 	let pid = trim(sh(spawn));
 	writefile(PID_FILE, pid + "\n");
 	return int(pid);
@@ -193,11 +201,14 @@ function m_status() {
 		// для видимости кнопки; авторитетный гейт — preflight при установке). arch — прокси AES.
 		"echo \"sbx=$(command -v sing-box)\"; " +
 		"echo \"march=$(uname -m)\"; " +
-		"echo \"mram=$(awk '/MemTotal/{print int(\\$2/1024)}' /proc/meminfo 2>/dev/null)\"; " +
+		// $2 внутри одинарных кавычек awk НЕ экранировать: busybox awk прощал '\$2', а GNU и
+		// другие awk на нём падают → mram пуст → full_capable ложно false (поймано тестом на хосте).
+		"echo \"mram=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null)\"; " +
 		// Пустой pid ОБЯЗАТЕЛЬНО отсекаем ДО kill: busybox парсит "" как 0 → kill(0,0) —
 		// сигнал собственной process-группе → всегда успех → ложный installing=true.
 		// Хостовый shell на "" отвечает ошибкой — юниты этот gap не видят (поймано в QEMU).
-		sprintf("p=$(cat %s 2>/dev/null); [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null && echo alive=1", PID_FILE);
+		// done-маркер гасит kill -0 по той же причине, что в pid_alive: переиспользованный pid.
+		sprintf("[ ! -f %s ] && p=$(cat %s 2>/dev/null); [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null && echo alive=1", DONE_FILE, PID_FILE);
 	let facts = {};
 	let plines = split(sh(probe), "\n");
 	for (let i = 0; i < length(plines); i++) {
@@ -269,9 +280,7 @@ function m_install(v) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
 
-	// Токен-гейт (защита от LAN-сквоттинга): чистое ядро уже проверило, что token — непустая
-	// строка; здесь сверяем ЗНАЧЕНИЕ с файлом, выданным bootstrap'ом. Сравнение — импурно (файл).
-	check_token(v);
+	// Токен уже сверен центральным гейтом диспетчера (requires_token из REGISTRY).
 
 	// Финальный direct-список: пользовательский + community-кэш (если уже подтянут).
 	let domains = assemble_domains(v.domains);
@@ -415,7 +424,9 @@ function m_check_lan_conflict() {
 }
 
 function m_apply_lan_ip(v) {
-	check_token(v); // деструктив (рвёт LAN-соединения) → только владелец install-токена
+	// Токен сверен центральным гейтом (деструктив — только владелец install-токена).
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
 
 	// Граница доверия: подделанный запрос не должен уронить роутер в 0.0.0.0 (safety guard v1).
 	if (!valid_lan_ip(v.ip))
@@ -425,7 +436,11 @@ function m_apply_lan_ip(v) {
 	let cur = trim(sh("uci -q get network.lan.ipaddr 2>/dev/null"));
 	let sl = index(cur, "/");
 	let newval = (sl >= 0) ? v.ip + substr(cur, sl) : v.ip;
-	sh(sprintf("uci set network.lan.ipaddr='%s' && uci commit network", newval));
+	// rc проверяем: упавший set/commit (ro-fs, битый конфиг) с ответом «applied» отправил бы
+	// пользователя на новый IP, которого роутер не получит (деструктив без права на молчаливый провал).
+	let rc = trim(sh(sprintf("uci set network.lan.ipaddr='%s' && uci commit network; echo $?", newval)));
+	if (rc != "0")
+		respond(make_error("не удалось сохранить новый адрес LAN — конфигурация не изменена (см. logread)"));
 
 	// Отложенный restart: caller успевает получить HTTP-ответ ДО разрыва сети (sleep 3);
 	// setsid отвязывает от rpcd-сессии — SIGHUP при её закрытии не убьёт restart (приём v1).
@@ -434,7 +449,7 @@ function m_apply_lan_ip(v) {
 }
 
 function m_install_cancel(v) {
-	check_token(v); // отмену контролирует владелец install-токена (как саму установку)
+	// Токен сверен центральным гейтом (отмену контролирует владелец install-токена).
 	if (!pid_alive())
 		respond(make_error("установка не идёт — отменять нечего"));
 	// setsid сделал фоновый sh лидером новой process-group (PGID=PID) → минус-PID убивает всю
@@ -446,16 +461,37 @@ function m_install_cancel(v) {
 	// отмены — UI показал бы «не удалась» вместо «отменена» (гонка из code-review).
 	for (let i = 0; i < 10 && pid_alive(); i++)
 		sh("sleep 1");
+	// Группа пережила TERM (типовой случай — apk завис на сети, ради этого и отменяют) →
+	// эскалация KILL: нельзя стартовать rollback ПОВЕРХ живой установки (snapshot restore
+	// параллельно с применением шагов = недетерминированное полусостояние).
+	if (pid_alive()) {
+		sh(sprintf("kill -KILL -%s 2>/dev/null", pid));
+		for (let i = 0; i < 5 && pid_alive(); i++)
+			sh("sleep 1");
+	}
+	// Гонка «отмена против уже успевшего commit»: если установка ЗАВЕРШИЛАСЬ УСПЕХОМ, пока мы
+	// ждали смерти группы (done="0" от обёртки спавна), откатывать поздно и вредно — teardown
+	// снёс бы data-plane только что закоммиченной рабочей системы. Честно сообщаем.
+	let dm0 = readfile(DONE_FILE);
+	if (dm0 != null && trim(dm0) == "0")
+		respond(make_error("установка уже завершилась успешно — отменять поздно (система работает)"));
 	writefile(DONE_FILE, "cancelled\n");
 	writefile(STATE_FILE, "cancelled\n");
 	// Прерванная установка = частично применённые шаги. Откат — ЕДИНОЙ реализацией движка
 	// (install/run.uc --rollback: snapshot restore + teardown грязных шагов), не копией здесь.
-	let td = sprintf("%J", { domains: [], routing_opts: load_cfg().routing_opts });
+	// protocol ОБЯЗАТЕЛЕН: без него run.uc берёт дефолт awg и НЕ teardown'ит singbox —
+	// отмена reality-установки оставляла бы живой sing-box с credentials (находка ревью).
+	let cc = load_cfg();
+	let td = sprintf("%J", { domains: [], routing_opts: cc.routing_opts, protocol: cc.protocol });
 	run_stdin(engine_cli("install/run.uc") + " --rollback >/dev/null 2>&1", td);
 	respond({ status: "cancelled" });
 }
 
 function m_service_restart(v) {
+	// Не дёргать сервисы посреди длинной операции: рестарт awg0/dnsmasq в окне health-check
+	// установки/replace валит её пробу — инвариант «PID-файл = взаимное исключение».
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
 	// v2-сервисы data-plane (без podkop — вырезан). Перезапуск — I/O, движковой логики нет.
 	if (v.service == "vpn")
 		sh("ifdown awg0 2>/dev/null; sleep 1; ifup awg0 2>/dev/null");
@@ -467,6 +503,10 @@ function m_service_restart(v) {
 }
 
 function m_set_dns_provider(v) {
+	// см. m_service_restart: не переписывать doh-секцию посреди установки/replace (snapshot
+	// restore отката перетёр бы её, а health-check мог увидеть полуприменённый DNS).
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
 	// Сменить DNS-провайдера (= уровень фильтрации). Переприменить doh-шаг с новым id
 	// (идемпотентно: та же секция cheburnet_doh переписывается) и сохранить в конфигурацию.
 	let rc = run_stdin(engine_cli("steps/doh/apply.uc"), sprintf("%J", { provider: v.provider }));
@@ -481,6 +521,8 @@ function m_set_dns_provider(v) {
 function m_replace_awg_conf(v) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
+	if (load_cfg().protocol != "awg")
+		respond(make_error("активный туннель — VLESS+Reality; меняйте сервер через «Замена Reality-сервера»"));
 	if (length(trim(sh("uci -q get network.awg0 2>/dev/null"))) == 0)
 		respond(make_error("VPN не установлен — пройдите мастер установки"));
 
@@ -501,6 +543,12 @@ function m_replace_awg_conf(v) {
 function m_replace_reality_conf(v) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
+	// Гейт по АКТИВНОМУ протоколу, не по наличию /etc/config/sing-box: после кнопки
+	// «Включить VLESS+Reality» файл уже есть, а туннель ещё AWG — replace поверх живого awg0
+	// перехватил бы весь LAN-трафик half-routes'ами при NAT-зоне на awg0 (UI это гейтит,
+	// но граница доверия — ubus RPC).
+	if (load_cfg().protocol != "reality")
+		respond(make_error("активный туннель — AmneziaWG; сначала переключитесь на VLESS+Reality"));
 	if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) != "y")
 		respond(make_error("Full-тир не установлен — пройдите мастер с протоколом VLESS+Reality"));
 
@@ -611,6 +659,12 @@ let vr = validate_request(method, args);
 if (!vr.ok)
 	respond(make_error(vr.error));
 let v = vr.value;
+
+// Токен-гейт — ЦЕНТРАЛЬНО, по флагу token из REGISTRY (единый источник с валидацией/ACL):
+// ручные вызовы check_token в обработчиках дрейфуют — новый token:true-метод без ручного
+// вызова был бы тихим обходом гейта. check_token при провале отвечает и не возвращается.
+if (requires_token(method))
+	check_token(v);
 
 if (method == "preflight")                  m_preflight();
 else if (method == "status")                m_status();

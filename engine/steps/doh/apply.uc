@@ -10,6 +10,7 @@
 // Зависит от dnsmasq noresolv='1' (его ставит DNS-шаг): без него dnsmasq утечёт в ISP-resolv.conf.
 
 import { stdin, popen } from "fs";
+import { uci_batch } from "../../lib/proc.uc";
 import { build_doh_plan } from "./doh.uc";
 import { resolvers_for } from "./providers.uc";
 
@@ -60,17 +61,15 @@ for (let i = 0; i < length(plan.hdp_teardown); i++) {
 	if (p) p.close();
 }
 
-let w = popen("uci batch", "w");
-if (!w) die("doh/apply: не смог запустить uci batch");
-for (let i = 0; i < length(plan.hdp_setup); i++) w.write(plan.hdp_setup[i] + "\n");
-for (let i = 0; i < length(plan.dnsmasq_ops); i++) w.write(plan.dnsmasq_ops[i] + "\n");
-w.write("commit https-dns-proxy\n");
-w.write("commit dhcp\n");
-// Код ОБЯЗАТЕЛЬНО проверяем: иначе сбой uci (например, нет секции 'config' пакета
-// https-dns-proxy) проглатывается, и шаг отчитывается успехом без применённого резолвера.
-let rc = w.close();
+// Код ОБЯЗАТЕЛЬНО проверяем: иначе сбой uci (нет секции/пакета https-dns-proxy)
+// проглатывается, и шаг отчитывается успехом без применённого резолвера. Сам процесс
+// `uci batch` выходит 0 даже на ошибках — общий uci_batch (lib/proc.uc) ловит их по выводу.
+let rc = uci_batch(plan.hdp_setup, "https-dns-proxy");
 if (rc != 0)
-	die(sprintf("doh/apply: uci batch завершился кодом %d (установлен ли https-dns-proxy?)", rc));
+	die(sprintf("doh/apply: uci batch (https-dns-proxy) не прошёл (код %d; установлен ли пакет?)", rc));
+let rc2 = uci_batch(plan.dnsmasq_ops, "dhcp");
+if (rc2 != 0)
+	die(sprintf("doh/apply: uci batch (dhcp upstream) не прошёл (код %d)", rc2));
 
 sh("/etc/init.d/https-dns-proxy restart >/dev/null 2>&1");
 sh("/etc/init.d/dnsmasq reload >/dev/null 2>&1 || /etc/init.d/dnsmasq restart >/dev/null 2>&1");

@@ -37,11 +37,14 @@ echo "  ✓ DNS работает"
 # downloads.openwrt.org из фильтрующих сетей рвётся посреди передачи (EPERM/EOF) —
 # один флап зеркала не должен красить тест (тот же урок, что apk_retry в webui-v2.sh
 # и retry в bootstrap.sh). if, не `[ … ] && …` — ловушка set -e (CLAUDE.md).
-apk_try() { # apk_try 'apk add <pkg>' — до 5 попыток, тихо; код возврата честный
+apk_try() { # apk_try 'apk add <pkg>' — до 10 попыток, тихо; код возврата честный.
+    # 10×10с (было 5×3с): фильтрующая сеть рвёт отдельные файлы посреди передачи с высокой
+    # частотой, и пакет с несколькими новыми deps (https-dns-proxy → libcares, resolveip…)
+    # перемножает вероятность — 5 коротких попыток дважды красили тест на живом зеркале.
     local cmd="$1"
-    for _ in 1 2 3 4 5; do
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
         if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
-        sleep 3
+        sleep 10
     done
     return 1
 }

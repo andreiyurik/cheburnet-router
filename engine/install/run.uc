@@ -10,12 +10,13 @@
 //
 // Откат честный: чистые шаги возвращает snapshot restore; грязный (firewall) — его --teardown.
 
-import { stdin, readfile, writefile, unlink } from "fs";
+import { stdin, readfile, writefile, unlink, access } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state,
-         protocol_ids } from "./install.uc";
+         pick_wan_fallback, protocol_ids } from "./install.uc";
 import { parse_wan_route } from "../preflight/parse.uc";
+import { config_path as sb_config_path } from "../steps/singbox/singbox.uc";
 import { reality_connectivity } from "./probe.uc";
 
 let SELF = sourcepath(0, true);
@@ -59,12 +60,14 @@ function step_stdin(s, cfg) {
 
 // tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). reality (Full): НАСТОЯЩИЙ
 // connectivity-probe через туннель (не «pgrep жив» — процесс жив ≠ туннель везёт), см. probe.uc.
-// awg (Light): по latest-handshakes — "up" (рукопожатие было) или "none" (vpn не настраивался)
-// считаем готовым, "waiting" (peer есть, рукопожатия ещё нет) — нет.
+// awg (Light): по latest-handshakes ТОЛЬКО "up" (рукопожатие было). "none" (awg0 отсутствует) —
+// НЕ готовность: vpn-шаг только что применялся, и пустой вывод значит «netifd не создал интерфейс»
+// (vpn/apply это честно оставляет health-check'у) — считать его успехом значило бы commit мёртвой
+// установки. Если vpn-шаг вообще не применялся (disable), healthcheck туннель не опрашивает.
 function tunnel_ok(cfg, iface) {
 	if ((cfg.protocol ?? default_protocol()) == "reality")
 		return reality_connectivity(iface);
-	return handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) != "waiting";
+	return handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) == "up";
 }
 
 // dns_ok() — ОДНА проба: резолвится ли имя через локальный dnsmasq (127.0.0.1).
@@ -77,9 +80,9 @@ function dns_ok() {
 // нужно несколько секунд на тёплый старт (AWG-handshake: initiation+ответ сервера ~5–15с; DoH:
 // https-dns-proxy поднимается не мгновенно). Любая МГНОВЕННАЯ проверка ловила бы этот старт и
 // откатывала рабочую установку (исходный баг). Успех — как только ОБА условия выполнены.
-function healthcheck(cfg) {
+function healthcheck(cfg, tunnel_applied) {
 	let iface = (cfg.routing_opts && cfg.routing_opts.tunnel_if) ? cfg.routing_opts.tunnel_if : "awg0";
-	let dns = false, tun = false;
+	let dns = false, tun = !tunnel_applied; // туннель-шаг не применялся → его здоровье не требуем
 	for (let i = 0; i < 15; i++) {
 		if (!dns) dns = dns_ok();
 		if (!tun) tun = tunnel_ok(cfg, iface);
@@ -98,6 +101,16 @@ function rollback_all(steps, cfg) {
 	for (let i = 0; i < length(dirty); i++)
 		run_stdin(step_cmd(dirty[i], " --teardown"), step_stdin({ name: dirty[i], needs: "domains" }, cfg));
 
+	// config.json — внешний файл, uci-снимок его не покрывает (у replace_reality свой бэкап по
+	// той же причине). Если установка поверх рабочего reality его перезаписала/снесла — вернуть,
+	// и поднять сервис, когда восстановленный uci говорит «включён» (пере-установка поверх Full).
+	let sb = sb_config_path(null);
+	if (access(sb + ".prev")) {
+		sh(sprintf("mv %s.prev %s 2>/dev/null", sb, sb));
+		if (trim(sh("uci -q get sing-box.main.enabled 2>/dev/null")) == "1")
+			sh("/etc/init.d/sing-box restart >/dev/null 2>&1");
+	}
+
 	// Snapshot вернул uci-КОНФИГИ, но РАНТАЙМ ещё несёт изменения установки, и сам по себе он не
 	// сойдётся с конфигом: netifd держит default через awg0 (route_allowed_ips=1, см. vpn-шаг) и НЕ
 	// вернёт WAN-дефолт, пока его не передёрнуть; dnsmasq резолвит через (возможно мёртвый) DoH.
@@ -107,6 +120,23 @@ function rollback_all(steps, cfg) {
 	// (уже не happy-path) краткий разрыв LAN приемлем ради гарантированного восстановления.
 	sh("/etc/init.d/network restart >/dev/null 2>&1");
 	sh("/etc/init.d/dnsmasq restart >/dev/null 2>&1");
+}
+
+// reapply_data_plane() — после отката ПОВЕРХ РАБОЧЕЙ системы вернуть её runtime-data-plane.
+// Snapshot restore возвращает uci (зону firewall, network), но teardown грязных шагов ВЫШЕ
+// затем сносит зону/nftables.d/ip rules — на чистой системе это правильный ноль, а на
+// пере-установке/смене протокола оставляло восстановленный туннель БЕЗ NAT/policy-routing:
+// LAN без интернета при «installed=true». Признак «была рабочая система» = install.json
+// восстановлен из .prev (restore_cfg_truth); переприменяем firewall из него — как set_mode.
+function reapply_data_plane() {
+	let raw = readfile(ETC_CHEBURNET + "/install.json");
+	let saved = (raw && substr(trim(raw), 0, 1) == "{") ? json(raw) : null;
+	if (!saved || type(saved.routing_opts) != "object" || !saved.routing_opts.wan_if)
+		return; // не была установлена (или WAN неизвестен — firewall-план честно откажет)
+	let payload = sprintf("%J", { domains: saved.domains ?? [], routing_opts: saved.routing_opts,
+		fw_opts: { tunnel_if: saved.routing_opts.tunnel_if } });
+	if (run_stdin(step_cmd("firewall", null), payload) != 0)
+		warn("install: не удалось вернуть firewall прежней системы — примените режим заново в панели\n");
 }
 
 // --- вход ---
@@ -133,18 +163,11 @@ if (type(cfg.routing_opts.wan_if) != "string" || length(cfg.routing_opts.wan_if)
 	let wr = parse_wan_route(sh("ubus call network.interface.wan status 2>/dev/null"));
 	if (!wr) {
 		// Фолбэк (нестандартное имя WAN-логики в netifd): дефолт-маршрут, минуя туннели.
-		let tunnels = {};
+		// Разбор — чистая pick_wan_fallback (install.uc, под юнит-тестами).
+		let tunnels = [];
 		for (let p in protocol_ids())
-			tunnels[tunnel_info(p).tunnel_if] = true;
-		let defs = split(trim(sh("ip route show default 2>/dev/null")), "\n");
-		for (let i = 0; i < length(defs); i++) {
-			let dev = match(defs[i], /dev ([^ ]+)/);
-			if (!dev || tunnels[dev[1]])
-				continue;
-			let gw = match(defs[i], /via ([0-9.]+)/);
-			wr = { wan_if: dev[1], wan_gw: gw ? gw[1] : null };
-			break;
-		}
+			push(tunnels, tunnel_info(p).tunnel_if);
+		wr = pick_wan_fallback(sh("ip route show default 2>/dev/null"), tunnels);
 	}
 	if (wr) {
 		cfg.routing_opts.wan_if = wr.wan_if;
@@ -175,11 +198,16 @@ function restore_cfg_truth() {
 		unlink(f);
 }
 
-// --rollback: только откат, без установки. stdin — {domains?, routing_opts?} для teardown'ов.
+// --rollback: только откат, без установки. stdin — {domains?, routing_opts?, protocol?}.
 // Зовёт install_cancel — отменённая установка тоже не должна оставлять фантомный install.json.
+// Teardown'им дирти-шаги ВСЕХ туннелей (не только активного протокола): отменённая установка
+// могла быть любого протокола, а teardown идемпотентен (не установлен → no-op) — иначе отмена
+// reality-установки, пришедшая без protocol, оставляла бы живой sing-box с credentials.
 if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
-	rollback_all(steps, cfg);
+	let rb_steps = enabled_steps({ disable: (type(cfg.disable) == "array") ? cfg.disable : [] });
+	rollback_all(rb_steps, cfg);
 	restore_cfg_truth();
+	reapply_data_plane();
 	warn("install: откат выполнен (--rollback)\n");
 	exit(0);
 }
@@ -214,6 +242,13 @@ if (dry) {
 set_step("snapshot");
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
 
+// Full-тир: рабочий config.json (пере-установка/смена протокола поверх reality) бэкапим ДО
+// teardown'ов — uci-снимок внешний файл не покрывает, а teardown его удаляет безвозвратно.
+// Возврат — в rollback_all; на commit бэкап зачищается (ниже).
+let SB_CONF = sb_config_path(null);
+if (access(SB_CONF))
+	sh(sprintf("cp %s %s.prev 2>/dev/null", SB_CONF, SB_CONF));
+
 // Смена протокола: снять НЕактивный туннель начисто (awg0 при reality и наоборот) — иначе оба
 // держат свой default-маршрут и конфликтуют. Снимок выше (network в scope) вернёт при откате.
 // Идемпотентно: не был установлен → no-op. vpn/singbox поддерживают --teardown.
@@ -237,7 +272,10 @@ for (let i = 0; i < length(steps); i++) {
 let all_ok = true;
 for (let i = 0; i < length(results); i++) if (!results[i].ok) all_ok = false;
 if (all_ok) set_step("health-check"); // поднятие туннеля+DNS — самый долгий этап (до ~30с)
-let health = all_ok ? { ok: healthcheck(cfg) } : null;
+let tunnel_applied = false;
+for (let i = 0; i < length(steps); i++)
+	if (steps[i].name == tinfo.step) tunnel_applied = true;
+let health = all_ok ? { ok: healthcheck(cfg, tunnel_applied) } : null;
 
 // --- 5. решение: commit / rollback ---
 let outcome = decide_outcome({ preflight: preflight, steps: results, health: health });
@@ -270,6 +308,7 @@ if (outcome.action == "commit") {
 	// токен ОСТАЁТСЯ, чтобы пользователь исправил данные и повторил тем же токеном без bootstrap.
 	unlink(ETC_CHEBURNET + "/install-token");
 	unlink(ETC_CHEBURNET + "/install.json.prev"); // бэкап прежнего cfg больше не нужен
+	unlink(SB_CONF + ".prev");                    // и бэкап прежнего config.json (Full-тир)
 	printf("install: успешно — %s\n", outcome.reason);
 	exit(0);
 }
@@ -279,5 +318,6 @@ set_reason(outcome.code);
 warn(sprintf("install: откат — %s\n", outcome.reason));
 rollback_all(steps, cfg);
 restore_cfg_truth();
+reapply_data_plane(); // пере-установка поверх рабочей: вернуть её firewall (см. контракт функции)
 warn("install: откат выполнен — система возвращена к состоянию до установки\n");
 exit(1);

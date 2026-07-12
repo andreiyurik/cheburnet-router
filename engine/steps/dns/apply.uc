@@ -9,7 +9,7 @@
 // Идемпотентно: пустой план → ничего не делаем и не дёргаем dnsmasq зря.
 
 import { stdin } from "fs";
-import { sh, run_stdin } from "../../lib/proc.uc";
+import { sh, uci_batch } from "../../lib/proc.uc";
 import { build_plan } from "../../routing/routing.uc";
 import { owned_sections, build_dns_plan } from "./dns.uc";
 
@@ -59,12 +59,10 @@ if (dry) {
 	exit(0);
 }
 
-// Применяем атомарно через `uci batch` + commit, затем перезагружаем dnsmasq.
-// rc проверяем: молча упавший batch = полуприменённый конфиг под видом успеха (урок doh/QEMU).
-let ops_text = "";
-for (let i = 0; i < length(plan.ops); i++)
-	ops_text += plan.ops[i] + "\n";
-let rc = run_stdin("uci batch", ops_text + "commit dhcp\n");
+// Применяем через общий uci_batch + commit, затем перезагружаем dnsmasq. rc проверяем:
+// молча упавший batch = полуприменённый конфиг под видом успеха (урок doh/QEMU). Сам процесс
+// `uci batch` выходит 0 даже на ошибках — uci_batch (lib/proc.uc) ловит их по выводу.
+let rc = uci_batch(plan.ops, "dhcp");
 if (rc != 0)
 	die(sprintf("dns/apply: uci batch упал (код %d)", rc));
 

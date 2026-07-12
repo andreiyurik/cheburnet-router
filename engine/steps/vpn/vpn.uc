@@ -41,13 +41,20 @@ function owned_sections(opts) {
 	return [ o.interface, o.interface + "_peer" ];
 }
 
+// valid_port(host, port) → {host, port} или null: порт 1..65535 (вход пользователя; "99999"
+// проходил бы regex и валил netifd только при поднятии интерфейса).
+function valid_port(host, port) {
+	let p = int(port);
+	return (p >= 1 && p <= 65535) ? { host: host, port: port } : null;
+}
+
 // split_endpoint(ep) → { host, port } или null. Поддерживает host:port и [ipv6]:port.
 function split_endpoint(ep) {
 	let s = trim(ep ?? "");
 	if (length(s) == 0) return null;
 	if (substr(s, 0, 1) == "[") {
 		let m = match(s, /^\[([^\]]+)\]:([0-9]+)$/);
-		return m ? { host: m[1], port: m[2] } : null;
+		return m ? valid_port(m[1], m[2]) : null;
 	}
 	// host:port — режем по последнему ':' (у IPv4/DNS-хоста двоеточий нет)
 	let idx = -1;
@@ -56,7 +63,10 @@ function split_endpoint(ep) {
 	if (idx < 0) return null;
 	let host = substr(s, 0, idx), port = substr(s, idx + 1);
 	if (length(host) == 0 || !match(port, /^[0-9]+$/)) return null;
-	return { host: host, port: port };
+	// Голый IPv6 без скобок резался бы по последнему ':' в мусорные host/port и молча ехал в uci
+	// (туннель мёртв после установки). IPv6-endpoint обязан быть в скобках — честный отказ.
+	if (index(host, ":") >= 0) return null;
+	return valid_port(host, port);
 }
 
 // parse_awg_conf(text) → { interface: {ключ:значение}, peers: [{...}] }. INI-формат WireGuard:

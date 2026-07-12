@@ -122,4 +122,13 @@ test("set_names: имена сетов [v4, v6] — источник для dns/
 	deep_eq(set_names(), [ "direct", "direct6" ]);
 });
 
+test("render_all: композиция всех артефактов + passthrough rejected", () => {
+	let plan = build_plan([ "example.com", "битый домен!" ], { ipv6: false });
+	let all = render_all(plan);
+	deep_eq(all.dnsmasq, render_dnsmasq(plan));
+	deep_eq(all.nft, render_nft(plan));
+	deep_eq(all.iprules, render_iprules(plan));
+	eq(length(all.rejected), 1, "невалидный домен отражён в rejected (видимость для UI)");
+});
+
 exit(summary());

@@ -110,8 +110,10 @@ function hexnib(c) {
 	return -1;
 }
 
-// urldecode(s) → percent-декодирование (%XX) для query-параметров ссылки. '+' → пробел
-// (form-encoding в query). Битый %XX оставляем как есть — не теряем символ.
+// urldecode(s) → percent-декодирование (%XX) для query-параметров ссылки. '+' НЕ трогаем:
+// vless-ссылка — RFC 3986 URI, а не form-encoding; '+' в значении (например, standard-base64
+// pbk от нестандартной панели) — литерал, и превращение его в пробел тихо било бы ключ
+// (провал всплывал бы только на 30с-probe после установки). Битый %XX оставляем как есть.
 function urldecode(s) {
 	let out = "", i = 0, n = length(s ?? "");
 	while (i < n) {
@@ -120,7 +122,6 @@ function urldecode(s) {
 			let h = hexnib(substr(s, i + 1, 1)), l = hexnib(substr(s, i + 2, 1));
 			if (h >= 0 && l >= 0) { out += chr(h * 16 + l); i += 3; continue; }
 		}
-		if (c == "+") { out += " "; i++; continue; }
 		out += c; i++;
 	}
 	return out;
@@ -141,13 +142,20 @@ function parse_query(q) {
 	return out;
 }
 
+// valid_port(host, port) → {host, port} или null: порт в диапазоне 1..65535 (вход пользователя;
+// "99999" проходил бы regex и бил sing-box/netifd только на старте сервиса).
+function valid_port(host, port) {
+	let p = int(port);
+	return (p >= 1 && p <= 65535) ? { host: host, port: port } : null;
+}
+
 // split_hostport(s) → { host, port } или null. host:port и [ipv6]:port (порт строкой).
 function split_hostport(s) {
 	let t = trim(s ?? "");
 	if (length(t) == 0) return null;
 	if (substr(t, 0, 1) == "[") {
 		let m = match(t, /^\[([^\]]+)\]:([0-9]+)$/);
-		return m ? { host: m[1], port: m[2] } : null;
+		return m ? valid_port(m[1], m[2]) : null;
 	}
 	let idx = -1;
 	for (let i = 0; i < length(t); i++)
@@ -155,7 +163,11 @@ function split_hostport(s) {
 	if (idx < 0) return null;
 	let host = substr(t, 0, idx), port = substr(t, idx + 1);
 	if (length(host) == 0 || !match(port, /^[0-9]+$/)) return null;
-	return { host: host, port: port };
+	// Голый IPv6 без скобок ("2001:db8::1") резался бы по последнему ':' в мусорные host/port
+	// («host» с двоеточиями, «port» из хвоста адреса) и падал только на probe после установки.
+	// IPv6 обязан быть в скобках (URL-синтаксис) — честный отказ с понятной ошибкой парсера.
+	if (index(host, ":") >= 0) return null;
+	return valid_port(host, port);
 }
 
 // parse_vless_link(s) → { ok, errors, fields }. Формат:

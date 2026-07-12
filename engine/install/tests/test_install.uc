@@ -2,7 +2,7 @@
 //   ucode -R engine/install/tests/test_install.uc
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
-import { route_uses_iface,
+import { route_uses_iface, fresh_handshake, pick_wan_fallback,
          all_steps, enabled_steps, snapshot_scope, dirty_steps,
          decide_outcome, protocol_ids, default_protocol, tunnel_info,
          disabled_tunnels, handshake_state } from "../install.uc";
@@ -188,6 +188,78 @@ test("route_uses_iface: пустой вход / пустой iface → false (fa
 	ok(!route_uses_iface("", "singtun0"));
 	ok(!route_uses_iface(null, "singtun0"));
 	ok(!route_uses_iface("1.1.1.1 dev singtun0", ""));
+});
+
+test("route_uses_iface: 'dev' последним токеном (обрезанный вывод) → false", () => {
+	ok(!route_uses_iface("1.1.1.1 dev", "singtun0"));
+});
+
+// --- fresh_handshake (30с-гейт replace_vpn: multi-peer-корректность) ---
+test("fresh_handshake: multi-peer — свежий handshake у ВТОРОГО peer'а находится", () => {
+	// Единый regex по многострочному выводу тут всегда фейлил → рабочий конфиг ложно откатывался.
+	let hs = "pubkeyA=\t0\npubkeyB=\t1750000100";
+	ok(fresh_handshake(hs, 1750000000));
+	ok(!fresh_handshake(hs, 1750000200), "оба handshake старше started → false");
+});
+
+test("fresh_handshake: одиночный peer, пустой вывод, мусор", () => {
+	ok(fresh_handshake("pubkey=\t1750000100", 1750000000));
+	ok(!fresh_handshake("pubkey=\t0", 1750000000), "0 = рукопожатия не было");
+	ok(!fresh_handshake("", 1750000000));
+	ok(!fresh_handshake(null, 1750000000));
+	ok(!fresh_handshake("(none)", 1750000000));
+});
+
+test("fresh_handshake: принимает и урезанный вывод (одни числа, как awk $2)", () => {
+	ok(fresh_handshake("0\n1750000100", 1750000000));
+});
+
+// --- pick_wan_fallback (WAN-детект, когда netifd не знает wan) ---
+test("pick_wan_fallback: default via gw dev eth0 → wan_if+wan_gw", () => {
+	deep_eq(pick_wan_fallback("default via 192.168.100.1 dev eth0 proto dhcp", [ "awg0", "singtun0" ]),
+		{ wan_if: "eth0", wan_gw: "192.168.100.1" });
+});
+
+test("pick_wan_fallback: p2p-дефолт без via (PPPoE) → wan_gw null", () => {
+	deep_eq(pick_wan_fallback("default dev pppoe-wan proto static", [ "awg0", "singtun0" ]),
+		{ wan_if: "pppoe-wan", wan_gw: null });
+});
+
+test("pick_wan_fallback: туннельные интерфейсы пропускаются (иначе kill-switch на сам туннель)", () => {
+	let routes = "default dev awg0 scope link\ndefault via 10.0.0.1 dev eth1 metric 10";
+	deep_eq(pick_wan_fallback(routes, [ "awg0", "singtun0" ]), { wan_if: "eth1", wan_gw: "10.0.0.1" });
+	eq(pick_wan_fallback("default dev singtun0", [ "awg0", "singtun0" ]), null,
+		"только туннельные дефолты → null, не туннель-как-WAN");
+});
+
+test("pick_wan_fallback: пустой вывод / нет default → null", () => {
+	eq(pick_wan_fallback("", [ "awg0" ]), null);
+	eq(pick_wan_fallback(null, [ "awg0" ]), null);
+});
+
+// --- дополнение к handshake_state / decide_outcome / copy-семантика ---
+test("handshake_state: строка без таба (мусор awg) → waiting, не up (fail-safe поллинг)", () => {
+	eq(handshake_state("(none)"), "waiting");
+});
+
+test("decide_outcome: preflight ok + пустые шаги + health null → commit", () => {
+	eq(decide_outcome({ preflight: { ok: true }, steps: [], health: null }).action, "commit");
+});
+
+test("enabled_steps: копия несёт needs/rollback (на них висят step_stdin и dirty-классификация)", () => {
+	let steps = enabled_steps({});
+	for (let i = 0; i < length(steps); i++) {
+		ok(length(steps[i].needs ?? "") > 0 || steps[i].needs == null, "поле needs существует");
+		ok(steps[i].rollback == "clean" || steps[i].rollback == "dirty");
+	}
+	// vpn ждёт awg_conf, singbox — reality (контракт step_stdin в run.uc).
+	let by = {};
+	for (let i = 0; i < length(steps); i++) by[steps[i].name] = steps[i];
+	eq(by.vpn.needs, "awg_conf");
+	eq(by.singbox.needs, "reality");
+	// мутация копии не трогает реестр
+	by.vpn.needs = "mutated";
+	eq(enabled_steps({})[0].needs, "awg_conf");
 });
 
 exit(summary());

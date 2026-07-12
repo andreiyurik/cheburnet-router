@@ -31,11 +31,12 @@ vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
     || { echo "✗ DNS не работает в VM — apk update не пройдёт"; exit 1; }
 echo "  ✓ DNS работает"
 
-apk_try() { # до 5 попыток, тихо (флап зеркала не красит тест — урок install-v2)
+apk_try() { # до 10 попыток по 10с, тихо (флап зеркала не красит тест — урок install-v2:
+    # 5×3с не хватало, фильтрующая сеть рвёт отдельные файлы с высокой частотой)
     local cmd="$1"
-    for _ in 1 2 3 4 5; do
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
         if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
-        sleep 3
+        sleep 10
     done
     return 1
 }
