@@ -28,6 +28,7 @@ POSIX_FILES=(
     engine/install/install-singbox.sh
     package/cheburnet/files/rpcd-cheburnet.sh
     tests/poc/split-routing-netns.sh
+    tests/netns/dataplane.sh
 )
 
 # BASH_FILES и BATS_FILES — собираются автоматически через find, чтобы новые

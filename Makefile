@@ -3,13 +3,16 @@
 # Уровни тестов:
 #   make lint             — T1: статика (shellcheck + sh -n + JSON).
 #   make test-engine      — T2: юниты движка (чистая логика на ucode, host-only, секунды).
+#   make test-netns       — T2.5: ПОВЕДЕНИЕ split-routing в netns (форвард-путь): реальное
+#                            разделение трафика + kill-switch антиутечка на живом ядре, БЕЗ
+#                            роутера/VPN. Rootless, секунды.
 #   make poc-split        — Фаза 0 PoC: split-routing на примитивах в netns.
 #   make qemu-v2          — T3a: hermetic VM smoke движка в qemu/KVM (~2мин, без интернета).
 #   make qemu-webui-v2    — T3b: VM smoke с HTTP/ubus через uhttpd + UI (~3мин, нужен интернет).
 #   make qemu-install-v2  — T3c: DEPENDS + data-plane против реальных сервисов (~5-8мин,
 #                            нужен интернет). Release-gate.
 
-.PHONY: lint test-engine test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2
 
 lint:
 	@bash tests/lint.sh
@@ -22,6 +25,13 @@ test-engine:
 # выхода install-singbox.sh (кнопка Full-тира) — самое глючеопасное место.
 test-shell:
 	@bash tests/install-singbox-test.sh
+
+# T2.5 — поведение split-routing на живом ядре БЕЗ роутера/QEMU/VPN (форвард-путь в netns):
+# direct→WAN, остальное→туннель, kill-switch антиутечка при мёртвом туннеле — для awg0 и singtun0.
+# Гоняет РЕАЛЬНЫЙ вывод движка (tests/netns/emit.uc). Rootless (unshare -rn). Реальный dnsmasq→nftset,
+# если есть dnsmasq/nslookup. Секунды; изоляция сценариев — свежий netns на каждый (ре-exec).
+test-netns:
+	@sh tests/netns/dataplane.sh
 
 # Фаза 0 PoC + e2e: split-routing на примитивах И из реального вывода генератора,
 # прогон через network namespace. Нужны nft/ip/unshare; ucode — для фазы B.
