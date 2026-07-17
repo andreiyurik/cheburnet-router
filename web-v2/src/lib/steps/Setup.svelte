@@ -4,8 +4,9 @@
   // Wi-Fi; true → обязателен; null (статус не ответил) → показать как необязательный.
   // initial — ранее собранные args («Назад» с экрана подтверждения не теряет введённое).
   // dnsProviders — каталог фильтрующих DNS (из status); dnsProviderDefault — дефолтный id.
-  // fullAvailable — тянет ли железо Full-тир (из preflight): true → предлагаем выбор протокола
-  // AmneziaWG / VLESS+Reality; false → только AmneziaWG (Light).
+  // fullAvailable — ТЯНЕТ ли железо Full-тир (из preflight.tiers.full): true → VLESS+Reality
+  // доступен для выбора (sing-box догрузится автоматически при установке); false → строка Reality
+  // показана НЕактивной с пояснением про требования (образовательно), выбрать нельзя. Дефолт — AWG.
   let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, urlToken = '', initial = null } = $props();
 
   const MIN_PASS = 8; // минимум на ubus-границе (install.root_password.minlen)
@@ -128,17 +129,20 @@
 <section>
   <h2>Настройка</h2>
 
-  {#if fullAvailable}
-    <h3>Протокол туннеля</h3>
-    <label class="radio">
-      <input type="radio" bind:group={protocol} value="awg" />
-      <span><strong>AmneziaWG</strong> — лёгкий, быстрый (рекомендуется в большинстве сетей)</span>
-    </label>
-    <label class="radio">
-      <input type="radio" bind:group={protocol} value="reality" />
-      <span><strong>VLESS + Reality</strong> — маскируется под обычный HTTPS, для сетей с жёстким DPI</span>
-    </label>
-  {/if}
+  <h3>Протокол туннеля</h3>
+  <label class="radio">
+    <input type="radio" bind:group={protocol} value="awg" />
+    <span><strong>AmneziaWG</strong> — рекомендуем. Лёгкий и быстрый, работает в ядре роутера:
+      меньше нагрузка, идёт даже на слабом железе.</span>
+  </label>
+  <label class="radio" class:disabled={!fullAvailable}>
+    <input type="radio" bind:group={protocol} value="reality" disabled={!fullAvailable} />
+    <span><strong>VLESS + Reality</strong> — альтернатива для сетей с жёстким DPI: маскируется под
+      обычный HTTPS. Требует более мощный роутер (64-битный CPU с AES, ≥ 256 МБ RAM, ≥ 128 МБ флеша)
+      и догрузит компонент <code>sing-box</code> (~15 МБ) из интернета при установке.
+      {#if !fullAvailable}<br /><em class="req">Недоступно: этот роутер не тянет VLESS+Reality
+        (нужен более мощный) — будет использован AmneziaWG.</em>{/if}</span>
+  </label>
 
   {#if protocol === 'reality' && fullAvailable}
     <label>
@@ -148,7 +152,8 @@
         rows="6"
         placeholder="vless://uuid@host:443?security=reality&pbk=…&sni=…&sid=…&flow=xtls-rprx-vision#name&#10;…или JSON-конфиг sing-box"
       ></textarea>
-      <small class="muted">Возьмите ссылку из панели своего Reality-сервера (3x-ui / Hiddify и т.п.).</small>
+      <small class="muted">Возьмите ссылку из панели своего Reality-сервера (3x-ui / Hiddify и т.п.).
+        Компонент <code>sing-box</code> скачается автоматически во время установки.</small>
     </label>
   {:else}
     <label>

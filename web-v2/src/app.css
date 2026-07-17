@@ -83,6 +83,7 @@ label.file > span { font-weight: 400; color: var(--muted); }
 label.radio { display: flex; align-items: baseline; gap: 0.5rem; margin: 0.5rem 0; cursor: pointer; }
 label.radio > span { display: inline; margin: 0; font-weight: 400; }
 label.radio input { width: auto; margin: 0; }
+label.radio.disabled { cursor: not-allowed; opacity: 0.6; }
 
 textarea, input[type="text"], input[type="password"], select {
   width: 100%;

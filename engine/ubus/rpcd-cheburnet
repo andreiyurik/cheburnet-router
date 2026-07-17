@@ -617,6 +617,43 @@ function m_switch_to_reality(v) {
 	respond({ status: "started", pid: pid });
 }
 
+function m_switch_to_awg(v) {
+	if (pid_alive())
+		respond(make_error("операция уже выполняется"));
+	if (!access(CFG_FILE))
+		respond(make_error("система ещё не настроена — сначала пройдите мастер"));
+
+	let cfg = load_cfg();
+	if (cfg.protocol == "awg")
+		respond(make_error("уже используется AmneziaWG — меняйте сервер через «Замена VPN-конфига»"));
+
+	// Синхронная валидация .conf ДО фона (понятная ошибка, не rollback-цикл).
+	let vt = validate_tunnel_conf("awg", v.awg_conf);
+	if (!vt.ok)
+		respond(make_error(vt.error));
+
+	// Зеркало m_switch_to_reality: run.uc делает snapshot → teardown singtun0 (неактивный туннель)
+	// → apply vpn+dns+doh+firewall(awg0) → handshake-health → commit/rollback. Домены/DNS/режим
+	// берём из сохранённого cfg (мастер НЕ проходим). sing-box остаётся УСТАНОВЛЕННЫМ (снимаем лишь
+	// его туннель/конфиг через teardown singbox-шага) — обратно на Reality можно вернуться сразу.
+	// protocol в install.json меняем ЗАРАНЕЕ (+.prev): на commit run.uc допишет wan_if сюда же, на
+	// откате вернёт .prev (protocol=reality) с восстановлением config.json (см. run.uc rollback_all).
+	cfg.protocol = "awg";
+	unlink(CFG_FILE + ".prev");
+	sh(sprintf("cp %s %s.prev", CFG_FILE, CFG_FILE));
+	save_cfg(cfg);
+
+	// domains — свежая сборка user+imported (как в m_install), а не устаревший снимок.
+	writefile(PAYLOAD_FILE, sprintf("%J", {
+		protocol: "awg", awg_conf: v.awg_conf,
+		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
+		dns_provider: cfg.dns_provider,
+	}));
+	chmod(PAYLOAD_FILE, 0o600);
+	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/run.uc"), PAYLOAD_FILE), "switching-awg");
+	respond({ status: "started", pid: pid });
+}
+
 function m_factory_reset(v) {
 	// Защитное слово против случайного клика: ровно "RESET" (как в v1).
 	if (v.confirm != "RESET")
@@ -681,5 +718,6 @@ else if (method == "replace_awg_conf")      m_replace_awg_conf(v);
 else if (method == "replace_reality_conf")  m_replace_reality_conf(v);
 else if (method == "install_full_tier")     m_install_full_tier(v);
 else if (method == "switch_to_reality")     m_switch_to_reality(v);
+else if (method == "switch_to_awg")         m_switch_to_awg(v);
 else if (method == "factory_reset")         m_factory_reset(v);
 else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

@@ -238,6 +238,23 @@ if (dry) {
 	exit(0);
 }
 
+// --- 1b. Full-тир: догрузка sing-box ДО любых изменений ---
+// sing-box — userspace-бинарь, ставится opt-in (не при bootstrap). Выбран reality, а бинаря нет
+// (первая установка Full из мастера) → качаем его ПЕРВЫМ, до snapshot и шагов: провал apk (нет
+// интернета) = чистый abort, откатывать нечего (роутер не тронут). Идемпотентно: на
+// switch_to_reality / переустановке поверх reality бинарь уже есть → пропуск. install-singbox.sh
+// несёт ретраи (downloads.openwrt.org рвётся из фильтрующих сетей) и код выхода по факту наличия
+// бинаря; run_stdin наследует его stdout в install-лог — мастер видит «Ставлю sing-box…».
+if (protocol == "reality" && length(trim(sh("command -v sing-box 2>/dev/null"))) == 0) {
+	set_step("singbox-download");
+	if (run_stdin(sprintf("sh %s/install/install-singbox.sh", ENGINE), "") != 0) {
+		restore_cfg_truth();
+		set_reason("singbox-download");
+		warn("install: не удалось догрузить sing-box — проверьте интернет на роутере\n");
+		exit(1);
+	}
+}
+
 // --- 2. snapshot UCI (для чистого отката) ---
 set_step("snapshot");
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));

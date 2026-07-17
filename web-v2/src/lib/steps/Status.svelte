@@ -18,6 +18,8 @@
   let fullPhase = $state('idle'); // Full-тир (sing-box): idle | running | ok | fail
   let fullLog = $state('');
   let switchConf = $state('');    // vless:// для in-place переключения AWG→Reality
+  let switchAwgConf = $state(''); // AWG .conf для обратного переключения Reality→AWG
+  let switchTarget = $state('reality'); // направление текущего свитча: 'reality' | 'awg'
   let switchPhase = $state('idle');
   let switchLog = $state('');
   let timer = null;
@@ -207,6 +209,7 @@
       action = 'Вставьте ссылку vless:// от вашего Reality-сервера.';
       return;
     }
+    switchTarget = 'reality';
     busy = true; action = ''; switchLog = '';
     try {
       await cheburnet('switch_to_reality', { reality_conf: switchConf });
@@ -223,6 +226,37 @@
     }
   }
 
+  // Обратное in-place переключение Reality→AmneziaWG (зеркало switchToReality): приносим только
+  // AWG-конфиг, домены/DNS берутся из сохранённого. sing-box остаётся установленным — назад на
+  // Reality можно вернуться сразу. При сбое Reality возвращается автоматически. Тот же фон+poll.
+  async function switchToAwg() {
+    if (switchAwgConf.trim().length === 0) {
+      action = 'Вставьте или загрузите AWG-конфиг.';
+      return;
+    }
+    switchTarget = 'awg';
+    busy = true; action = ''; switchLog = '';
+    try {
+      await cheburnet('switch_to_awg', { awg_conf: switchAwgConf });
+      switchPhase = 'running';
+      switchTimer = setInterval(pollSwitch, 2000);
+    } catch (e) {
+      busy = false;
+      if (e.message.includes('PERMISSION_DENIED')) {
+        logout(); loggedIn = false; loginOpen = true;
+        action = 'Переключение: нужен вход — введите пароль роутера.';
+      } else {
+        action = `Переключение: ${e.message}`;
+      }
+    }
+  }
+
+  async function onSwitchAwgFile(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    switchAwgConf = await f.text();
+  }
+
   async function pollSwitch() {
     try {
       const p = await cheburnet('install_progress');
@@ -231,11 +265,15 @@
         clearInterval(switchTimer); switchTimer = null; busy = false;
         if (p.result === 'ok') {
           switchPhase = 'ok';
-          switchConf = '';
-          action = 'Переключено на VLESS+Reality — туннель работает.';
+          switchConf = ''; switchAwgConf = '';
+          action = switchTarget === 'awg'
+            ? 'Переключено на AmneziaWG — туннель работает.'
+            : 'Переключено на VLESS+Reality — туннель работает.';
         } else {
           switchPhase = 'fail';
-          action = 'Не удалось поднять VLESS+Reality — прежний туннель (AmneziaWG) возвращён автоматически. Проверьте ссылку и что сервер жив.';
+          action = switchTarget === 'awg'
+            ? 'Не удалось поднять AmneziaWG — прежний туннель (VLESS+Reality) возвращён автоматически. Проверьте, что AWG-конфиг вставлен целиком и сервер жив.'
+            : 'Не удалось поднять VLESS+Reality — прежний туннель (AmneziaWG) возвращён автоматически. Проверьте ссылку и что сервер жив.';
         }
         await refresh();
       }
@@ -269,7 +307,7 @@
         clearInterval(fullTimer); fullTimer = null; busy = false;
         if (p.result === 'ok') {
           fullPhase = 'ok';
-          action = 'sing-box установлен. Чтобы переключиться на VLESS+Reality — нажмите «Настроить заново» внизу и выберите протокол в мастере.';
+          action = 'sing-box установлен. Ниже появился блок «Переключиться на VLESS+Reality» — вставьте туда ссылку vless:// от вашего сервера.';
         } else {
           fullPhase = 'fail';
           action = 'Не удалось скачать sing-box — проверьте, что роутер в интернете, и попробуйте ещё раз. AmneziaWG не затронут.';
@@ -448,6 +486,39 @@
         <summary>Журнал замены</summary>
         <pre class="log">{awgLog}</pre>
       </details>
+    {/if}
+
+    <!-- Обратное переключение на AmneziaWG (только когда активен Reality). sing-box остаётся
+         установленным, поэтому назад на Reality можно вернуться в один шаг через блок выше. -->
+    {#if s.protocol === 'reality'}
+      <h3 id="switch-awg">Вернуться на AmneziaWG</h3>
+      <p class="muted small">Сейчас активен <strong>VLESS+Reality</strong>. Если хотите вернуться на
+        лёгкий и быстрый <code>AmneziaWG</code> — вставьте его <code>.conf</code> и переключим туннель
+        на месте (домены и DNS сохранятся). Если AmneziaWG не поднимется, VLESS+Reality вернётся
+        автоматически. Компонент <code>sing-box</code> при этом останется — назад можно в один шаг.</p>
+      <label>
+        <span>AWG-конфиг (файл <code>.conf</code>)</span>
+        <textarea bind:value={switchAwgConf} rows="5" disabled={busy}
+          placeholder="[Interface]&#10;PrivateKey = …&#10;[Peer]&#10;…"></textarea>
+      </label>
+      <label class="file">
+        <span>…или загрузить файлом</span>
+        <input type="file" accept=".conf,text/plain" onchange={onSwitchAwgFile} disabled={busy} />
+      </label>
+      <div class="row">
+        <button disabled={busy || switchAwgConf.trim().length === 0} onclick={switchToAwg}>
+          {switchPhase === 'running' && switchTarget === 'awg' ? 'Переключаю…' : 'Вернуться на AmneziaWG'}
+        </button>
+      </div>
+      {#if switchPhase === 'running' && switchTarget === 'awg'}
+        <p><span class="spinner"></span> Поднимаю AmneziaWG — при сбое вернётся VLESS+Reality.</p>
+      {/if}
+      {#if switchLog && switchPhase !== 'idle' && switchTarget === 'awg'}
+        <details open={switchPhase === 'fail'}>
+          <summary>Журнал переключения</summary>
+          <pre class="log">{switchLog}</pre>
+        </details>
+      {/if}
     {/if}
 
     {#if action}<p class="muted">{action}</p>{/if}

@@ -88,6 +88,11 @@ const REGISTRY = [
 	{ name: "switch_to_reality", access: "write", auth: "admin", token: false, args: [
 		{ name: "reality_conf", type: "string", required: true },
 	] },
+	// Обратная смена Reality→AmneziaWG (зеркало switch_to_reality): приносим только AWG-конфиг,
+	// домены/DNS/режим — из сохранённой конфигурации. sing-box остаётся установленным (не удаляем).
+	{ name: "switch_to_awg", access: "write", auth: "admin", token: false, args: [
+		{ name: "awg_conf", type: "string", required: true },
+	] },
 	{ name: "replace_awg_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
 	] },

@@ -77,5 +77,8 @@ ucode -R engine/steps/singbox/apply.uc --teardown                   # снять
 
 - **preflight-гейт** Full-тира (AES-arch / RAM / sing-box ставится) — `engine/preflight`.
 - **Маршрутизация** в `singtun0` и kill-switch — `engine/steps/firewall` (параметр tunnel-iface).
+- **Догрузка бинаря** sing-box (`apk add sing-box`) — `engine/install/install-singbox.sh`: кнопкой
+  в панели (`install_full_tier`) или **автоматически** при выборе Reality в мастере (`run.uc`
+  запускает её первым шагом, до snapshot; провал = чистый abort). Не этот шаг — он ждёт готовый бинарь.
 - **Автофолбэк** AWG→Reality (runtime-детект обрыва) — будущая фаза.
 - **Живая проверка** (реальный sing-box + Reality-сервер, замер throughput/RAM) — QEMU/железо.

@@ -79,11 +79,13 @@
 | Дистрибуция | GitHub Releases + `apk add --allow-untrusted` | arch-независимый пакет (`PKGARCH:=all`), без хостинга своего feed'а — см. [docs/v2/architecture/bootstrap.md](docs/v2/architecture/bootstrap.md) |
 
 **Многопротокольность по тирам** — [docs/v2/decisions/0004-multi-protocol-tiers.md](docs/v2/decisions/0004-multi-protocol-tiers.md):
-Light (AmneziaWG, ядро) = дефолт и активный путь; Full (sing-box, VLESS+Reality) = опциональный
-фолбэк для устойчивости к DPI, **гейтится на v2.1**. Не «меню из 3 протоколов», а две оси
-покрытия (UDP/лёгкий ↔ TCP-mimicry/тяжёлый) + автофолбэк. Шаг `engine/steps/singbox/` уже написан
-(чистое ядро + тесты), но **не подключён к мастеру** (`fullAvailable=false`) — в мастере пока
-только Light. Осталось до Full: preflight-гейт по железу, маршрутизация в `singtun0`, автофолбэк.
+Light (AmneziaWG, ядро) = дефолт и рекомендация; Full (sing-box, VLESS+Reality) = опциональная
+альтернатива для устойчивости к DPI. Не «меню из 3 протоколов», а две оси покрытия (UDP/лёгкий ↔
+TCP-mimicry/тяжёлый). Full **подключён к мастеру**: на подходящем железе (preflight `tiers.full`)
+мастер даёт выбор протокола, а sing-box **догружается автоматически** при выборе Reality (`run.uc`,
+до snapshot; провал apk = чистый abort). Переключение туда-обратно — из панели
+(`switch_to_reality` / `switch_to_awg`), с автооткатом. Осталось: **автофолбэк** AWG→Reality
+(runtime-детект мёртвой UDP-оси) и живая проверка Reality end-to-end (нужен внешний VPS).
 
 **Надёжность — три простых кирпича** (не generic-движок): строгий **preflight** (гейткипер
 железа), **идемпотентные шаги**, **точечный rollback** только там, где откат чистый.

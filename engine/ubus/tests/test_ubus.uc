@@ -149,6 +149,12 @@ test("validate: switch_to_reality — admin, reality_conf обязателен, 
 	eq(requires_token("switch_to_reality"), false, "admin-метод — токен не нужен");
 });
 
+test("validate: switch_to_awg — admin, awg_conf обязателен, без токена (обратный свитч)", () => {
+	eq(validate_request("switch_to_awg", { awg_conf: "[Interface]\n" }).ok, true);
+	eq(validate_request("switch_to_awg", {}).ok, false, "awg_conf обязателен");
+	eq(requires_token("switch_to_awg"), false, "admin-метод — токен не нужен");
+});
+
 test("validate: set_dns_provider — enum из каталога; dns_provider в install опционален", () => {
 	eq(validate_request("set_dns_provider", { provider: "adguard" }).ok, true, "каталожный id ок");
 	eq(validate_request("set_dns_provider", { provider: "adguard-family" }).ok, true, "семейный ок");
