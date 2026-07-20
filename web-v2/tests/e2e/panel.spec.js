@@ -25,7 +25,7 @@ test('панель: кнопка «Включить VLESS+Reality» ставит
 
   // Фон + поллинг → успех: подсказка про переключение, а после refresh статус
   // full_installed=true превращает секцию в форму «Переключиться на VLESS+Reality».
-  await expect(page.getByText('sing-box установлен. Чтобы переключиться', { exact: false })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('sing-box установлен. Ниже появился блок', { exact: false })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('heading', { name: 'Переключиться на VLESS+Reality' })).toBeVisible({ timeout: 10_000 });
 
   const calls = await (await request.get('/__calls')).json();

@@ -1,6 +1,7 @@
 <script>
   import { onDestroy } from 'svelte';
   import { cheburnet, login, isLoggedIn, logout } from '../ubus.js';
+  import { hs } from '../logic.js';
 
   // onReinstall — запустить мастер заново (с preflight).
   let { onReinstall } = $props();
@@ -183,13 +184,6 @@
       resetWord = '';
       resetArmed = false;
     });
-
-  function hs(age) {
-    if (age == null) return 'нет ответа от сервера';
-    if (age < 0) return '—';
-    if (age < 120) return `отвечал ${age} с назад`;
-    return `отвечал ${Math.floor(age / 60)} мин назад`;
-  }
 
   refresh();
   // 15 с, не чаще: каждый опрос — это спавн rpcd-скрипта + shell-батч на роутере (слабое железо).

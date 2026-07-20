@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import mascot from '../../assets/cheburashka.png';
   import { cheburnet } from '../ubus.js';
+  import { STEP_LABELS, explainFail } from '../logic.js';
 
   // args — { awg_conf, root_password, [ssid, wifi_key], domains, token } для метода install.
   // onDone — установка завершилась успешно. onRetry — вернуться на Setup при ошибке.
@@ -18,99 +19,17 @@
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
   });
 
-  // Понятные подписи технических шагов движка (STATE_FILE) — что именно идёт сейчас.
-  const STEP_LABELS = {
-    starting: 'Запуск…',
-    preflight: 'Проверка роутера',
-    'singbox-download': 'Загрузка компонента VLESS+Reality (~15 МБ)',
-    snapshot: 'Сохранение точки отката',
-    vpn: 'Настройка VPN-туннеля',
-    singbox: 'Настройка VPN-туннеля',
-    dns: 'Настройка DNS и split-routing',
-    doh: 'Шифрованный DNS',
-    wifi: 'Настройка Wi-Fi',
-    firewall: 'Firewall и kill-switch',
-    'health-check': 'Проверка связи (поднятие туннеля, до ~30 сек)',
-  };
   const stepLabel = $derived(STEP_LABELS[step] ?? step ?? '…');
   let error = $state('');
   let advice = $state(null); // { title, items[] } — адресная диагностика по reason
   let timer = null;
 
-  // Адресная диагностика по машинному коду исхода (install_progress.reason).
-  // Главный кейс: health — роутер настроен ПРАВИЛЬНО, но VPN-сервер не ответил. Без этого
-  // человек с протухшей подпиской дёргает Wi-Fi и пароли вместо конфига.
-  function explainFail(reason) {
-    if (reason === 'health') {
-      error = 'VPN-сервер не ответил — туннель не поднялся.';
-      advice = {
-        title: 'Роутер настроен правильно, но сервер из вашего VPN-конфига молчит. Изменения откатаны. Чаще всего это значит:',
-        items: [
-          'подписка у VPN-провайдера закончилась или сервер отключён — проверьте личный кабинет;',
-          'конфиг устарел — скачайте свежий файл .conf и загрузите его заново;',
-          'провайдер интернета мешает VPN-протоколу — попробуйте конфиг с другим сервером.',
-        ],
-        action: 'Загрузить другой конфиг',
-      };
-      return;
-    }
-    if (reason === 'step:vpn') {
-      error = 'VPN-конфиг не принят.';
-      advice = {
-        title: 'Изменения откатаны. Проверьте файл конфига:',
-        items: [
-          'он вставлен целиком — от строки [Interface] до конца;',
-          'это конфиг AmneziaWG/WireGuard «для роутеров» (.conf), а не ссылка или QR-код.',
-        ],
-        action: 'Исправить конфиг',
-      };
-      return;
-    }
-    if (reason && reason.startsWith('step:')) {
-      const s = reason.slice(5);
-      error = `Сбой на этапе «${STEP_LABELS[s] ?? s}».`;
-      advice = {
-        title: 'Изменения откатаны — роутер в исходном состоянии. Что можно сделать:',
-        items: [
-          'попробуйте ещё раз — разовые сбои случаются;',
-          'если повторяется — скопируйте журнал ниже и приложите его к вопросу в сообществе проекта.',
-        ],
-        action: 'Попробовать снова',
-      };
-      return;
-    }
-    if (reason === 'singbox-download') {
-      error = 'Не удалось загрузить компонент sing-box.';
-      advice = {
-        title: 'Изменений на роутере нет. Для VLESS+Reality нужно скачать компонент sing-box (~15 МБ) с серверов OpenWrt:',
-        items: [
-          'проверьте, что роутер подключён к интернету (кабель WAN на месте);',
-          'иногда загрузка рвётся из-за сети провайдера — просто попробуйте ещё раз;',
-          'либо вернитесь и выберите AmneziaWG — он не требует догрузки.',
-        ],
-        action: 'Попробовать снова',
-      };
-      return;
-    }
-    if (reason === 'preflight') {
-      error = 'Роутер не прошёл проверку.';
-      advice = {
-        title: 'Изменений нет. Вернитесь назад — с экрана настройки кнопка «Назад» запустит проверку заново и покажет, что именно не так.',
-        items: [],
-        action: 'Назад к настройке',
-      };
-      return;
-    }
-    // Код не пришёл (старый пакет / crash) — прежний общий текст.
-    advice = {
-      title: 'Что делать',
-      items: [
-        'Изменения откатаны — роутер в исходном состоянии, можно пробовать снова.',
-        'Частые причины: опечатка в AWG-конфиге (вставлен не целиком), нет интернета на WAN, недоступен сервер VPN-провайдера.',
-        'Не получается — скопируйте журнал ниже и приложите его к вопросу в сообществе проекта.',
-      ],
-      action: 'Изменить данные и повторить',
-    };
+  // Адресная диагностика — чистая explainFail (logic.js, под vitest). error=null у
+  // генерик-ветки → оставляем текст, выставленный вызывающим («не удалась» / «аварийно»).
+  function applyFail(reason) {
+    const ex = explainFail(reason);
+    if (ex.error) error = ex.error;
+    advice = ex.advice;
   }
 
   // Движок ставит долго (apk + шаги) — install лишь запускает фон и возвращает {started};
@@ -145,11 +64,11 @@
         } else if (p.result === 'crashed') {
           phase = 'fail';
           error = 'Установщик аварийно завершился.';
-          explainFail(null);
+          applyFail(null);
         } else {
           phase = 'fail';
           error = 'Установка не удалась.';
-          explainFail(p.reason ?? null);
+          applyFail(p.reason ?? null);
         }
       }
     } catch (e) {

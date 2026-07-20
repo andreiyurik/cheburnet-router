@@ -7,11 +7,9 @@
   // fullAvailable — ТЯНЕТ ли железо Full-тир (из preflight.tiers.full): true → VLESS+Reality
   // доступен для выбора (sing-box догрузится автоматически при установке); false → строка Reality
   // показана НЕактивной с пояснением про требования (образовательно), выбрать нельзя. Дефолт — AWG.
-  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, urlToken = '', initial = null } = $props();
+  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup } from '../logic.js';
 
-  const MIN_PASS = 8; // минимум на ubus-границе (install.root_password.minlen)
-  const SSID_MAX = 32; // IEEE 802.11
-  const WIFI_KEY_MIN = 8, WIFI_KEY_MAX = 63; // WPA-PSK
+  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, urlToken = '', initial = null } = $props();
 
   // Показываем Wi-Fi везде, кроме точно-нет-радио. Обязателен только при точно-есть-радио.
   const showWifi = $derived(wirelessPresent !== false);
@@ -58,71 +56,18 @@
     awgConf = await f.text();
   }
 
-  // Direct-домены: по строке или через запятую → массив. Пустые/пробелы отбрасываем
-  // (движок всё равно валидирует и отбрасывает мусор — fail-safe, см. routing.build_plan).
-  function parseDomains(text) {
-    return text
-      .split(/[\s,]+/)
-      .map((d) => d.trim())
-      .filter((d) => d.length > 0);
-  }
-
+  // Валидация и сборка аргументов install — чистая validateSetup (logic.js, под vitest).
   function submit() {
     error = '';
-    // Конфиг активного туннеля. reality доступен только при fullAvailable; на всякий случай
-    // (если железо не тянет) форсим awg даже при protocol==reality из initial.
-    const useReality = protocol === 'reality' && fullAvailable;
-    if (useReality) {
-      if (realityConf.trim().length === 0) {
-        error = 'Вставьте ссылку vless://… или JSON-конфиг sing-box.';
-        return;
-      }
-    } else if (awgConf.trim().length === 0) {
-      error = 'Вставьте или загрузите AWG-конфиг.';
-      return;
-    }
-    // Пароль НЕ обрезаем (в нём могут быть значимые пробелы) — сравниваем как есть.
-    if (rootPass.length < MIN_PASS) {
-      error = `Пароль роутера — минимум ${MIN_PASS} символов.`;
-      return;
-    }
-    if (rootPass !== rootPass2) {
-      error = 'Пароли роутера не совпадают.';
-      return;
-    }
-
-    // Wi-Fi: собираем только если секция показана и (обязательна ИЛИ хоть одно поле заполнено).
-    // Пароль Wi-Fi НЕ обрезаем (значимые пробелы); SSID — да (крайние пробелы — частая опечатка).
-    let wifiArgs = {};
-    if (showWifi) {
-      const ssidTrim = ssid.trim();
-      const wifiFilled = ssidTrim.length > 0 || wifiKey.length > 0;
-      if (wifiRequired || wifiFilled) {
-        if (ssidTrim.length < 1 || ssidTrim.length > SSID_MAX) {
-          error = `Имя Wi-Fi (SSID) — от 1 до ${SSID_MAX} символов.`;
-          return;
-        }
-        if (wifiKey.length < WIFI_KEY_MIN || wifiKey.length > WIFI_KEY_MAX) {
-          error = `Пароль Wi-Fi — от ${WIFI_KEY_MIN} до ${WIFI_KEY_MAX} символов.`;
-          return;
-        }
-        wifiArgs = { ssid: ssidTrim, wifi_key: wifiKey };
-      }
-    }
-
-    if (token.trim().length === 0) {
-      error = 'Введите код установки — он напечатан в терминале после команды установки.';
-      return;
-    }
-    onSubmit({
-      protocol: useReality ? 'reality' : 'awg',
-      ...(useReality ? { reality_conf: realityConf } : { awg_conf: awgConf }),
-      root_password: rootPass,
-      ...wifiArgs,
-      ...(dnsProvider ? { dns_provider: dnsProvider } : {}),
-      domains: parseDomains(domainsText),
-      token: token.trim(),
+    const r = validateSetup({
+      protocol, fullAvailable, awgConf, realityConf, rootPass, rootPass2,
+      showWifi, wifiRequired, ssid, wifiKey, dnsProvider, domainsText, token,
     });
+    if (r.error) {
+      error = r.error;
+      return;
+    }
+    onSubmit(r.args);
   }
 </script>
 
