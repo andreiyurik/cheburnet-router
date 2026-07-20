@@ -21,8 +21,12 @@ function sh(cmd) {
 	return out;
 }
 
+// Пути через env-override (host-тесты гоняют snapshot в sandbox — тот же приём, что
+// ETC_CHEBURNET в run.uc/rpcd-cheburnet). Без env — боевые значения.
+const CONFIG_DIR = getenv("UCI_CONFIG_DIR") ?? "/etc/config";
+
 let action = (length(ARGV) > 0) ? ARGV[0] : "";
-let dir = (length(ARGV) > 1) ? ARGV[1] : "/tmp/cheburnet-rollback";
+let dir = (length(ARGV) > 1) ? ARGV[1] : (getenv("SNAPSHOT_DIR") ?? "/tmp/cheburnet-rollback");
 let configs = protected_configs();
 
 if (action == "save") {
@@ -30,7 +34,7 @@ if (action == "save") {
 	let saved = [];
 	for (let i = 0; i < length(configs); i++) {
 		let c = configs[i];
-		let text = readfile("/etc/config/" + c);
+		let text = readfile(CONFIG_DIR + "/" + c);
 		if (text != null) {
 			writefile(dir + "/" + c, text);
 			push(saved, c);
@@ -43,7 +47,7 @@ if (action == "save") {
 		let c = configs[i];
 		let text = readfile(dir + "/" + c);
 		if (text != null) {
-			writefile("/etc/config/" + c, text);
+			writefile(CONFIG_DIR + "/" + c, text);
 			push(restored, c);
 		}
 	}

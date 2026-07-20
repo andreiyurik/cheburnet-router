@@ -24,7 +24,9 @@ let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
 
 let conf = stdin.read("all") ?? "";
-let cfgfile = config_path({});
+// config.json: env-override для host-тестов в sandbox (тот же приём, что ETC_CHEBURNET в run.uc);
+// тот же env читает singbox/apply.uc — оба слоя пишут/бэкапят ОДИН файл и в тесте, и в бою.
+let cfgfile = getenv("SB_CONFIG") ?? config_path({});
 let bak = cfgfile + ".bak";
 let iface = tun_interface({});
 

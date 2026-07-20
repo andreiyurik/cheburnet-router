@@ -16,6 +16,10 @@ import { sh, uci_batch } from "../../lib/proc.uc";
 let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
 let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
+// config.json: env-override пути для host-тестов в sandbox — тот же env читают run.uc и
+// replace_reality.uc (все слои пишут/бэкапят ОДИН файл и в тесте, и в бою). Без env — дефолт плана.
+const SB_OPTS = getenv("SB_CONFIG") ? { config_path: getenv("SB_CONFIG") } : {};
+
 // writefile(path, text) — атомарная запись через tmp+rename (config.json не должен читаться
 // полу-записанным). Каталог /etc/sing-box создаёт пакет; на всякий случай mkdir -p.
 function writefile(path, text) {
@@ -47,13 +51,13 @@ if (teardown) {
 	uci_batch(nops, "network");
 	// uci-выключение + удаление нашего конфиг-файла (отсутствие — норма).
 	uci_batch([ "set sing-box.main.enabled='0'" ], "sing-box");
-	let r = popen(sprintf("rm -f '%s'", config_path({})), "r"); if (r) r.close();
+	let r = popen(sprintf("rm -f '%s'", config_path(SB_OPTS)), "r"); if (r) r.close();
 	printf("singbox: teardown выполнен (сервис выключен, маршрут и конфиг убраны)\n");
 	exit(0);
 }
 
 let input = stdin.read("all") ?? "";
-let plan = build_singbox_plan(input, {});
+let plan = build_singbox_plan(input, SB_OPTS);
 if (!plan.ok) {
 	for (let i = 0; i < length(plan.errors); i++)
 		warn("singbox: " + plan.errors[i] + "\n");

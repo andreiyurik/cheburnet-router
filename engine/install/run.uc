@@ -22,6 +22,8 @@ import { reality_connectivity } from "./probe.uc";
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
 const ETC_CHEBURNET = getenv("ETC_CHEBURNET") ?? "/etc/cheburnet";
+// config.json Full-тира: env-override для host-тестов в sandbox (тот же приём, что ETC_CHEBURNET).
+const SB_CONF = getenv("SB_CONFIG") ?? sb_config_path(null);
 
 // set_step(name) — отметить текущий шаг для install_progress (веб-мастер показывает «Шаг: …»).
 // Путь даёт ubus-слой через env STATE_FILE (см. rpcd-cheburnet spawn_bg). Нет env (CLI-запуск)
@@ -104,7 +106,7 @@ function rollback_all(steps, cfg) {
 	// config.json — внешний файл, uci-снимок его не покрывает (у replace_reality свой бэкап по
 	// той же причине). Если установка поверх рабочего reality его перезаписала/снесла — вернуть,
 	// и поднять сервис, когда восстановленный uci говорит «включён» (пере-установка поверх Full).
-	let sb = sb_config_path(null);
+	let sb = SB_CONF;
 	if (access(sb + ".prev")) {
 		sh(sprintf("mv %s.prev %s 2>/dev/null", sb, sb));
 		if (trim(sh("uci -q get sing-box.main.enabled 2>/dev/null")) == "1")
@@ -262,7 +264,6 @@ sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
 // Full-тир: рабочий config.json (пере-установка/смена протокола поверх reality) бэкапим ДО
 // teardown'ов — uci-снимок внешний файл не покрывает, а teardown его удаляет безвозвратно.
 // Возврат — в rollback_all; на commit бэкап зачищается (ниже).
-let SB_CONF = sb_config_path(null);
 if (access(SB_CONF))
 	sh(sprintf("cp %s %s.prev 2>/dev/null", SB_CONF, SB_CONF));
 
