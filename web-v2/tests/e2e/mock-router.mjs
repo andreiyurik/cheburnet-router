@@ -42,6 +42,14 @@ const GOOD_SESSION = 'cafecafecafecafecafecafecafecafe';
 // Журнал вызовов методов — сценарии ассертят, что панель зовёт ПРАВИЛЬНЫЙ метод
 // (replace_reality_conf при protocol=reality, а не replace_awg_conf).
 let calls = [];
+// Аргументы последнего install — сценарий проверяет, что accept_risk реально доехал до движка
+// (без него preflight в run.uc откажет второй раз, и «красная кнопка» была бы обманом).
+let lastInstall = null;
+// Железо роутера для preflight: 'ok' | 'weak' (провалены только soft — флеш/RAM, пропуск
+// разрешён) | 'unsupported' (hard-провал arch — пропуск невозможен).
+let hw = 'ok';
+// Проверки, пропущенные при установке (status.forced) — плашка в панели.
+let forced = [];
 
 const ADMIN_METHODS = new Set([
   'set_mode', 'update_list', 'service_restart', 'set_dns_provider',
@@ -70,6 +78,7 @@ function ubusReply(method, args, session) {
         protocol,
         full_capable: fullCapable,
         full_installed: fullInstalled,
+        forced,
         ...((installed || vpnDown) && {
           installed: true,
           mode: 'home', direct_domains: 1, direct_list_loaded: true, imported_domains: 0,
@@ -86,18 +95,43 @@ function ubusReply(method, args, session) {
     case 'check_lan_conflict':
       return [0, { conflict: false }];
     case 'preflight':
+      // Слабое железо: провалены ТОЛЬКО soft-проверки (флеш/RAM) → движок отдаёт overridable,
+      // мастер предлагает установку на свой страх и риск.
+      if (hw === 'weak')
+        return [0, {
+          passed: false, total: 6, failed: 2, hard_failed: 0, soft_failed: 2, overridable: true,
+          checks: [
+            { id: 'arch', ok: true, severity: 'hard', detail: 'arch = mips' },
+            { id: 'flash', ok: false, severity: 'soft', detail: 'свободный флеш ≈ 12 МБ', fix: 'нужно ≥ 16 МБ свободно' },
+            { id: 'ram', ok: false, severity: 'soft', detail: 'RAM ≈ 60 МБ', fix: 'нужно ≥ 112 МБ' },
+          ],
+          tiers: { light: false, full: false },
+        }];
+      // Неподдерживаемая платформа: hard-провал — пакетов под неё нет, пропуск невозможен.
+      if (hw === 'unsupported')
+        return [0, {
+          passed: false, total: 6, failed: 2, hard_failed: 1, soft_failed: 1, overridable: false,
+          checks: [
+            { id: 'arch', ok: false, severity: 'hard', detail: 'arch = ppc', fix: 'нужна одна из поддерживаемых' },
+            { id: 'ram', ok: false, severity: 'soft', detail: 'RAM ≈ 60 МБ', fix: 'нужно ≥ 112 МБ' },
+          ],
+          tiers: { light: false, full: false },
+        }];
       return [0, {
-        passed: true, total: 6, failed: 0,
+        passed: true, total: 6, failed: 0, hard_failed: 0, soft_failed: 0, overridable: false,
         checks: [
-          { id: 'arch', ok: true, detail: 'arch = aarch64' },
-          { id: 'ram', ok: true, detail: 'RAM ≈ 485 МБ' },
-          { id: 'deps', ok: true, detail: 'зависимости устанавливаются' },
+          { id: 'arch', ok: true, severity: 'hard', detail: 'arch = aarch64' },
+          { id: 'ram', ok: true, severity: 'soft', detail: 'RAM ≈ 485 МБ' },
+          { id: 'deps', ok: true, severity: 'hard', detail: 'зависимости устанавливаются' },
         ],
         tiers: { light: true, full: false },
       }];
     case 'install':
       if (args.token !== TOKEN) return [0, { error: 'неверный install-токен' }];
       installPolls = 0;
+      lastInstall = args;
+      // Движок пишет пропущенные проверки в install.json → панель их показывает.
+      if (args.accept_risk === true) forced = ['flash', 'ram'];
       return [0, { started: true }];
     case 'install_progress':
       // Канал общий с фоновыми операциями панели — они в приоритете, если запущены.
@@ -143,6 +177,9 @@ createServer(async (req, res) => {
     bg = null;
     adminLocked = false;
     calls = [];
+    lastInstall = null;
+    hw = 'ok';
+    forced = [];
     res.end('ok');
     return;
   }
@@ -157,6 +194,8 @@ createServer(async (req, res) => {
     if ('protocol' in st) protocol = st.protocol;
     if ('bgResult' in st) bgResult = st.bgResult;
     if ('adminLocked' in st) adminLocked = st.adminLocked;
+    if ('hw' in st) hw = st.hw;
+    if ('forced' in st) forced = st.forced;
     res.end('ok');
     return;
   }
@@ -164,6 +203,12 @@ createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/__calls') {
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(calls));
+    return;
+  }
+  // Аргументы последнего install — ассерт «accept_risk доехал до движка».
+  if (req.method === 'GET' && req.url === '/__last-install') {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(lastInstall));
     return;
   }
   if (req.method === 'POST' && req.url === '/__fail-health') {

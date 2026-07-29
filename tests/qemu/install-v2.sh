@@ -52,6 +52,19 @@ apk_try() { # apk_try 'apk add <pkg>' — до 10 попыток, тихо; ко
 echo "→ apk update"
 apk_try "apk update" || { echo "✗ apk update упал"; vm_ssh "apk update 2>&1 | tail -10"; exit 1; }
 
+# ─── замер расхода флеша ─────────────────────────────────────────────────────
+# Порог preflight min_flash_mb осмыслен только если известно, СКОЛЬКО стек реально съедает.
+# Меряем ДЕЛЬТУ свободного места (абсолютные цифры x86-VM к роутеру не относятся, дельта — да)
+# на тех же данных, что читает gather: df по writable-ФС (/overlay, иначе /).
+# Третье ЦЕЛОЕ поле строки данных = Available — так же, как parse_df (устойчиво к busybox-
+# переносу длинного имени ФС на отдельную строку, где поля Filesystem просто нет).
+free_kb() {
+    vm_ssh "df -k /overlay 2>/dev/null || df -k /" \
+        | awk 'NR>1 { n=0; for (i=1; i<=NF; i++) if ($i ~ /^[0-9]+$/) { n++; if (n==3) { print $i; exit } } }'
+}
+FREE_START="$(free_kb)"
+echo "  свободно до установки: $((FREE_START / 1024)) МБ"
+
 # ─── DEPENDS пакета (источник правды — package/cheburnet/Makefile) ────────────
 # CORE — обязаны ставиться из feed; AWG — best-effort (kmod может отсутствовать на x86).
 # Локальный adblock убран: блокировка рекламы/контента — через выбор фильтрующего DoH-резолвера,
@@ -86,6 +99,9 @@ vm_ssh "/etc/init.d/dnsmasq restart >/dev/null 2>&1; sleep 1; /etc/init.d/dnsmas
     || { echo "  ✗ dnsmasq не поднялся после замены на full"; exit 1; }
 echo "  ✓ dnsmasq-full работает"
 
+FREE_CORE="$(free_kb)"
+echo "  → CORE + dnsmasq-full съели $(( (FREE_START - FREE_CORE) / 1024 )) МБ"
+
 echo "→ AWG-зависимости (best-effort — на x86-snapshot kmod может отсутствовать)"
 AWG_OK=1
 for pkg in $AWG_DEPS; do
@@ -96,6 +112,9 @@ for pkg in $AWG_DEPS; do
         AWG_OK=0
     fi
 done
+
+FREE_AWG="$(free_kb)"
+echo "  → AWG-пакеты съели $(( (FREE_CORE - FREE_AWG) / 1024 )) МБ"
 
 # ─── движок как пакет (shim + engine без tests/ + ACL) ───────────────────────
 echo "→ Раскладываю движок v2 (как пакет)"
@@ -198,6 +217,43 @@ vm_ssh '/etc/init.d/firewall reload >/dev/null 2>&1; sleep 1; nft list chain ine
 vm_ssh 'nft list chain inet fw4 cheburnet_mark 2>/dev/null | grep -q "@direct"' \
     || { echo "  ✗ РЕГРЕСС: правило пометки исчезло после fw4 reload"; exit 1; }
 echo "  ✓ kill-switch + пометка переживают fw4 reload (nftables.d)"
+
+# ─── замер: сколько флеша реально стоит стек ──────────────────────────────────
+# Ради этого числа и живёт замер: порог preflight min_flash_mb должен опираться на факт, а не
+# на «ощущение». Порог берём из ЕДИНСТВЕННОГО источника правды (preflight.uc), чтобы отчёт не
+# разъезжался с кодом при следующей правке.
+FREE_END="$(free_kb)"
+SPENT_KB=$(( FREE_START - FREE_END ))
+# Порог — из блока REQUIREMENTS (Light-тир), а не первым совпадением по файлу: ниже в
+# preflight.uc есть FULL_REQUIREMENTS со своим min_flash_mb, а выше — строка комментария с тем
+# же именем. Якорь на `const REQUIREMENTS` + требование ЦИФР делает выбор однозначным.
+MIN_FLASH="$(awk '
+    /^const REQUIREMENTS/ { inblock = 1 }
+    inblock && /min_flash_mb:/ && match($0, /[0-9]+/) { print substr($0, RSTART, RLENGTH); exit }
+' "$REPO_ROOT/engine/preflight/preflight.uc")"
+# Не распарсили порог — это ОШИБКА теста, а не повод напечатать «✓». Молчащая проверка хуже
+# отсутствующей: именно так первый прогон отрапортовал «влезает», ничего не сравнив.
+case "$MIN_FLASH" in
+    ''|*[!0-9]*) echo "  ✗ не удалось прочитать min_flash_mb из preflight.uc (получено: '$MIN_FLASH')"; exit 1 ;;
+esac
+echo
+echo "→ ЗАМЕР расхода флеша (дельта свободного места; движок разложен, web-бандл в пакете)"
+echo "    пакеты + движок:      $SPENT_KB КБ (≈ $(( SPENT_KB / 1024 )) МБ)"
+echo "    порог preflight:      $MIN_FLASH МБ (min_flash_mb, Light-тир)"
+echo "    запас на пороге:      $(( MIN_FLASH - SPENT_KB / 1024 )) МБ"
+if [ "$AWG_OK" != "1" ]; then
+    echo "    ⚠ kmod-amneziawg НЕ установился — реальный расход на роутере чуть выше замера"
+fi
+if [ "$(( SPENT_KB / 1024 ))" -ge "$MIN_FLASH" ]; then
+    echo "  ✗ ПОРОГ ЗАНИЖЕН: стек не влезает в заявленный минимум — поднять min_flash_mb"
+    exit 1
+fi
+# Запас < 4 МБ — сигнал, а не провал: на роутере сверху ещё kmod, кэш apk и место под логи.
+if [ "$(( MIN_FLASH - SPENT_KB / 1024 ))" -lt 4 ]; then
+    echo "  ⚠ запас на пороге меньше 4 МБ — пересмотреть min_flash_mb до следующего релиза"
+else
+    echo "  ✓ стек влезает в порог с запасом"
+fi
 
 # ─── итог ────────────────────────────────────────────────────────────────────
 echo

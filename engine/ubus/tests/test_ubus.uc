@@ -17,7 +17,7 @@ test("list_descriptor: все методы реестра присутствую
 	ok(exists(d, "install"), "install в дескрипторе");
 	ok(exists(d, "set_mode"), "set_mode в дескрипторе");
 	// install объявляет свои аргументы; типы — образцы (string→"", array→[], object→{})
-	deep_eq(d.install, { protocol: "", awg_conf: "", reality_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, token: "" }, "сигнатура install");
+	deep_eq(d.install, { protocol: "", awg_conf: "", reality_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, accept_risk: false, token: "" }, "сигнатура install");
 	deep_eq(d.set_mode, { mode: "" }, "сигнатура set_mode");
 	deep_eq(d.preflight, {}, "preflight без аргументов");
 });
@@ -105,6 +105,22 @@ test("validate: install со всеми полями → ok, value содерж�
 		awg_conf: "[Interface]\n", root_password: "s3cretpass", domains: [ "example.com" ],
 		routing_opts: { mode: "home" }, token: "abc",
 	}, "value без junk");
+});
+
+// accept_risk — согласие владельца на пропуск soft-проверок железа. Граница обязана быть строгой
+// по ТИПУ: строка "false"/"0" не должна проезжать как согласие (импурный слой сверяет === true,
+// но лучше отбить мусор здесь — с внятной ошибкой).
+test("validate: accept_risk — bool, необязателен", () => {
+	let r = validate_request("install", { awg_conf: "c", root_password: "s3cretpass",
+		token: "t", accept_risk: true });
+	eq(r.ok, true, "true проходит");
+	eq(r.value.accept_risk, true, "значение доехало до импурного слоя");
+	eq(validate_request("install", { awg_conf: "c", root_password: "s3cretpass",
+		token: "t", accept_risk: false }).value.accept_risk, false, "false тоже валиден");
+	let bad = validate_request("install", { awg_conf: "c", root_password: "s3cretpass",
+		token: "t", accept_risk: "yes" });
+	eq(bad.ok, false, "строка отвергнута");
+	eq(bad.error, "accept_risk must be bool");
 });
 
 test("validate: необязательные поля можно опускать", () => {

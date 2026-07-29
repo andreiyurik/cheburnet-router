@@ -8,7 +8,7 @@
 //   • rollback — reason-код адресный, install.json-правда восстановлена, teardown вызван.
 // Живой data-plane (netifd/fw4) — по-прежнему QEMU; здесь — логика переходов на реальном коде.
 
-import { test, eq, ok, summary } from "../../lib/assert.uc";
+import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { writefile, readfile, access } from "fs";
 import { mk_sandbox, run_uc, calls, cleanup } from "./harness.uc";
 
@@ -28,6 +28,61 @@ test("preflight-провал: abort до снимка, reason=preflight, фан�
 	eq(trim(readfile(sb.reason) ?? ""), "preflight", "машинный код для UI");
 	ok(!access(sb.etc + "/install.json"), "правда installed восстановлена (файл удалён)");
 	ok(!access(sb.snap), "снимок не создавался — система не тронута");
+	cleanup(sb);
+});
+
+// --- «Поставить на свой страх и риск» (accept_risk): soft-провалы пропускаются, hard — нет ---
+// df-стаб отдаёт «свободно 8 МБ» → soft-провал flash. RAM здесь не подделать (parse_meminfo
+// читает /proc/meminfo напрямую), и не нужно: путь один и тот же для любого soft-провала.
+const DF_SMALL = "Filesystem           1K-blocks      Used Available Use% Mounted on\n" +
+	"/dev/root                20480     12288      8192  60% /overlay\n";
+
+test("soft-провал без accept_risk: обычный abort (пропуск НЕ по умолчанию)", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/df.out", DF_SMALL);
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let r = run_uc(sb, "install/run.uc", null, '{"protocol":"awg","domains":[]}');
+	eq(r.rc, 1, "гейт закрыт: " + r.out);
+	eq(trim(readfile(sb.reason) ?? ""), "preflight");
+	ok(!access(sb.snap), "система не тронута");
+	cleanup(sb);
+});
+
+test("soft-провал + accept_risk: установка идёт, пропуск в логе и в install.json", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/df.out", DF_SMALL);
+	seed_cfg(sb, "install.json", { user_domains: [], domains: [], routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "awg", disable: ALL_STEPS, domains: [],
+		routing_opts: {}, accept_risk: true });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 0, "установка прошла: " + r.out);
+	ok(index(r.out, "! flash") >= 0, "отчёт помечает пропуск, а не молчит");
+	ok(index(r.out, "ВНИМАНИЕ") >= 0, "предупреждение осталось в install.log");
+	let saved = json(readfile(sb.etc + "/install.json"));
+	deep_eq(saved.forced, [ "flash" ], "след решения — панель покажет плашку");
+	cleanup(sb);
+});
+
+test("hard-провал + accept_risk: всё равно abort (пакетов под платформу нет)", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/apk.rc", "1"); // deps не ставятся — hard
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "awg", domains: [], accept_risk: true });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 1, "риск не пропускает hard-провал: " + r.out);
+	eq(trim(readfile(sb.reason) ?? ""), "preflight");
+	ok(!access(sb.snap), "система не тронута");
+	cleanup(sb);
+});
+
+test("commit на годном железе: forced пуст (прежняя отметка не залипает)", () => {
+	let sb = mk_sandbox();
+	seed_cfg(sb, "install.json", { user_domains: [], domains: [], routing_opts: {},
+		forced: [ "ram" ] }); // как будто прошлая установка была с пропуском
+	let payload = sprintf("%J", { protocol: "awg", disable: ALL_STEPS, domains: [], routing_opts: {} });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 0, "установка прошла: " + r.out);
+	deep_eq(json(readfile(sb.etc + "/install.json")).forced, [], "переустановка стирает отметку");
 	cleanup(sb);
 });
 

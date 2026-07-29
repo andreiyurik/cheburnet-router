@@ -20,9 +20,56 @@ export function parseDomains(text) {
     .filter((d) => d.length > 0);
 }
 
+// --- Пропуск проверок железа («на свой страх и риск») ---
+//
+// Движок делит проверки preflight на hard (пропустить нельзя — пакетов под эту платформу просто
+// нет) и soft (железо впритык: флеш/RAM). Мастер предлагает установку с пропуском ТОЛЬКО когда
+// все провалы soft (report.overridable), и обязан сначала объяснить: что грозит и что можно
+// сделать ВМЕСТО риска. Кнопка — последний вариант, а не первый (см. engine/preflight/preflight.uc).
+export const SOFT_RISK = {
+  flash: {
+    title: 'Мало свободного места в памяти роутера (флеш)',
+    risk: 'Пакеты могут не поместиться. Тогда установка прервётся на середине и сама вернёт роутер в исходное состояние — но времени это займёт.',
+    fixes: [
+      'освободить место: по SSH удалить ненужные пакеты командой apk del — часто это лишние темы и приложения LuCI;',
+      'подключить USB-флешку и вынести систему на неё (extroot) — после этого места хватает с запасом.',
+    ],
+  },
+  ram: {
+    title: 'Мало оперативной памяти (RAM)',
+    risk: 'Установка, скорее всего, пройдёт, но под нагрузкой роутер может тормозить или перезагружаться из-за нехватки памяти.',
+    fixes: [
+      'держать список доменов прямого доступа коротким — одна запись зоны покрывает все домены внутри неё;',
+      'включить сжатый swap в оперативной памяти — пакет zram-swap, он сглаживает пики.',
+    ],
+  },
+};
+
+// softRisks(report) → пояснения по каждой провалившейся soft-проверке (в порядке отчёта).
+// Незнакомый id (движок добавил soft-проверку раньше UI) не теряем — показываем текст движка.
+export function softRisks(report) {
+  return (report?.checks ?? [])
+    .filter((c) => !c.ok && c.severity === 'soft')
+    .map((c) => {
+      const known = SOFT_RISK[c.id];
+      return known
+        ? { id: c.id, ...known }
+        : { id: c.id, title: c.detail, risk: c.fix ?? '', fixes: [] };
+    });
+}
+
+// Подписи пропущенных проверок для плашки в панели (status.forced приходит из install.json).
+export const FORCED_LABELS = { flash: 'мало свободного места', ram: 'мало оперативной памяти' };
+
+// canOverride(report) → показывать ли кнопку «установить на свой страх и риск».
+// Источник правды — движок (overridable = провалы есть и все они soft); UI его не переигрывает.
+export function canOverride(report) {
+  return report?.passed !== true && report?.overridable === true;
+}
+
 // validateSetup(f) → { error } | { args } — проверка полей Setup и сборка аргументов install.
 // f: { protocol, fullAvailable, awgConf, realityConf, rootPass, rootPass2,
-//      showWifi, wifiRequired, ssid, wifiKey, dnsProvider, domainsText, token }.
+//      showWifi, wifiRequired, ssid, wifiKey, dnsProvider, domainsText, token, acceptRisk }.
 export function validateSetup(f) {
   // Конфиг активного туннеля. reality доступен только при fullAvailable; на всякий случай
   // (если железо не тянет) форсим awg даже при protocol==reality из initial.
@@ -65,6 +112,9 @@ export function validateSetup(f) {
       ...wifiArgs,
       ...(f.dnsProvider ? { dns_provider: f.dnsProvider } : {}),
       domains: parseDomains(f.domainsText),
+      // Согласие на пропуск soft-проверок железа несём до самой установки: preflight в движке
+      // выполняется ЕЩЁ РАЗ перед snapshot'ом и без этого флага честно откажет.
+      ...(f.acceptRisk ? { accept_risk: true } : {}),
       token: f.token.trim(),
     },
   };

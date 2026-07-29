@@ -39,6 +39,11 @@
   // false → только AmneziaWG (лёгкий дефолт). Дефолт выбора в мастере — всегда AmneziaWG.
   let fullAvailable = $state(false);
 
+  // Пользователь согласился установить на слабом железе (не пройдены soft-проверки preflight —
+  // мало флеша/RAM). Setup донесёт это в аргументы install: движок проверяет preflight ЕЩЁ РАЗ
+  // перед snapshot'ом и без флага откажет. Сбрасывается возвратом на экран проверки.
+  let acceptRisk = $state(false);
+
   // Конфиг для установки накапливается на экране Setup, подтверждается на Confirm и
   // читается экраном Installing.
   let installArgs = $state(null);
@@ -108,9 +113,9 @@
     <LanConflict info={lanConflict} {urlToken} onSkip={() => (step = 'preflight')} />
   {:else if step === 'preflight'}
     {#if bootError}<p class="warn">Статус недоступен: {bootError}</p>{/if}
-    <Preflight onReady={(full) => { fullAvailable = full; step = 'setup'; }} />
+    <Preflight onReady={(full, risk) => { fullAvailable = full; acceptRisk = risk === true; step = 'setup'; }} />
   {:else if step === 'setup'}
-    <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} {fullAvailable} {urlToken} initial={installArgs} />
+    <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} {fullAvailable} {acceptRisk} {urlToken} initial={installArgs} />
   {:else if step === 'confirm'}
     <Confirm args={installArgs} {dnsProviders} onBack={() => (step = 'setup')} onConfirm={() => (step = 'installing')} />
   {:else if step === 'installing'}

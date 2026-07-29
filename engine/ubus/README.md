@@ -27,10 +27,10 @@
 | Метод | Тип | Доступ | Что делает |
 |---|---|---|---|
 | `preflight` | read | anon | `gather.uc \| check.uc --json` → отчёт гейткипера |
-| `status` | read | anon | режим, кол-во direct-доменов, AWG-handshake, сервисы, наличие Wi-Fi (`wireless_present`) + текущий `ssid` |
+| `status` | read | anon | режим, кол-во direct-доменов, AWG-handshake, сервисы, наличие Wi-Fi (`wireless_present`) + текущий `ssid`, `forced` (пропущенные проверки железа) |
 | `check_lan_conflict` | read | anon | пересечение LAN/WAN-подсетей (`cidr_overlap`) + `suggest_ip` для замены |
 | `apply_lan_ip` | write | anon + **токен** | сменить LAN-IP: строгая `valid_lan_ip`, маска сохраняется, отложенный network restart |
-| `install` | write | anon + **токен** | фон `install/run.uc` (preflight→snapshot→шаги→health→commit/rollback) |
+| `install` | write | anon + **токен** | фон `install/run.uc` (preflight→snapshot→шаги→health→commit/rollback); `accept_risk:true` — пропустить soft-провалы preflight (флеш/RAM) по решению владельца |
 | `install_progress` | read | anon | шаг + хвост лога + done/result (для poll'а мастера и фоновых операций) |
 | `install_cancel` | write | anon + **токен** | прервать установку: kill process-group → дождаться смерти → маркер `cancelled` → откат через `run.uc --rollback` |
 | `set_mode` | write | admin | переключить HOME/TRAVEL — переприменить mode-зависимые шаги (dns+firewall) |
@@ -73,6 +73,9 @@ done-маркер `cancelled`.
 Воспроизводимая конфигурация (`/etc/cheburnet/install.json`, **без секретов** — awg_conf и
 root_password туда не пишутся) сохраняется при
 установке — из неё `set_mode`/`update_list` переприменяют шаги, не требуя повторного ввода.
+Там же живёт `forced` — какие проверки железа владелец пропустил (`accept_risk`); `save_cfg`
+переносит его через любую перезапись конфигурации, иначе отметка исчезала бы после первого
+`set_mode`, а панель перестала бы честно говорить «стабильность не гарантируется».
 
 ## Использование
 

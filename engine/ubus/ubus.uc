@@ -58,6 +58,10 @@ const REGISTRY = [
 		{ name: "dns_provider",  type: "string", enum: PROVIDER_IDS }, // фильтрация = выбор резолвера
 		{ name: "domains",       type: "array" },
 		{ name: "routing_opts",  type: "object" },
+		// «Поставить на свой страх и риск»: осознанное решение владельца пропустить SOFT-провалы
+		// preflight (мало флеша/RAM). HARD-провалы (arch/версия/пакеты) не пропускает никто —
+		// см. preflight.uc. Гейтится тем же install-токеном, что и вся установка.
+		{ name: "accept_risk",   type: "bool" },
 		{ name: "token",         type: "string", required: true },
 	] },
 	// install_cancel — anon+токен (как install): отмену контролирует тот же человек, что запускал

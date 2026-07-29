@@ -340,6 +340,27 @@ test("status: частичный install.json → недостающие пол�
 	eq(r.direct_list_loaded, true, "кэш распознан");
 });
 
+// forced — отметка «поставлено с пропуском проверок железа» (её пишет run.uc на commit).
+// Она обязана дожить до панели И пережить перезапись конфигурации: панель по ней показывает
+// честную плашку, а мейнтейнер видит на скриншоте статуса, с какого железа пришла жалоба.
+test("status: forced доезжает до панели; свежая система → пустой список", () => {
+	reset_sb();
+	eq(length(rpc("status", {}).forced), 0, "нечего пропускать — пустой массив, не null");
+	put_cfg({ protocol: "awg", forced: [ "ram", "flash" ] });
+	let r = rpc("status", {});
+	eq(length(r.forced), 2, "оба пропуска видны");
+	eq(r.forced[0], "ram");
+});
+
+test("set_mode: forced переживает перезапись install.json (save_cfg его не теряет)", () => {
+	reset_sb();
+	put_cfg({ protocol: "awg", routing_opts: { mode: "home" }, forced: [ "ram" ] });
+	rpc("set_mode", { mode: "travel" }); // применение firewall на хосте провалится — важен cfg
+	let cfg = json(readfile(ETC + "/install.json"));
+	eq(length(cfg.forced ?? []), 1, "отметка на месте после смены режима");
+	eq(cfg.forced[0], "ram");
+});
+
 // === check_lan_conflict: на хосте фактов нет → честное «проверять нечего» ===
 
 test("check_lan_conflict без фактов сети → conflict=false с причиной", () => {

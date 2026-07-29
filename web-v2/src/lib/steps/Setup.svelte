@@ -7,9 +7,11 @@
   // fullAvailable — ТЯНЕТ ли железо Full-тир (из preflight.tiers.full): true → VLESS+Reality
   // доступен для выбора (sing-box догрузится автоматически при установке); false → строка Reality
   // показана НЕактивной с пояснением про требования (образовательно), выбрать нельзя. Дефолт — AWG.
+  // acceptRisk — пользователь прошёл экран проверки с непройденными soft-требованиями («всё равно
+  // установить»): напоминаем об этом и несём флаг в аргументы install (движок проверит ещё раз).
   import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup } from '../logic.js';
 
-  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, urlToken = '', initial = null } = $props();
+  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, acceptRisk = false, urlToken = '', initial = null } = $props();
 
   // Показываем Wi-Fi везде, кроме точно-нет-радио. Обязателен только при точно-есть-радио.
   const showWifi = $derived(wirelessPresent !== false);
@@ -61,7 +63,7 @@
     error = '';
     const r = validateSetup({
       protocol, fullAvailable, awgConf, realityConf, rootPass, rootPass2,
-      showWifi, wifiRequired, ssid, wifiKey, dnsProvider, domainsText, token,
+      showWifi, wifiRequired, ssid, wifiKey, dnsProvider, domainsText, token, acceptRisk,
     });
     if (r.error) {
       error = r.error;
@@ -73,6 +75,11 @@
 
 <section>
   <h2>Настройка</h2>
+
+  {#if acceptRisk}
+    <p class="note">Установка идёт на роутер слабее рекомендуемого — по вашему решению.
+      Стабильность не гарантируем; при сбое изменения откатятся автоматически.</p>
+  {/if}
 
   <h3>Протокол туннеля</h3>
   <label class="radio">

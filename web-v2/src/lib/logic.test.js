@@ -11,6 +11,7 @@ import {
   MIN_PASS, SSID_MAX, WIFI_KEY_MIN, WIFI_KEY_MAX,
   parseDomains, validateSetup, explainFail, STEP_LABELS,
   endpoint, tunnelSummary, dnsLabel, hs,
+  softRisks, canOverride, SOFT_RISK, FORCED_LABELS,
 } from './logic.js';
 
 // Валидная база формы: каждый тест ломает ровно одно поле.
@@ -160,6 +161,75 @@ describe('validateSetup — токен и сборка args', () => {
   it('без dnsProvider ключ dns_provider не подмешивается (движок возьмёт дефолт)', () => {
     const r = validateSetup(fields());
     expect('dns_provider' in r.args).toBe(false);
+  });
+
+  it('acceptRisk доезжает до args (иначе движок откажет на своём preflight)', () => {
+    expect(validateSetup(fields({ acceptRisk: true })).args.accept_risk).toBe(true);
+  });
+
+  it('без acceptRisk ключа нет вовсе — риск не должен «включаться» молча', () => {
+    expect('accept_risk' in validateSetup(fields()).args).toBe(false);
+    expect('accept_risk' in validateSetup(fields({ acceptRisk: false })).args).toBe(false);
+  });
+});
+
+// Пропуск проверок железа: решение принимает движок (overridable), UI лишь объясняет.
+describe('softRisks / canOverride — установка на слабом железе', () => {
+  const report = (over = {}) => ({
+    passed: false, failed: 1, total: 6, hard_failed: 0, soft_failed: 1, overridable: true,
+    checks: [
+      { id: 'arch', ok: true, severity: 'hard', detail: 'arch = mips' },
+      { id: 'flash', ok: false, severity: 'soft', detail: 'свободный флеш ≈ 12 МБ', fix: 'нужно ≥ 16 МБ свободно' },
+    ],
+    ...over,
+  });
+
+  it('пройденный preflight → пропускать нечего', () => {
+    expect(canOverride({ passed: true, overridable: false, checks: [] })).toBe(false);
+  });
+
+  it('только soft-провалы → кнопка риска разрешена', () => {
+    expect(canOverride(report())).toBe(true);
+  });
+
+  it('решение движка не переигрываем: overridable=false → кнопки нет', () => {
+    const r = report({ overridable: false, hard_failed: 1 });
+    expect(canOverride(r)).toBe(false);
+  });
+
+  it('нет отчёта (проверка не ответила) → кнопки нет', () => {
+    expect(canOverride(null)).toBe(false);
+    expect(canOverride(undefined)).toBe(false);
+  });
+
+  it('softRisks объясняет каждый soft-провал: чем грозит и что сделать вместо риска', () => {
+    const risks = softRisks(report());
+    expect(risks).toHaveLength(1);
+    expect(risks[0].id).toBe('flash');
+    expect(risks[0].title).toBe(SOFT_RISK.flash.title);
+    expect(risks[0].fixes.length).toBeGreaterThan(0);
+  });
+
+  it('пройденные и hard-проверки в объяснения не попадают', () => {
+    const r = report({
+      checks: [
+        { id: 'arch', ok: false, severity: 'hard', detail: 'arch = ppc' },
+        { id: 'ram', ok: true, severity: 'soft', detail: 'RAM ≈ 512 МБ' },
+      ],
+    });
+    expect(softRisks(r)).toEqual([]);
+  });
+
+  it('незнакомый soft-id (движок ушёл вперёд UI) не теряется — берём текст движка', () => {
+    const r = report({
+      checks: [{ id: 'cpu', ok: false, severity: 'soft', detail: 'CPU 1 ядро', fix: 'нужно ≥ 2' }],
+    });
+    const risks = softRisks(r);
+    expect(risks[0]).toMatchObject({ id: 'cpu', title: 'CPU 1 ядро', risk: 'нужно ≥ 2', fixes: [] });
+  });
+
+  it('подписи для плашки панели есть на каждый известный soft-провал', () => {
+    for (const id of Object.keys(SOFT_RISK)) expect(FORCED_LABELS[id]).toBeTruthy();
   });
 });
 

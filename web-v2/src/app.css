@@ -6,6 +6,7 @@
   --accent: #4c8dff;
   --ok: #3fb950;
   --bad: #f85149;
+  --attn: #d29922; /* «впритык, но можно» — между ok и bad (soft-провалы preflight) */
   --line: #2a333f;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
@@ -21,6 +22,7 @@
     --accent: #2f6fe4;
     --ok: #1a7f37;
     --bad: #c93c37;
+    --attn: #9a6700;
     --line: #d9dfe7;
     color-scheme: light;
   }
@@ -118,7 +120,18 @@ ul.checks li { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.35r
 ul.checks .mark { width: 1rem; }
 ul.checks li.ok .mark { color: var(--ok); }
 ul.checks li.bad .mark { color: var(--bad); }
+/* Soft-провал («!») — жёлтый: человек должен ВИДЕТЬ разницу между «нельзя» и «можно с оговоркой». */
+ul.checks li.soft .mark { color: var(--attn); font-weight: 700; }
 ul.checks .fix { color: var(--muted); font-size: 0.85rem; }
+
+/* Разбор одного soft-провала: чем грозит и что сделать вместо риска. */
+.risk-item { border-left: 3px solid var(--attn); padding-left: 0.75rem; margin: 0.9rem 0; }
+.risk-item h3 { margin: 0 0 0.25rem; font-size: 0.95rem; color: var(--fg); text-transform: none; letter-spacing: 0; }
+.risk-item ul { margin: 0.3rem 0 0; padding-left: 1.1rem; color: var(--muted); }
+
+/* Согласие на риск: галочка обязательна, иначе красная кнопка неактивна. */
+.risk-accept { display: flex; gap: 0.55rem; align-items: flex-start; margin: 1rem 0 0; font-size: 0.9rem; cursor: pointer; }
+.risk-accept input { flex: none; width: auto; margin: 0.3rem 0 0; }
 
 ul.status li { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
 ul.status li span { color: var(--muted); }
@@ -172,6 +185,10 @@ em.req { color: var(--accent); font-weight: 600; font-style: normal; }
 
 button.danger { border-color: var(--bad); color: var(--bad); }
 button.danger:hover:not(:disabled) { background: var(--bad); color: #fff; }
+/* Кнопка «на свой страх и риск»: во всю ширину внизу экрана и залита красным, КАК ТОЛЬКО
+   согласие получено — до галочки она приглушена (button:disabled) и кликом не отвечает. */
+button.danger.wide { display: block; width: 100%; margin-top: 0.75rem; padding: 0.8rem; font-weight: 600; }
+button.danger.wide:not(:disabled) { background: var(--bad); color: #fff; }
 h3.danger-h { color: var(--bad); }
 
 button.linklike {

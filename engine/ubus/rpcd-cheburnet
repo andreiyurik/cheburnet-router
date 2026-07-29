@@ -73,6 +73,7 @@ function load_cfg() {
 	if (type(c.user_domains) != "array") c.user_domains = [];
 	if (type(c.dns_provider) != "string") c.dns_provider = default_provider();
 	if (type(c.protocol) != "string") c.protocol = default_protocol();
+	if (type(c.forced) != "array") c.forced = [];
 	return c;
 }
 
@@ -81,7 +82,18 @@ function save_cfg(c) {
 		user_domains: c.user_domains, domains: c.domains,
 		routing_opts: c.routing_opts, dns_provider: c.dns_provider,
 		protocol: c.protocol, // туннель (awg|reality) — не секрет, нужен status/reset
+		// forced ОБЯЗАН переживать перезапись cfg (смена режима/списка/провайдера): иначе отметка
+		// «поставлено с пропуском проверок железа» тихо исчезала бы после первого же set_mode.
+		forced: (type(c.forced) == "array") ? c.forced : [],
 	}));
+}
+
+// accepted_risk(cfg) — этот роутер УЖЕ поставлен с пропуском soft-проверок железа?
+// Операции, которые переиспользуют run.uc (switch_to_reality/awg), проходят preflight ЗАНОВО —
+// без этого флага они бы упирались в тот же отказ, и владелец, однажды осознанно согласившийся
+// на слабое железо, не смог бы сменить туннель из панели. Решение уже принято — не спрашиваем дважды.
+function accepted_risk(cfg) {
+	return length(cfg.forced ?? []) > 0;
 }
 
 // imported_text() — кэш community-списка (заполняет list/fetch.uc). Нет файла → пусто.
@@ -273,6 +285,10 @@ function m_status() {
 		imported_domains: imported_domains,
 		full_capable: full_capable,      // железо потянет Full → показать кнопку включения
 		full_installed: full_installed,  // sing-box стоит → можно предлагать/переключать на Reality
+		// Проверки железа, пропущенные владельцем при установке (run.uc пишет в install.json).
+		// Панель показывает по ним честную плашку «стабильность не гарантируется» — и это же
+		// первое, что видно в присланном скриншоте статуса при разборе жалоб.
+		forced: (type(cfg.forced) == "array") ? cfg.forced : [],
 	});
 }
 
@@ -319,6 +335,9 @@ function m_install(v) {
 		root_password: v.root_password,
 		ssid: v.ssid, wifi_key: v.wifi_key, dns_provider: dns_provider,
 		domains: domains, routing_opts: routing_opts,
+		// Пропуск soft-проверок железа (мастер спрашивает явным согласием). Только true считаем
+		// согласием — отсутствие/мусор = обычный строгий гейт (fail-safe направление).
+		accept_risk: (v.accept_risk === true),
 	}));
 	chmod(PAYLOAD_FILE, 0o600);
 
@@ -611,6 +630,7 @@ function m_switch_to_reality(v) {
 		protocol: "reality", reality_conf: v.reality_conf,
 		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
 		dns_provider: cfg.dns_provider,
+		accept_risk: accepted_risk(cfg),
 	}));
 	chmod(PAYLOAD_FILE, 0o600);
 	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/run.uc"), PAYLOAD_FILE), "switching-reality");
@@ -648,6 +668,7 @@ function m_switch_to_awg(v) {
 		protocol: "awg", awg_conf: v.awg_conf,
 		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
 		dns_provider: cfg.dns_provider,
+		accept_risk: accepted_risk(cfg),
 	}));
 	chmod(PAYLOAD_FILE, 0o600);
 	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/run.uc"), PAYLOAD_FILE), "switching-awg");

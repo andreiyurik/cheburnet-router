@@ -148,6 +148,19 @@ echo "→ assert: anon install разрешён ACL, но гейтится то�
 assert_ubus "anon install без валидного токена → error" 0 "'error' in d" \
     "$(http_ubus "$ANON_SESSION" cheburnet install '{"awg_conf":"x","root_password":"12345678","token":"WRONG"}')"
 
+# accept_risk («поставить на свой страх и риск») — ЕДИНСТВЕННЫЙ bool-аргумент реестра, а bool
+# идёт по проводу через blobmsg-политику, которую rpcd строит из образцов дескриптора `list`.
+# Юниты зовут фасад напрямую, e2e мокает /ubus — именно ЭТОТ стык проверяется только здесь:
+# дошёл до обработчика (доменная ошибка токена), а не отбит rpcd как неверный тип аргумента.
+echo "→ assert: bool-аргумент (accept_risk) проходит blobmsg-типизацию rpcd"
+assert_ubus "install accept_risk=true → доменная ошибка токена, не INVALID_ARGUMENT" 0 "'error' in d" \
+    "$(http_ubus "$ANON_SESSION" cheburnet install '{"awg_conf":"x","root_password":"12345678","accept_risk":true,"token":"WRONG"}')"
+# Дескриптор обязан объявлять accept_risk как bool — иначе rpcd отбросил бы поле молча,
+# и «красная кнопка» на слабом железе тихо не работала бы (install упирался бы в preflight).
+vm_ssh "ubus -v list cheburnet | grep -A 40 '\"install\"' | grep -q '\"accept_risk\".*Boolean'" \
+    && echo "  ✓ accept_risk объявлен в сигнатуре install как Boolean" \
+    || { echo "  ✗ accept_risk отсутствует/не Boolean в сигнатуре install"; vm_ssh "ubus -v list cheburnet"; exit 1; }
+
 # ─── session.login: отказ и успех ────────────────────────────────────────────
 echo "→ Ставлю пароль root и проверяю session.login через HTTP"
 vm_ssh "printf '%s\n%s\n' '$ROOT_PASS' '$ROOT_PASS' | passwd root >/dev/null 2>&1"

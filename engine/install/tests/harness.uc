@@ -75,6 +75,12 @@ function mk_sandbox() {
 	write_stub(sb.bin, "nslookup", 'exit "$(cat "$FAKE_DIR/nslookup.rc" 2>/dev/null || echo 0)"');
 	write_stub(sb.bin, "pgrep",    'exit "$(cat "$FAKE_DIR/pgrep.rc" 2>/dev/null || echo 1)"');
 	write_stub(sb.bin, "uclient-fetch", 'exit "$(cat "$FAKE_DIR/fetch.rc" 2>/dev/null || echo 1)"');
+	// df: по умолчанию настоящий (на хосте места вдоволь → preflight проходит). Сценарий
+	// подкладывает fake/df.out и получает «мало свободного флеша» — soft-провал гейткипера.
+	// Настоящий df зовём по абсолютному пути: PATH начинается с sb.bin, иначе стаб позвал бы себя.
+	write_stub(sb.bin, "df",
+		'if [ -f "$FAKE_DIR/df.out" ]; then cat "$FAKE_DIR/df.out"; exit 0; fi\n' +
+		'for p in /usr/bin/df /bin/df; do [ -x "$p" ] && exec "$p" "$@"; done\nexit 1');
 	write_stub(sb.bin, "ip",
 		'case "$*" in\n  "route get"*) cat "$FAKE_DIR/route_get.out" 2>/dev/null ;;\nesac\nexit 0');
 	for (let name in ["nft", "ifup", "ifdown", "wifi", "passwd", "logger"])

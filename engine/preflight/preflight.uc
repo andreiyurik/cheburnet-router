@@ -9,12 +9,22 @@
 //   • сбор фактов (чтение /proc, ubus, uci, apk --simulate) — НЕ здесь: это router-side
 //     companion (gather), он импурный и проверяется в QEMU. Граница честная, не пропуск.
 
-// Требования по умолчанию. Пороги ориентировочные — уточняются по QEMU-замерам (Фаза 0).
+// Требования по умолчанию.
+//
+// ПОРОГИ КАЛИБРОВАНЫ ПО РЕАЛЬНЫМ ФАКТАМ, а не «по паспорту железа» — иначе гейткипер отсекает
+// именно те роутеры, которые мы обещали поддерживать (README: «минимум 128 МБ RAM, 32 МБ флеша»):
+//   • min_ram_mb: сравниваем с MemTotal из /proc/meminfo (см. gather/parse_meminfo), а MemTotal
+//     ВСЕГДА меньше физической планки на kernel-reserve: плата со 128 МБ отдаёт 118–124 МБ.
+//     Порог 128 отказывал ЛЮБОМУ 128-МБ роутеру (поймано на живом Keenetic, 120 МБ, 2026-07-29).
+//     112 = «плата на 128 МБ, как бы щедро ядро себе ни отрезало».
+//   • min_flash_mb: свободный overlay, нужный под пакеты + конфиги. 16 МБ — цифра из
+//     docs/v2/reference/hardware-requirements.md (Light-тир); прежние 32 были строже собственной
+//     документации вдвое и отсекали 32-МБ платы, где свободно ~21 МБ (норма для squashfs+overlay).
 const REQUIREMENTS = {
 	arch: [ "arm", "aarch64", "mips", "mipsel", "x86_64" ],
 	min_openwrt: "25.12",   // apk-based ветка OpenWrt
-	min_flash_mb: 32,       // пакеты + конфиги влезут
-	min_ram_mb: 128,        // dnsmasq + awg не упадут под нагрузкой
+	min_flash_mb: 16,       // пакеты + конфиги влезут
+	min_ram_mb: 112,        // dnsmasq + awg не упадут под нагрузкой
 	deps: [ "kmod-amneziawg", "https-dns-proxy", "dnsmasq" ],
 };
 
@@ -113,13 +123,27 @@ function valid_lan_ip(ip) {
 	return x >= 0 && x <= 255 && y >= 1 && y <= 254;
 }
 
-// check(id, ok, detail, fix) — один результат проверки. fix показываем только при провале.
-function check(id, ok, detail, fix) {
-	return { id: id, ok: ok, detail: detail, fix: ok ? null : fix };
+// check(id, ok, detail, fix, severity) — один результат проверки. fix показываем только при
+// провале. severity ∈ "hard" | "soft" (по умолчанию hard — новая проверка блокирует, пока
+// автор осознанно не решит иначе; fail-safe направление гейткипера).
+//
+// ЧТО ЗНАЧИТ SOFT: провал ухудшает работу, но установка МОЖЕТ пройти, а провал шага — откатиться
+// (нехватка флеша/RAM). Такое разрешаем пропустить осознанным решением владельца (accept_risk).
+// HARD непропускаем принципиально: без нужной arch/версии/пакетов apk просто не найдёт файлы —
+// «пропуск» обещал бы невозможное и стоил бы человеку времени вместо честного отказа.
+function check(id, ok, detail, fix, severity) {
+	return { id: id, ok: ok, detail: detail, fix: ok ? null : fix,
+	         severity: severity ?? "hard" };
 }
 
 // evaluate(facts, req) — собрать отчёт preflight. passed=false, если хоть одна проверка
-// (блокирующая) провалена. Это гейткипер: при passed=false движок НЕ трогает систему.
+// провалена. Это гейткипер: при passed=false движок НЕ трогает систему.
+//
+// Кроме passed отчёт несёт разбивку по severity — на ней стоит режим «поставить на свой страх
+// и риск» (см. check выше и check.uc --allow-soft):
+//   hard_failed  — провалы, которые пропустить нельзя (arch/версия/пакеты/LAN-конфликт);
+//   soft_failed  — провалы железа-впритык (флеш/RAM);
+//   overridable  — есть провалы, и ВСЕ они soft → владелец вправе установить как есть.
 //
 // facts: { arch, openwrt_version, flash_free_mb, ram_total_mb,
 //          deps_installable: {pkg: bool}, lan_cidr, wan_cidr }
@@ -138,17 +162,17 @@ function evaluate(facts, req) {
 		sprintf("OpenWrt %s", ver != "" ? ver : "?"),
 		sprintf("нужна версия ≥ %s (apk-based)", r.min_openwrt)));
 
-	// флеш
+	// флеш (soft: не хватило — apk честно упадёт, установка откатится)
 	let flash = facts.flash_free_mb ?? -1;
 	push(checks, check("flash", flash >= r.min_flash_mb,
 		sprintf("свободный флеш ≈ %d МБ", flash),
-		sprintf("нужно ≥ %d МБ свободно", r.min_flash_mb)));
+		sprintf("нужно ≥ %d МБ свободно", r.min_flash_mb), "soft"));
 
-	// RAM
+	// RAM (soft: мало памяти = риск OOM под нагрузкой, а не невозможность установки)
 	let ram = facts.ram_total_mb ?? -1;
 	push(checks, check("ram", ram >= r.min_ram_mb,
 		sprintf("RAM ≈ %d МБ", ram),
-		sprintf("нужно ≥ %d МБ", r.min_ram_mb)));
+		sprintf("нужно ≥ %d МБ", r.min_ram_mb), "soft"));
 
 	// зависимости устанавливаются — ГЛАВНЫЙ чек: иначе install упрётся на середине
 	let di = facts.deps_installable ?? {};
@@ -171,11 +195,31 @@ function evaluate(facts, req) {
 			"LAN и WAN пересекаются — смените подсеть LAN, иначе потеряете доступ"));
 	}
 
-	let failed = 0;
-	for (let i = 0; i < length(checks); i++)
-		if (!checks[i].ok) failed++;
+	let failed = 0, hard_failed = 0, soft_failed = 0;
+	for (let i = 0; i < length(checks); i++) {
+		if (checks[i].ok) continue;
+		failed++;
+		if (checks[i].severity == "soft") soft_failed++; else hard_failed++;
+	}
 
-	return { passed: failed == 0, failed: failed, total: length(checks), checks: checks };
+	return {
+		passed: failed == 0, failed: failed, total: length(checks),
+		hard_failed: hard_failed, soft_failed: soft_failed,
+		overridable: (hard_failed == 0 && soft_failed > 0),
+		checks: checks,
+	};
+}
+
+// soft_failed_ids(report) → id провалившихся soft-проверок (["flash","ram"]). Нужны и UI
+// (объяснить каждый пропуск адресно), и install.json (запомнить, ЧТО именно пропущено).
+function soft_failed_ids(report) {
+	let out = [];
+	for (let i = 0; i < length(report.checks); i++) {
+		let c = report.checks[i];
+		if (!c.ok && c.severity == "soft")
+			push(out, c.id);
+	}
+	return out;
 }
 
 // FULL-тир (VLESS+Reality через sing-box) — отдельные, более жёсткие требования.
@@ -261,21 +305,28 @@ function evaluate_tiers(facts, req) {
 	};
 }
 
-// render_report(report) — человекочитаемые строки для CLI/лога.
-function render_report(report) {
+// render_report(report, allow_soft) — человекочитаемые строки для CLI/лога. allow_soft=true —
+// режим «владелец согласился на риск»: soft-провалы помечаем «!» (пропущено) вместо «✗», и итог
+// говорит, что установка идёт С ПРОПУСКОМ — это остаётся в install.log как след решения.
+function render_report(report, allow_soft) {
 	let out = [];
 	for (let i = 0; i < length(report.checks); i++) {
 		let c = report.checks[i];
-		let mark = c.ok ? "✓" : "✗";
+		let soft_skipped = !c.ok && c.severity == "soft" && allow_soft;
+		let mark = c.ok ? "✓" : (soft_skipped ? "!" : "✗");
 		let line = sprintf("%s %-8s %s", mark, c.id, c.detail);
 		if (!c.ok && c.fix)
-			line += sprintf("  → %s", c.fix);
+			line += sprintf("  → %s%s", c.fix, soft_skipped ? " (пропущено по решению владельца)" : "");
 		push(out, line);
 	}
-	push(out, report.passed
-		? sprintf("preflight OK — железо подходит (%d проверок)", report.total)
-		: sprintf("preflight ОТКАЗ — провалено %d из %d", report.failed, report.total));
+	if (report.passed)
+		push(out, sprintf("preflight OK — железо подходит (%d проверок)", report.total));
+	else if (allow_soft && report.hard_failed == 0)
+		push(out, sprintf("preflight ПРОПУЩЕН — %d проверок железа не пройдено, установка на свой риск: стабильность не гарантируется",
+			report.soft_failed));
+	else
+		push(out, sprintf("preflight ОТКАЗ — провалено %d из %d", report.failed, report.total));
 	return out;
 }
 
-export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, full_requirements, supports_full_hw, evaluate_tiers, render_report };
+export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, soft_failed_ids, full_requirements, supports_full_hw, evaluate_tiers, render_report };

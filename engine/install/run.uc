@@ -16,6 +16,7 @@ import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state,
          pick_wan_fallback, protocol_ids } from "./install.uc";
 import { parse_wan_route } from "../preflight/parse.uc";
+import { evaluate, soft_failed_ids } from "../preflight/preflight.uc";
 import { config_path as sb_config_path } from "../steps/singbox/singbox.uc";
 import { reality_connectivity } from "./probe.uc";
 
@@ -215,10 +216,28 @@ if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
 }
 
 // --- 1. preflight (гейткипер) ---
+// accept_risk (из мастера, «поставить на свой страх и риск») ослабляет гейт ТОЛЬКО на soft-провалы
+// — нехватку флеша/RAM. hard (arch/версия/пакеты/LAN-конфликт) он не пропускает: там apk просто не
+// найдёт файлы, и «пропуск» обещал бы невозможное. Решение владельца, а не движка (см. preflight.uc).
 set_step("preflight");
+let accept_risk = (cfg.accept_risk === true);
 let facts = sh(sprintf("ucode -R %s/preflight/gather.uc", ENGINE));
-let pf_rc = run_stdin(sprintf("ucode -R %s/preflight/check.uc", ENGINE), facts);
+let pf_rc = run_stdin(sprintf("ucode -R %s/preflight/check.uc%s", ENGINE,
+	accept_risk ? " --allow-soft" : ""), facts);
 let preflight = { ok: (pf_rc == 0) };
+
+// Какие именно soft-проверки пропущены — той же ЧИСТОЙ evaluate по УЖЕ собранным фактам (gather
+// не повторяем: apk --simulate на каждый пакет дорог, а вердикт выше вынесен по этим же данным).
+// След решения нужен в install.json: пришёл вопрос «тормозит/отваливается» — сразу видно, что
+// роутер поставлен с пропуском проверок, а не гадать по логам.
+let forced = [];
+if (accept_risk && preflight.ok && substr(trim(facts), 0, 1) == "{") {
+	let f = json(facts);
+	forced = soft_failed_ids(evaluate(f, f.requirements));
+	if (length(forced) > 0)
+		warn(sprintf("install: ВНИМАНИЕ — установка с пропуском проверок железа (%s) по решению владельца: стабильность не гарантируется\n",
+			join(", ", forced)));
+}
 
 if (!preflight.ok) {
 	// Отчёт preflight уже напечатан check.uc выше (его stdout унаследован). Прерываемся, но
@@ -305,12 +324,17 @@ if (outcome.action == "commit") {
 	let cfg_file = ETC_CHEBURNET + "/install.json";
 	let saved_raw = readfile(cfg_file);
 	let saved = (saved_raw && substr(trim(saved_raw), 0, 1) == "{") ? json(saved_raw) : null;
-	if (saved && cfg.routing_opts.wan_if) {
-		if (type(saved.routing_opts) != "object") saved.routing_opts = {};
-		saved.routing_opts.wan_if = cfg.routing_opts.wan_if;
-		if (cfg.routing_opts.wan_gw)
-			saved.routing_opts.wan_gw = cfg.routing_opts.wan_gw;
-		saved.routing_opts.tunnel_if = cfg.routing_opts.tunnel_if;
+	if (saved && (cfg.routing_opts.wan_if || accept_risk)) {
+		if (cfg.routing_opts.wan_if) {
+			if (type(saved.routing_opts) != "object") saved.routing_opts = {};
+			saved.routing_opts.wan_if = cfg.routing_opts.wan_if;
+			if (cfg.routing_opts.wan_gw)
+				saved.routing_opts.wan_gw = cfg.routing_opts.wan_gw;
+			saved.routing_opts.tunnel_if = cfg.routing_opts.tunnel_if;
+		}
+		// forced — какие проверки железа владелец пропустил (пустой массив = переустановка на
+		// подходящем железе стирает прежнюю отметку). Панель показывает по нему честную плашку.
+		saved.forced = forced;
 		writefile(cfg_file, sprintf("%J\n", saved));
 	}
 	// Пароль root — не транзакция (см. steps/rootpass): применяем на успешном пути, отдельно от
