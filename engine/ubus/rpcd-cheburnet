@@ -215,7 +215,10 @@ function m_status() {
 		// Здоровье АКТИВНОГО туннеля (awg0 | singtun0 — имя из tunnel_info, не хардкод): процесс
 		// sing-box жив и TUN поднят. Для Reality это единственный ДЕШЁВЫЙ признак — рукопожатия у
 		// него нет, а connectivity-probe (пин host-route + fetch) слишком дорог для поллинга.
-		"echo \"sbxrun=$(pgrep -x sing-box >/dev/null 2>&1 && echo up)\"; " +
+		// БЕЗ -x: busybox-pgrep сверяет argv[0] как запущено, а procd стартует демон по
+		// абсолютному пути — `pgrep -x sing-box` не совпадёт никогда, и панель показала бы
+		// «VPN не работает» на рабочем Reality (тот самый баг, ради которого признак и заводили).
+		"echo \"sbxrun=$(pgrep sing-box >/dev/null 2>&1 && echo up)\"; " +
 		// Флаг UP в скобках `<…,UP,…>`, а НЕ `state UP` и не фильтр `ip link show … up`: у TUN-
 		// устройства state=UNKNOWN, а фильтр `up` — синтаксис iproute2 (busybox ip его не знает).
 		// Промах здесь = ложное «туннель не поднят» на рабочем Reality, то есть тот же баг обратно.

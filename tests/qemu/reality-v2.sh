@@ -127,8 +127,15 @@ st_health() {
     st_json | sed -n 's/.*"tunnel_health":[ ]*"\([a-z]*\)".*/\1/p'
 }
 h="$(st_health)"
-[ "$h" = "up" ] \
-    || { echo "  ✗ tunnel_health='$h', ожидался up (панель показала бы «VPN не работает» на рабочем Reality)"; exit 1; }
+[ "$h" = "up" ] || {
+    echo "  ✗ tunnel_health='$h', ожидался up (панель показала бы «VPN не работает» на рабочем Reality)"
+    # tunnel_health для reality = sb_running И tun_up. Без разбивки по фактам провал не отличить
+    # от «упало что угодно» — печатаем ровно то, что читает status-батч.
+    echo "    pgrep -x sing-box: $(vm_ssh 'pgrep -x sing-box || echo НЕТ')"
+    echo "    ip link singtun0:  $(vm_ssh 'ip link show dev singtun0 2>&1 | head -1 || true')"
+    vm_ssh 'logread | grep -i sing-box | tail -10' || true
+    exit 1
+}
 echo "  ✓ tunnel_health=up (панель покажет «VLESS+Reality активен»)"
 
 # Гейт кнопки Full-тира читает свободный флеш из БАТЧА m_status (df|awk на busybox). Юниты видят

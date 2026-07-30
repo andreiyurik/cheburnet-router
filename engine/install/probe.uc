@@ -23,7 +23,12 @@ const PROBE_IP = "1.1.1.1";
 //      с CN серта, но нам важна ДОСТИЖИМОСТЬ, не личность (ustream-ssl есть — зависимость DoH).
 //   5. host-route снимаем ВСЕГДА (в т.ч. на провале) — не оставлять липкий маршрут.
 function reality_connectivity(iface) {
-	if (trim(sh("pgrep -x sing-box >/dev/null 2>&1; echo $?")) != "0")
+	// БЕЗ -x осознанно: busybox-pgrep сверяет argv[0] КАК ЗАПУЩЕНО, а procd поднимает демон по
+	// абсолютному пути ("/usr/bin/sing-box run …"), поэтому `pgrep -x sing-box` не находит его
+	// НИКОГДА на стоковой прошивке — проба падала бы на живом туннеле, а установка Reality
+	// откатывалась. Проверено на релизном образе: `pgrep -x dropbear` пусто, `pgrep dropbear` — pid.
+	// -f тоже нельзя: с ним pgrep увидит собственную командную строку и совпадёт сам с собой.
+	if (trim(sh("pgrep sing-box >/dev/null 2>&1; echo $?")) != "0")
 		return false;
 
 	sh(sprintf("ip route replace %s dev %s 2>/dev/null", PROBE_IP, iface));
