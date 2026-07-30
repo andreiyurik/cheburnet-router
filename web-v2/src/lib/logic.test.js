@@ -12,6 +12,8 @@ import {
   parseDomains, validateSetup, explainFail, STEP_LABELS,
   endpoint, tunnelSummary, dnsLabel, hs,
   softRisks, canOverride, SOFT_RISK, FORCED_LABELS,
+  heroKind, realityFallback, tunnelRowText, fullReasons, explainFullTierFail,
+  fullMissingText, FULL_MISSING_LABELS,
 } from './logic.js';
 
 // Валидная база формы: каждый тест ломает ровно одно поле.
@@ -313,5 +315,93 @@ describe('dnsLabel / hs — метки панели', () => {
     expect(hs(-5)).toBe('—');
     expect(hs(45)).toBe('отвечал 45 с назад');
     expect(hs(150)).toBe('отвечал 2 мин назад');
+  });
+});
+
+// Full-тир как ЗАПАСНОЙ путь: панель обязана верно судить о туннеле любого протокола и вести к
+// Reality именно тогда, когда AmneziaWG не поднимается.
+describe('heroKind / realityFallback / tunnelRowText — состояние туннеля в панели', () => {
+  const st = (over = {}) => ({ installed: true, protocol: 'awg', tunnel_health: 'up', ...over });
+
+  it('до установки баннера нет', () => {
+    expect(heroKind({ installed: false })).toBe('none');
+    expect(heroKind(null)).toBe('none');
+  });
+
+  it('AWG: здоровье из движка, а не из локальных догадок', () => {
+    expect(heroKind(st())).toBe('awg-up');
+    expect(heroKind(st({ tunnel_health: 'down' }))).toBe('awg-down');
+  });
+
+  // Регресс: рабочий Reality показывался как «VPN не работает», потому что панель искала
+  // AWG-рукопожатие, которого у VLESS нет в принципе.
+  it('Reality: рабочий туннель → свой зелёный статус, без AWG-рукопожатия', () => {
+    const s = st({ protocol: 'reality', awg_handshake_age: null });
+    expect(heroKind(s)).toBe('reality-up');
+    expect(tunnelRowText(s)).toBe('поднят (VLESS+Reality)');
+  });
+
+  it('Reality: мёртвый туннель → свой баннер (не «замените AWG-конфиг»)', () => {
+    const s = st({ protocol: 'reality', tunnel_health: 'down', awg_handshake_age: null });
+    expect(heroKind(s)).toBe('reality-down');
+    expect(tunnelRowText(s)).toBe('не поднят');
+  });
+
+  it('AWG: строка сводки остаётся возрастом рукопожатия (сервер отвечал)', () => {
+    expect(tunnelRowText(st({ awg_handshake_age: 45 }))).toBe('отвечал 45 с назад');
+    expect(tunnelRowText(st({ tunnel_health: 'down', awg_handshake_age: null }))).toBe('нет ответа от сервера');
+  });
+
+  it('запасной путь: что предлагать при мёртвом AWG', () => {
+    expect(realityFallback(st({ full_capable: true, full_installed: false }))).toBe('install');
+    expect(realityFallback(st({ full_capable: true, full_installed: true }))).toBe('switch');
+    expect(realityFallback(st({ full_capable: false }))).toBe(null);
+  });
+
+  it('на активном Reality запасной путь не предлагаем (он уже используется)', () => {
+    expect(realityFallback(st({ protocol: 'reality', full_capable: true, full_installed: true }))).toBe(null);
+  });
+});
+
+describe('fullReasons / explainFullTierFail — почему Reality недоступен и почему не поставился', () => {
+  it('тянет → причин нет', () => {
+    expect(fullReasons({ tiers: { full: true, full_checks: [] } })).toEqual([]);
+  });
+
+  it('не тянет → человеческие причины из движка (не безликое «недоступно»)', () => {
+    const report = { tiers: { full: false, full_checks: [
+      { id: 'full_arch', ok: true, detail: 'arch = aarch64' },
+      { id: 'full_ram', ok: false, detail: 'RAM ≈ 120 МБ', fix: 'Full-тиру нужно ≥ 240 МБ' },
+    ] } };
+    expect(fullReasons(report)).toEqual(['RAM ≈ 120 МБ (Full-тиру нужно ≥ 240 МБ)']);
+  });
+
+  it('нет отчёта/тиров → пустой список, не падаем', () => {
+    expect(fullReasons(null)).toEqual([]);
+    expect(fullReasons({})).toEqual([]);
+  });
+
+  it('нет места ≠ нет интернета: советы разные', () => {
+    expect(explainFullTierFail('no-space')).toMatch(/не хватило места/i);
+    expect(explainFullTierFail('no-space')).toMatch(/extroot/);
+    expect(explainFullTierFail('download')).toMatch(/в интернете/);
+    expect(explainFullTierFail(undefined)).toMatch(/в интернете/);
+  });
+});
+
+describe('fullMissingText — почему кнопки Full-тира нет', () => {
+  it('каждая машинная причина имеет человеческую подпись', () => {
+    for (const id of ['arch', 'ram', 'flash']) expect(FULL_MISSING_LABELS[id]).toBeTruthy();
+  });
+
+  it('флеш — причина, которую человек устранит сам, поэтому названа конкретно', () => {
+    expect(fullMissingText(['flash'])).toMatch(/места/);
+    expect(fullMissingText(['flash'])).toMatch(/42 МБ/);
+  });
+
+  it('несколько причин перечисляются, пустой список → пусто', () => {
+    expect(fullMissingText(['ram', 'flash'])).toContain('; ');
+    expect(fullMissingText([])).toBe('');
+    expect(fullMissingText(undefined)).toBe('');
   });
 });

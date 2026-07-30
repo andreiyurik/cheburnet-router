@@ -228,8 +228,16 @@ function soft_failed_ids(report) {
 // (sing-box+Reality криптотяжелы); точная проверка флагов cpuinfo — gather (router-side).
 const FULL_REQUIREMENTS = {
 	arch: [ "aarch64", "x86_64" ],  // ARMv8/x86 с AES; mips/armv7 исключены
-	min_flash_mb: 128,              // sing-box-бинарь крупнее kmod-amneziawg
-	min_ram_mb: 256,                // userspace-туннель + crypto не упадёт под нагрузкой
+	// 56, а не 128: ЗАМЕР на живом OpenWrt (make qemu-reality-v2) — установленный sing-box весит
+	// ~42 МБ. Порог = вес + ~14 МБ запаса под config.json, логи и обновление пакета. Прежние 128
+	// втрое превышали реальную нужду и отсекали 64-МБ-флеш платы, которые Full утянули бы.
+	// Ниже опускать не стоит: на почти полном флеше OpenWrt перестаёт писать конфиги и логи.
+	min_flash_mb: 56,               // sing-box-бинарь крупнее kmod-amneziawg
+	// 240, а не «паспортные» 256 — по той же причине, что min_ram_mb Light-тира: сравниваем с
+	// MemTotal, а он меньше планки на kernel-reserve (256-МБ плата отдаёт 240–250 МБ). Порог 256
+	// не пропускал НИ ОДИН 256-МБ роутер: Full молча не предлагался ни в мастере, ни в панели —
+	// на рекомендуемых 512-МБ Cudy это не проявлялось, потому и жило незамеченным.
+	min_ram_mb: 240,                // userspace-туннель + crypto не упадёт под нагрузкой
 	dep: "sing-box",                // должен ставиться из feed под эту arch
 };
 
@@ -249,15 +257,35 @@ function full_requirements() {
 	return resolve_full_req(null);
 }
 
-// supports_full_hw(arch, ram_mb, req) → «железо ПОТЯНЕТ Full» по лёгким признакам (arch = прокси
-// AES + RAM ≥ порог). Для m_status (видимость кнопки «Включить VLESS+Reality» на каждый поллинг)
-// — БЕЗ тяжёлых apk --simulate/df, их авторитетно проверит preflight при самой установке. ЧИСТАЯ,
-// толерантна к строке/мусору в ram_mb (приходит из shell-батча): не-число → -1 → false (fail-safe).
-function supports_full_hw(arch, ram_mb, req) {
+// num_or(v, fallback) — целое из значения, пришедшего из shell-батча (строка/мусор/пусто).
+// Не-число → fallback: для гейтов это -1 (fail-safe «не подтвердили → не обещаем»).
+function num_or(v, fallback) {
+	if (type(v) == "int") return v;
+	return match("" + (v ?? ""), /^[0-9]+$/) ? int(v) : fallback;
+}
+
+// full_hw_missing(arch, ram_mb, flash_mb, req) → ЧЕГО не хватает железу для Full-тира:
+// массив из "arch" | "ram" | "flash" (пусто = тянет). Для m_status (видимость кнопки «Включить
+// VLESS+Reality» на каждый поллинг) — лёгкие признаки, БЕЗ apk --simulate; авторитетный гейт —
+// preflight при самой установке. ЧИСТАЯ и толерантна к мусору из shell-батча.
+//
+// Флеш проверяем ИМЕННО ЗДЕСЬ (раньше кнопка его игнорировала): sing-box весит ~42 МБ, и на
+// забитом флеше кнопка честно обещала то, что провалится на apk. Причины возвращаем списком,
+// чтобы панель могла сказать, ЧЕГО не хватает, а не просто спрятать кнопку.
+// flash_mb == null (факт не собран) → флеш НЕ виним: пусть решает preflight, а не догадка.
+function full_hw_missing(arch, ram_mb, flash_mb, req) {
 	let r = resolve_full_req(req);
-	let ram = (type(ram_mb) == "int") ? ram_mb
-		: (match("" + (ram_mb ?? ""), /^[0-9]+$/) ? int(ram_mb) : -1);
-	return index(r.arch, arch ?? "") >= 0 && ram >= r.min_ram_mb;
+	let out = [];
+	if (index(r.arch, arch ?? "") < 0) push(out, "arch");
+	if (num_or(ram_mb, -1) < r.min_ram_mb) push(out, "ram");
+	if (flash_mb != null && flash_mb !== "" && num_or(flash_mb, -1) < r.min_flash_mb)
+		push(out, "flash");
+	return out;
+}
+
+// supports_full_hw(arch, ram_mb, flash_mb, req) → «железо ПОТЯНЕТ Full» (нечего не хватает).
+function supports_full_hw(arch, ram_mb, flash_mb, req) {
+	return length(full_hw_missing(arch, ram_mb, flash_mb, req)) == 0;
 }
 
 // evaluate_tiers(facts, req) → { light, full, full_installed, full_checks, full_failed }.
@@ -329,4 +357,4 @@ function render_report(report, allow_soft) {
 	return out;
 }
 
-export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, soft_failed_ids, full_requirements, supports_full_hw, evaluate_tiers, render_report };
+export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, soft_failed_ids, full_requirements, supports_full_hw, full_hw_missing, evaluate_tiers, render_report };

@@ -61,6 +61,41 @@ export function softRisks(report) {
 // Подписи пропущенных проверок для плашки в панели (status.forced приходит из install.json).
 export const FORCED_LABELS = { flash: 'мало свободного места', ram: 'мало оперативной памяти' };
 
+// Чего не хватает железу для Full-тира (status.full_missing) — человеческими словами.
+// Молчаливо спрятанная кнопка выглядит как «функцию убрали»; названная причина — как выбор.
+export const FULL_MISSING_LABELS = {
+  arch: 'нужен 64-битный процессор с AES (у этого роутера другой)',
+  ram: 'нужно от 256 МБ оперативной памяти',
+  flash: 'не хватает свободного места: компоненту нужно ~42 МБ',
+};
+
+export function fullMissingText(missing) {
+  return (missing ?? []).map((m) => FULL_MISSING_LABELS[m] ?? m).join('; ');
+}
+
+// explainFullTierFail(reason) → текст для панели, когда догрузка sing-box не удалась.
+// reason пишет install-singbox.sh: "no-space" — не влез на флеш, "download" (или ничего) — сеть.
+// Смысл разделения тот же, что у explainFail: не отправлять человека чинить не то.
+export function explainFullTierFail(reason) {
+  if (reason === 'no-space')
+    return 'Не хватило места на роутере: компоненту VLESS+Reality нужно ~15 МБ свободного флеша. ' +
+      'Освободите место (по SSH: apk del ненужные пакеты) или подключите USB-флешку (extroot). ' +
+      'AmneziaWG не затронут — он продолжает работать.';
+  return 'Не удалось скачать sing-box — проверьте, что роутер в интернете, и попробуйте ещё раз. ' +
+    'AmneziaWG не затронут.';
+}
+
+// fullReasons(report) → почему Full-тир (VLESS+Reality) недоступен, человеческими фразами из
+// движка (tiers.full_checks: «RAM ≈ 120 МБ → Full-тиру нужно ≥ 240 МБ»). Пусто, если тянет.
+// Reality — запасной путь на случай, когда AmneziaWG режут; человек должен понимать, почему
+// этот путь ему закрыт, а не видеть безликое «недоступно».
+export function fullReasons(report) {
+  if (report?.tiers?.full === true) return [];
+  return (report?.tiers?.full_checks ?? [])
+    .filter((c) => !c.ok)
+    .map((c) => `${c.detail}${c.fix ? ` (${c.fix})` : ''}`);
+}
+
 // canOverride(report) → показывать ли кнопку «установить на свой страх и риск».
 // Источник правды — движок (overridable = провалы есть и все они soft); UI его не переигрывает.
 export function canOverride(report) {
@@ -240,6 +275,42 @@ export function tunnelSummary(args) {
 export function dnsLabel(id, providers) {
   const p = (providers ?? []).find((x) => x.id === id);
   return p ? `${p.name} — ${p.description}` : (id ?? 'по умолчанию');
+}
+
+// --- Состояние туннеля в панели (протокол-независимо) ---
+//
+// Здоровье приходит из движка одним полем status.tunnel_health ("up"|"down") — он знает, чем
+// мерить каждый протокол (AWG — рукопожатие сервера, Reality — живой sing-box + поднятый TUN).
+// Панель НЕ пересчитывает это сама: раньше она судила по AWG-рукопожатию и на рабочем Reality
+// показывала «VPN не работает», ведя заменять AWG-конфиг (движок такую замену и не принял бы).
+
+// heroKind(s) → какой главный баннер показать. Разное железо сигнала → разные формулировки:
+// у AWG есть доказательство «сервер отвечал N сек назад», у Reality — только «туннель поднят»,
+// поэтому обещать «всё работает» там нельзя (см. tunnel_health в engine/install/install.uc).
+export function heroKind(s) {
+  if (!s?.installed) return 'none';
+  const reality = s.protocol === 'reality';
+  if (s.tunnel_health === 'up') return reality ? 'reality-up' : 'awg-up';
+  return reality ? 'reality-down' : 'awg-down';
+}
+
+// realityFallback(s) → что предложить, когда AmneziaWG не поднимается: 'install' (железо тянет,
+// sing-box ещё не догружен) | 'switch' (уже стоит — переключиться в один шаг) | null (нечего
+// предлагать: слабое железо или Reality уже активен). Это главный сценарий Full-тира — запасной
+// путь, когда сеть режет UDP-туннель.
+export function realityFallback(s) {
+  if (s?.protocol === 'reality') return null;
+  if (s?.full_installed) return 'switch';
+  if (s?.full_capable) return 'install';
+  return null;
+}
+
+// tunnelRowText(s) → значение строки «Туннель» в сводке. У AWG — возраст рукопожатия (сервер
+// отвечал), у Reality — факт поднятого туннеля, без обещаний про сервер.
+export function tunnelRowText(s) {
+  if (s?.protocol === 'reality')
+    return s?.tunnel_health === 'up' ? 'поднят (VLESS+Reality)' : 'не поднят';
+  return hs(s?.awg_handshake_age);
 }
 
 // Возраст последнего AWG-handshake → человеческая строка для панели.

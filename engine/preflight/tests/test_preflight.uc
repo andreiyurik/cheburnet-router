@@ -4,7 +4,8 @@
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { cmp_version, cidr_overlap, evaluate, render_report,
          suggest_lan, valid_lan_ip, evaluate_tiers, full_requirements,
-         supports_full_hw, default_requirements, soft_failed_ids } from "../preflight.uc";
+         supports_full_hw, full_hw_missing, default_requirements,
+         soft_failed_ids } from "../preflight.uc";
 
 // Хорошие факты — каждый тест портит одно поле, чтобы проверить ровно его проверку.
 function good_facts() {
@@ -267,6 +268,20 @@ test("evaluate_tiers: RAM 128 при годной arch → full недоступ
 	ok(!full_check(rep, "full_ram").ok);
 });
 
+// КАЛИБРОВКА Full-тира: порог сравнивается с MemTotal, который меньше паспортной планки на
+// kernel-reserve. Порог 256 не пропускал ни один 256-МБ роутер — Full молча не предлагался.
+test("evaluate_tiers: реальный 256-МБ роутер (MemTotal 245) получает Full", () => {
+	let f = full_facts(); f.ram_total_mb = 245;
+	let rep = evaluate_tiers(f, null);
+	ok(rep.full, "256-МБ плата обязана проходить гейт Full");
+	ok(full_check(rep, "full_ram").ok);
+});
+
+test("supports_full_hw: 256-МБ плата по MemTotal (245) → кнопка в панели видна", () => {
+	ok(supports_full_hw("aarch64", 245, 200, null), "тот же порог, что у evaluate_tiers");
+	ok(!supports_full_hw("aarch64", 200, 200, null), "192-МБ плата всё ещё не тянет Full");
+});
+
 test("evaluate_tiers: sing-box не ставится → full недоступен, перечислен", () => {
 	let f = full_facts(); f.deps_installable["sing-box"] = false;
 	let rep = evaluate_tiers(f, null);
@@ -296,22 +311,42 @@ test("evaluate_tiers: full_installed=true даже когда железо сл�
 });
 
 // --- supports_full_hw: лёгкий гейт железа для видимости кнопки (m_status, каждый поллинг) ---
-test("supports_full_hw: годная arch + RAM ≥ порог → true", () => {
-	ok(supports_full_hw("aarch64", 512, null));
-	ok(supports_full_hw("x86_64", 256, null), "ровно порог 256 проходит");
+test("supports_full_hw: годная arch + RAM/флеш ≥ порогов → true", () => {
+	ok(supports_full_hw("aarch64", 512, 200, null));
+	ok(supports_full_hw("x86_64", 240, 56, null), "ровно пороги 240/56 проходят");
 });
 
 test("supports_full_hw: RAM ниже порога / слабая arch → false", () => {
-	ok(!supports_full_hw("aarch64", 255, null), "255 < 256 — не тянет");
-	ok(!supports_full_hw("mipsel", 512, null), "нет AES-arch");
-	ok(!supports_full_hw("armv7l", 1024, null), "armv7 без AES-гарантии — отсекаем");
+	ok(!supports_full_hw("aarch64", 239, 200, null), "239 < 240 — не тянет");
+	ok(!supports_full_hw("mipsel", 512, 200, null), "нет AES-arch");
+	ok(!supports_full_hw("armv7l", 1024, 200, null), "armv7 без AES-гарантии — отсекаем");
 });
 
 test("supports_full_hw: mram строкой и мусором (приходит из shell-батча m_status)", () => {
-	ok(supports_full_hw("aarch64", "496", null), "число строкой — парсится");
-	ok(!supports_full_hw("aarch64", "", null), "пустая строка → false (fail-safe)");
-	ok(!supports_full_hw("aarch64", "n/a", null), "мусор → false, не падаем");
-	ok(!supports_full_hw("", 512, null), "пустая arch → false");
+	ok(supports_full_hw("aarch64", "496", "200", null), "числа строками — парсятся");
+	ok(!supports_full_hw("aarch64", "", "200", null), "пустая строка → false (fail-safe)");
+	ok(!supports_full_hw("aarch64", "n/a", "200", null), "мусор → false, не падаем");
+	ok(!supports_full_hw("", 512, 200, null), "пустая arch → false");
+});
+
+// Флеш в гейте КНОПКИ панели: sing-box ~42 МБ (замер qemu-reality-v2), а раньше кнопка флеш не
+// смотрела и обещала то, что валилось на apk «No space left».
+test("full_hw_missing: не хватает флеша → 'flash' в причинах, кнопка не обещает лишнего", () => {
+	deep_eq(full_hw_missing("aarch64", 512, 20, null), [ "flash" ]);
+	deep_eq(full_hw_missing("aarch64", 512, 56, null), [], "ровно порог проходит");
+});
+
+test("full_hw_missing: перечисляет ВСЁ, чего не хватает (панель объясняет причину)", () => {
+	deep_eq(full_hw_missing("mipsel", 128, 20, null), [ "arch", "ram", "flash" ]);
+});
+
+// Факт не собран (df не отработал) — не виним флеш: догадка не должна прятать кнопку,
+// авторитетный гейт всё равно впереди (preflight при установке).
+test("full_hw_missing: флеш неизвестен → его не виним (решает preflight)", () => {
+	deep_eq(full_hw_missing("aarch64", 512, null, null), []);
+	deep_eq(full_hw_missing("aarch64", 512, "", null), []);
+	deep_eq(full_hw_missing("aarch64", 512, "мусор", null), [ "flash" ],
+		"а вот мусор вместо числа — это не «неизвестно», это fail-safe отказ");
 });
 
 test("evaluate_tiers: провал базового light → full тоже false", () => {
@@ -329,8 +364,8 @@ test("evaluate_tiers: кастомные пороги Full через req.full",
 
 test("full_requirements: дефолты Full-тира", () => {
 	let r = full_requirements();
-	eq(r.min_ram_mb, 256);
-	eq(r.min_flash_mb, 128);
+	eq(r.min_ram_mb, 240, "240 = плата на 256 МБ по MemTotal, а не паспортные 256");
+	eq(r.min_flash_mb, 56, "56 = замеренные ~42 МБ sing-box + запас (было 128 «на глаз»)");
 	eq(r.dep, "sing-box");
 	ok(index(r.arch, "aarch64") >= 0);
 	ok(index(r.arch, "mipsel") < 0, "mips исключён из Full");

@@ -1,13 +1,14 @@
 <script>
   import { cheburnet } from '../ubus.js';
-  import { softRisks, canOverride } from '../logic.js';
+  import { softRisks, canOverride, fullReasons } from '../logic.js';
 
-  // onReady(fullCapable, acceptRisk) — вызвать, когда можно идти дальше. fullCapable = tiers.full
+  // onReady(fullCapable, acceptRisk, fullWhyNot) — вызвать, когда можно идти дальше. fullCapable = tiers.full
   // (железо ПОТЯНЕТ Full: AES-arch + RAM/флеш + sing-box ставится по apk --simulate), НЕ
   // full_installed: мастер предлагает выбор AmneziaWG / VLESS+Reality уже на подходящем железе, а
   // sing-box догружается автоматически при выборе Reality (ADR 0004). Не тянет → только AmneziaWG.
   // acceptRisk=true — пользователь осознанно идёт дальше с непройденными soft-проверками железа
-  // (мало флеша/RAM); Setup донесёт это до install как accept_risk.
+  // (мало флеша/RAM); Setup донесёт это до install как accept_risk. fullWhyNot — причины, по которым
+  // Reality недоступен: мастер показывает их вместо безликого «недоступно».
   let { onReady } = $props();
 
   let report = $state(null);
@@ -59,7 +60,7 @@
 
     {#if report.passed}
       <p class="ok-msg">Роутер подходит — все {report.total} проверок пройдены.</p>
-      <button class="primary" onclick={() => onReady(report.tiers?.full === true, false)}>Продолжить</button>
+      <button class="primary" onclick={() => onReady(report.tiers?.full === true, false, fullReasons(report))}>Продолжить</button>
     {:else if overridable}
       <!-- Все провалы — «железо впритык»: установка возможна, но с оговорками. Сначала честно
            объясняем каждый пункт и что можно сделать вместо риска, только потом красная кнопка. -->
@@ -99,7 +100,7 @@
         <button onclick={run}>Перепроверить</button>
       </div>
       <button class="danger wide" disabled={!riskAccepted}
-              onclick={() => onReady(report.tiers?.full === true, true)}>
+              onclick={() => onReady(report.tiers?.full === true, true, fullReasons(report))}>
         Всё равно установить
       </button>
     {:else}

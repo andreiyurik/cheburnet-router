@@ -44,7 +44,7 @@ EOF
 
 run_script() { # PATH=fakedir SB_SLEEP=0 SB_RETRIES=? → запустить скрипт, вернуть код
     local dir="$1"; shift
-    PATH="$dir:/usr/bin:/bin" SB_SLEEP=0 "$@" sh "$SCRIPT" >/dev/null 2>&1
+    PATH="$dir:/usr/bin:/bin" SB_SLEEP=0 SB_OUT="$dir/apk.log" "$@" sh "$SCRIPT" >/dev/null 2>&1
 }
 
 TMP="$(mktemp -d)"
@@ -73,6 +73,35 @@ exit 0
 EOF
 chmod +x "$D/apk"
 if run_script "$D"; then bad "apk соврал успех, но sing-box нет — должен быть exit 1"; else ok "apk exit 0 без бинаря → всё равно exit 1 (критерий = наличие бинаря)"; fi
+
+# --- 5. ПРИЧИНА отказа: нет места ≠ нет интернета (панель советует разное) ---
+# Совет «проверьте интернет» на забитом флеше отправляет человека чинить не то, а sing-box
+# (~15 МБ) на 32-МБ роутере реально может не влезть.
+D="$TMP/nospace"; mkdir -p "$D"
+cat > "$D/apk" <<'EOF'
+#!/bin/sh
+[ "$1" = "update" ] && exit 0
+echo "ERROR: sing-box-1.12.22-r1: No space left on device" >&2
+exit 1
+EOF
+chmod +x "$D/apk"
+PATH="$D:/usr/bin:/bin" SB_SLEEP=0 SB_RETRIES=2 SB_OUT="$D/apk.log" REASON_FILE="$D/reason" \
+    sh "$SCRIPT" > "$D/out.txt" 2>&1 && bad "должен быть exit 1" || ok "нет места → exit 1"
+[ "$(cat "$D/reason" 2>/dev/null)" = "no-space" ] \
+    && ok "reason=no-space (панель скажет про место, а не про интернет)" \
+    || bad "ожидался reason=no-space, получено '$(cat "$D/reason" 2>/dev/null)'"
+grep -q "не хватило места" "$D/out.txt" && ok "в логе адресное сообщение про место" \
+    || bad "сообщение про нехватку места не напечатано"
+
+# --- 6. Сетевой отказ → reason=download (прежний совет про интернет уместен) ---
+D="$TMP/nonet"; make_env "$D" 99
+PATH="$D:/usr/bin:/bin" SB_SLEEP=0 SB_RETRIES=2 SB_OUT="$D/apk.log" REASON_FILE="$D/reason" \
+    sh "$SCRIPT" >/dev/null 2>&1 && bad "должен быть exit 1" || ok "сеть недоступна → exit 1"
+[ "$(cat "$D/reason" 2>/dev/null)" = "download" ] \
+    && ok "reason=download (причина отличима от нехватки места)" \
+    || bad "ожидался reason=download, получено '$(cat "$D/reason" 2>/dev/null)'"
+[ "$(cat "$D/.attempts")" = "2" ] && ok "ретраи не сломались (код apk, а не tee): 2 попытки" \
+    || bad "ожидалось 2 попытки, было $(cat "$D/.attempts")"
 
 echo
 if [ "$FAIL" -eq 0 ]; then

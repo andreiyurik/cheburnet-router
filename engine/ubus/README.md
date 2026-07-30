@@ -27,7 +27,7 @@
 | Метод | Тип | Доступ | Что делает |
 |---|---|---|---|
 | `preflight` | read | anon | `gather.uc \| check.uc --json` → отчёт гейткипера |
-| `status` | read | anon | режим, кол-во direct-доменов, AWG-handshake, сервисы, наличие Wi-Fi (`wireless_present`) + текущий `ssid`, `forced` (пропущенные проверки железа) |
+| `status` | read | anon | режим, `tunnel_health` (здоровье АКТИВНОГО туннеля: awg — рукопожатие, reality — живой sing-box + поднятый TUN), кол-во direct-доменов, сервисы, наличие Wi-Fi (`wireless_present`) + текущий `ssid`, `forced` (пропущенные проверки железа), `full_capable`/`full_missing` (тянет ли железо Full-тир и чего не хватает) |
 | `check_lan_conflict` | read | anon | пересечение LAN/WAN-подсетей (`cidr_overlap`) + `suggest_ip` для замены |
 | `apply_lan_ip` | write | anon + **токен** | сменить LAN-IP: строгая `valid_lan_ip`, маска сохраняется, отложенный network restart |
 | `install` | write | anon + **токен** | фон `install/run.uc` (preflight→snapshot→шаги→health→commit/rollback); `accept_risk:true` — пропустить soft-провалы preflight (флеш/RAM) по решению владельца |

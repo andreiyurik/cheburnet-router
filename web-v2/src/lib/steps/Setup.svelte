@@ -9,9 +9,11 @@
   // показана НЕактивной с пояснением про требования (образовательно), выбрать нельзя. Дефолт — AWG.
   // acceptRisk — пользователь прошёл экран проверки с непройденными soft-требованиями («всё равно
   // установить»): напоминаем об этом и несём флаг в аргументы install (движок проверит ещё раз).
+  // fullReasons — ПОЧЕМУ Reality недоступен (из preflight.tiers.full_checks): человек должен видеть
+  // «не хватает RAM», а не безликое «недоступно» — иначе кажется, что мы что-то от него скрываем.
   import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup } from '../logic.js';
 
-  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, acceptRisk = false, urlToken = '', initial = null } = $props();
+  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, fullReasons = [], acceptRisk = false, urlToken = '', initial = null } = $props();
 
   // Показываем Wi-Fi везде, кроме точно-нет-радио. Обязателен только при точно-есть-радио.
   const showWifi = $derived(wirelessPresent !== false);
@@ -84,17 +86,21 @@
   <h3>Протокол туннеля</h3>
   <label class="radio">
     <input type="radio" bind:group={protocol} value="awg" />
-    <span><strong>AmneziaWG</strong> — рекомендуем. Лёгкий и быстрый, работает в ядре роутера:
-      меньше нагрузка, идёт даже на слабом железе.</span>
+    <span><strong>AmneziaWG</strong> — рекомендуем, начните с него. Лёгкий и быстрый, работает в ядре
+      роутера: меньше нагрузка, идёт даже на слабом железе.</span>
   </label>
   <label class="radio" class:disabled={!fullAvailable}>
     <input type="radio" bind:group={protocol} value="reality" disabled={!fullAvailable} />
-    <span><strong>VLESS + Reality</strong> — альтернатива для сетей с жёстким DPI: маскируется под
-      обычный HTTPS. Требует более мощный роутер (64-битный CPU с AES, ≥ 256 МБ RAM, ≥ 128 МБ флеша)
-      и догрузит компонент <code>sing-box</code> (~15 МБ) из интернета при установке.
-      {#if !fullAvailable}<br /><em class="req">Недоступно: этот роутер не тянет VLESS+Reality
-        (нужен более мощный) — будет использован AmneziaWG.</em>{/if}</span>
+    <span><strong>VLESS + Reality</strong> — запасной вариант, если AmneziaWG в вашей сети не
+      поднимается (бывает, что режут UDP): маскируется под обычный HTTPS. Тяжелее для роутера —
+      считается не в ядре, а в обычной программе, поэтому нужен 64-битный процессор с AES,
+      от 256 МБ RAM и ~42 МБ свободного места под компонент <code>sing-box</code> (догрузится сам,
+      скачать ~15 МБ).
+      {#if !fullAvailable}<br /><em class="req">На этом роутере недоступно{#if fullReasons.length > 0}:
+        {fullReasons.join('; ')}{/if} — будет использован AmneziaWG.</em>{/if}</span>
   </label>
+  <p class="muted small">Выбирать сейчас не обязательно: если AmneziaWG не заработает, VLESS+Reality
+    можно добавить потом из панели одной кнопкой — переустанавливать роутер не придётся.</p>
 
   {#if protocol === 'reality' && fullAvailable}
     <label>

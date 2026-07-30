@@ -1,7 +1,8 @@
 <script>
   import { onDestroy } from 'svelte';
   import { cheburnet, login, isLoggedIn, logout } from '../ubus.js';
-  import { hs, FORCED_LABELS } from '../logic.js';
+  import { hs, FORCED_LABELS, heroKind, realityFallback, tunnelRowText,
+           explainFullTierFail, fullMissingText } from '../logic.js';
 
   // onReinstall — запустить мастер заново (с preflight).
   let { onReinstall } = $props();
@@ -103,6 +104,13 @@
     admin(`Перезапуск: ${label}`, () => cheburnet('service_restart', { service }));
   // DNS-провайдер = уровень фильтрации (реклама/семейный/без). Выбор из каталога (status.dns_providers).
   let providerSel = $state('');
+
+  // Главный сигнал панели и запасной путь — чистые функции (logic.js, под vitest). hero знает,
+  // ЧЕМ мерить каждый протокол; fallback — что предлагать, если AmneziaWG не поднимается.
+  const hero = $derived(heroKind(s));
+  const fallback = $derived(realityFallback(s));
+  // Чего не хватает железу для Full-тира (status.full_missing) — человеческими словами.
+  const fullMissing = $derived(fullMissingText(s?.full_missing));
   const setProvider = () =>
     admin(`DNS-провайдер: ${providerSel}`, () => cheburnet('set_dns_provider', { provider: providerSel }));
 
@@ -304,7 +312,9 @@
           action = 'sing-box установлен. Ниже появился блок «Переключиться на VLESS+Reality» — вставьте туда ссылку vless:// от вашего сервера.';
         } else {
           fullPhase = 'fail';
-          action = 'Не удалось скачать sing-box — проверьте, что роутер в интернете, и попробуйте ещё раз. AmneziaWG не затронут.';
+          // Причина из движка (install-singbox.sh пишет REASON_FILE): совет «проверьте интернет»
+          // на забитом флеше отправлял чинить не то, а sing-box (~15 МБ) реально может не влезть.
+          action = explainFullTierFail(p.reason);
         }
         await refresh();
       }
@@ -318,10 +328,10 @@
   {#if error}<p class="warn">{error}</p>{/if}
 
   {#if s}
-    <!-- Hero-статус: с ОДНОГО взгляда «всё работает / есть проблема + что делать». Главный сигнал —
-         VPN-сервер: handshake_age==null → сервер не отвечает (мёртв/заблокирован), и kill-switch
-         рубит трафик через туннель. Ведём сразу к починке (замена конфига ниже по якорю). -->
-    {#if s.installed && s.awg_handshake_age == null}
+    <!-- Hero-статус: с ОДНОГО взгляда «всё работает / есть проблема + что делать». Здоровье
+         туннеля даёт движок (status.tunnel_health) — он знает, чем мерить активный протокол;
+         панель лишь подбирает формулировку и путь к починке (якоря блоков ниже). -->
+    {#if hero === 'awg-down'}
       <p class="banner">
         <strong>⚠️ VPN не работает.</strong> Сайты, которые идут через VPN, сейчас недоступны —
         открываются только сайты из списка «напрямую». Обычная причина: сервер вашего
@@ -329,7 +339,39 @@
         «Туннель» в «Перезапуск сервисов»; не помогло — <a href="#replace-awg">загрузите свежий
         конфиг</a> от провайдера (или другого сервера/локации).
       </p>
-    {:else if s.installed && s.awg_handshake_age >= 0 && s.awg_handshake_age < 300}
+      <!-- Главный сценарий Full-тира: конфиг свежий, сервер жив, а туннель не встаёт — значит
+           сеть, скорее всего, режет сам протокол (AmneziaWG работает по UDP). Ведём к запасному
+           пути ровно в тот момент, когда он нужен, а не прячем его в конце страницы. -->
+      {#if fallback === 'install'}
+        <p class="note">
+          Загрузили свежий конфиг, а туннель всё равно не поднимается? Бывает, что сеть режет сам
+          протокол AmneziaWG — он работает по UDP. Тогда помогает запасной путь:
+          <a href="#full-tier">добавить VLESS+Reality</a> — он маскируется под обычный HTTPS.
+          Ставится один раз, AmneziaWG никуда не денется.
+        </p>
+      {:else if fallback === 'switch'}
+        <p class="note">
+          Загрузили свежий конфиг, а туннель всё равно не поднимается? Возможно, сеть режет протокол
+          AmneziaWG (он работает по UDP). Компонент <code>sing-box</code> у вас уже установлен —
+          <a href="#switch-reality">переключитесь на VLESS+Reality</a> (нужна ссылка
+          <code>vless://</code> от вашего сервера). Вернуться назад можно в один шаг.
+        </p>
+      {/if}
+    {:else if hero === 'reality-down'}
+      <p class="banner">
+        <strong>⚠️ Туннель VLESS+Reality не поднят.</strong> Сайты, которые идут через VPN, сейчас
+        недоступны — открываются только сайты из списка «напрямую». Что делать: попробуйте кнопку
+        «Туннель» в «Перезапуск сервисов»; не помогло — возьмите
+        <a href="#replace-reality">свежую ссылку <code>vless://</code></a> от своего сервера, либо
+        <a href="#switch-awg">вернитесь на AmneziaWG</a>.
+      </p>
+    {:else if hero === 'reality-up'}
+      <!-- Формулировка слабее, чем у AWG, ОСОЗНАННО: у Reality нет рукопожатия — мы видим, что
+           туннель поднят, но не что сервер отвечает. Не обещаем «всё работает», а даём проверку. -->
+      <p class="ok-msg">✅ VLESS+Reality активен: трафик идёт через туннель.</p>
+      <p class="muted small">Если сайты всё же не открываются — сервер мог отключиться. Свежая
+        ссылка <code>vless://</code> вставляется ниже, прежняя вернётся сама при неудаче.</p>
+    {:else if hero === 'awg-up'}
       <p class="ok-msg">✅ Всё работает: VPN активен, трафик защищён.</p>
     {/if}
 
@@ -366,7 +408,12 @@
       <li><span>Режим</span><strong>{s.mode === 'travel' ? 'В поездке — весь трафик через VPN' : 'Дома — выбранные сайты напрямую'}</strong></li>
       <li><span>Сайты напрямую, без VPN</span><strong>{s.direct_domains}</strong></li>
       <li><span>Импортированный список</span><strong>{s.direct_list_loaded ? `${s.imported_domains} доменов` : 'не загружен'}</strong></li>
-      <li class:ok={s.awg_handshake_age != null && s.awg_handshake_age >= 0 && s.awg_handshake_age < 300} class:bad={s.awg_handshake_age == null}><span>VPN-сервер</span><strong>{hs(s.awg_handshake_age)}</strong></li>
+      <!-- Подпись зависит от протокола: у AWG видно, когда сервер отвечал; у Reality — только
+           что туннель поднят (см. tunnelRowText). Цвет — из единого tunnel_health движка. -->
+      <li class:ok={s.tunnel_health === 'up'} class:bad={s.tunnel_health !== 'up'}>
+        <span>{s.protocol === 'reality' ? 'Туннель (VLESS+Reality)' : 'VPN-сервер'}</span>
+        <strong>{tunnelRowText(s)}</strong>
+      </li>
       <li class:ok={s.dns_up} class:bad={!s.dns_up}><span>DNS</span><strong>{s.dns_up ? 'работает' : 'нет'}</strong></li>
       <li class:ok={s.doh_up} class:bad={!s.doh_up}><span>Шифрованный DNS</span><strong>{s.doh_up ? 'работает' : 'нет'}</strong></li>
       {#if s.wireless_present}
@@ -407,11 +454,15 @@
     <!-- Full-тир (VLESS+Reality) — opt-in. Показываем только на подходящем железе (full_capable).
          Не установлен → кнопка догрузки sing-box. Установлен, но активен AWG → подсказка переключиться. -->
     {#if s.full_capable && !s.full_installed}
-      <h3 id="full-tier">VLESS + Reality (для сетей с жёстким DPI)</h3>
-      <p class="muted small">По умолчанию туннель — AmneziaWG (лёгкий, быстрый). Если ваша сеть его
-        блокирует, можно добавить <strong>VLESS+Reality</strong>: он маскируется под обычный HTTPS.
-        Это догрузит компонент <code>sing-box</code> (~15 МБ) — ставится один раз, по кнопке.
-        AmneziaWG при этом продолжит работать.</p>
+      <h3 id="full-tier">VLESS + Reality — запасной туннель</h3>
+      <p class="muted small">Основной туннель — <strong>AmneziaWG</strong>: лёгкий, быстрый, работает
+        в ядре роутера. Если он не поднимается (бывает, что сеть режет UDP-протоколы), есть запасной
+        путь — <strong>VLESS+Reality</strong>: он маскируется под обычный HTTPS, поэтому проходит там,
+        где UDP-туннель не проходит. Цена — тяжелее для роутера: туннель считается в обычных
+        программах, а не в ядре.</p>
+      <p class="muted small">Кнопка догрузит компонент <code>sing-box</code> — один раз, из интернета
+        (~15 МБ скачать, ~42 МБ займёт в памяти роутера). <strong>AmneziaWG продолжит работать</strong>: переключиться можно потом, когда
+        появится ссылка от Reality-сервера, и так же вернуться назад.</p>
       <div class="row">
         <button disabled={busy || fullPhase === 'running'} onclick={enableFullTier}>
           {fullPhase === 'running' ? 'Устанавливаю…' : 'Включить VLESS+Reality'}
@@ -451,6 +502,17 @@
           <pre class="log">{switchLog}</pre>
         </details>
       {/if}
+    {:else if !s.full_capable && !s.full_installed}
+      <!-- Слабое железо: молчать нельзя — человек иначе не поймёт, почему у него нет кнопки, о
+           которой написано в документации. Говорим честно, что именно нужно. -->
+      <h3>VLESS + Reality — запасной туннель</h3>
+      <p class="muted small">Если основной туннель (AmneziaWG) не поднимается из-за того, что сеть
+        режет UDP, обычно помогает <strong>VLESS+Reality</strong> — он маскируется под обычный HTTPS.
+        <strong>На этом роутере он недоступен</strong>{#if fullMissing}: {fullMissing}{/if}. Такой
+        туннель считается не в ядре, а в обычной программе — на слабом железе он работал бы
+        медленнее самого интернета. {#if s.full_missing?.includes('flash')}Место можно освободить
+        (по SSH <code>apk del</code> ненужные пакеты) или подключить USB-флешку (extroot) — тогда
+        кнопка появится.{/if}</p>
     {/if}
 
     {#if s.protocol === 'reality'}

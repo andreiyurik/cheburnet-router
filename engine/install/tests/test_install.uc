@@ -5,7 +5,8 @@ import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { route_uses_iface, fresh_handshake, pick_wan_fallback,
          all_steps, enabled_steps, snapshot_scope, dirty_steps,
          decide_outcome, protocol_ids, default_protocol, tunnel_info,
-         disabled_tunnels, handshake_state } from "../install.uc";
+         disabled_tunnels, handshake_state, tunnel_health,
+         HANDSHAKE_FRESH_S } from "../install.uc";
 
 function names(steps) {
 	let out = [];
@@ -168,6 +169,39 @@ test("handshake_state: несколько peer — любой с ненулев�
 	eq(handshake_state("AAA=\t0\nBBB=\t0"), "waiting", "ни один peer не сделал рукопожатие");
 	eq(handshake_state("AAA=\t1782814700\nBBB=\t0"), "up", "первый peer с рукопожатием");
 	eq(handshake_state("AAA=\t0\nBBB=\t1782814700"), "up", "второй peer с рукопожатием");
+});
+
+// --- tunnel_health: ОДИН признак здоровья для обоих протоколов (панель) ---
+// Регресс, который это чинит: панель судила о туннеле по AWG-рукопожатию, поэтому на РАБОЧЕМ
+// Reality (где awg0 не существует) показывала «VPN не работает» и вела заменять AWG-конфиг.
+test("tunnel_health awg: свежее рукопожатие → up, нет/старое → down", () => {
+	eq(tunnel_health("awg", { hs_age: 12 }), "up");
+	eq(tunnel_health("awg", { hs_age: 0 }), "up", "только что — тоже up");
+	eq(tunnel_health("awg", { hs_age: HANDSHAKE_FRESH_S - 1 }), "up", "граница окна изнутри");
+	eq(tunnel_health("awg", { hs_age: HANDSHAKE_FRESH_S }), "down", "ровно окно — уже несвежо");
+	eq(tunnel_health("awg", { hs_age: null }), "down", "сервер не отвечал ни разу");
+	eq(tunnel_health("awg", {}), "down", "фактов нет → не выдаём за рабочий (fail-safe)");
+});
+
+test("tunnel_health awg: живой sing-box НЕ делает AWG здоровым (признаки не путаются)", () => {
+	eq(tunnel_health("awg", { hs_age: null, sb_running: true, tun_up: true }), "down");
+});
+
+test("tunnel_health reality: процесс + TUN → up; что-то одно упало → down", () => {
+	eq(tunnel_health("reality", { sb_running: true, tun_up: true }), "up");
+	eq(tunnel_health("reality", { sb_running: true, tun_up: false }), "down", "процесс жив, TUN нет");
+	eq(tunnel_health("reality", { sb_running: false, tun_up: true }), "down", "TUN остался, процесс мёртв");
+	eq(tunnel_health("reality", {}), "down");
+});
+
+test("tunnel_health reality: отсутствие AWG-рукопожатия его НЕ роняет (суть бага)", () => {
+	eq(tunnel_health("reality", { hs_age: null, sb_running: true, tun_up: true }), "up",
+		"у VLESS рукопожатия нет — это не признак поломки");
+});
+
+test("tunnel_health: неизвестный протокол → правила дефолтного (awg), не исключение", () => {
+	eq(tunnel_health("banana", { hs_age: 5 }), "up");
+	eq(tunnel_health(null, { hs_age: null }), "down");
 });
 
 // --- route_uses_iface (чистая часть connectivity-probe reality) ---

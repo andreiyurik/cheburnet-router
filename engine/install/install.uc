@@ -161,6 +161,33 @@ function handshake_state(hs) {
 	return "waiting";
 }
 
+// Свежесть AWG-рукопожатия для панели: сервер отвечал не позже этого окна (сек). Живой AWG
+// пингует peer'а раз в ~2 мин; 300 с даёт запас на один пропуск, не объявляя туннель мёртвым.
+const HANDSHAKE_FRESH_S = 300;
+
+// tunnel_health(protocol, facts) → "up" | "down" — ОДИН признак здоровья туннеля для панели,
+// одинаково отвечающий и для AmneziaWG, и для VLESS+Reality. ЧИСТАЯ (вход — уже собранные факты).
+//
+// ЗАЧЕМ: панель раньше судила о туннеле ТОЛЬКО по AWG-рукопожатию, а у Reality интерфейса awg0
+// нет — значит на РАБОТАЮЩЕМ Reality она показывала «VPN не работает» и вела заменять AWG-конфиг
+// (тупик: движок такую замену при активном reality отвергает). Признак обязан зависеть от
+// протокола, а не от одного awg.
+//
+// facts: { hs_age (сек с последнего рукопожатия | null), sb_running (bool), tun_up (bool) }
+//   awg     — сервер ОТВЕЧАЛ недавно (рукопожатие в окне): сильный признак, «трафик идёт».
+//   reality — туннель ПОДНЯТ (процесс sing-box жив И TUN-устройство up). Слабее: это не
+//             доказательство, что сервер отвечает (TCP-сессии наружу тут не видно). Поэтому
+//             панель для reality и формулирует слабее — «туннель поднят», без «всё работает».
+//             Живая проверка достижимости — connectivity-probe (probe.uc), она дорогая (пин
+//             host-route + fetch) и потому идёт при установке/замене, а не на каждый поллинг.
+function tunnel_health(protocol, facts) {
+	let f = facts ?? {};
+	if ((protocol ?? default_protocol()) == "reality")
+		return (f.sb_running === true && f.tun_up === true) ? "up" : "down";
+	let age = f.hs_age;
+	return (type(age) == "int" && age >= 0 && age < HANDSHAKE_FRESH_S) ? "up" : "down";
+}
+
 // fresh_handshake(hs, started) — есть ли у КАКОГО-ЛИБО peer'а рукопожатие не старше started
 // (unix-время). ЧИСТАЯ: replace_vpn (импурный 30с-гейт замены конфига) решает commit/restore
 // этой логикой. Разбор построчно, как handshake_state: multi-peer конфиг давал многострочный
@@ -215,4 +242,4 @@ function route_uses_iface(route_out, iface) {
 	return false;
 }
 
-export { protocol_ids, default_protocol, tunnel_info, disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome, handshake_state, fresh_handshake, pick_wan_fallback, route_uses_iface };
+export { protocol_ids, default_protocol, tunnel_info, disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome, handshake_state, fresh_handshake, tunnel_health, HANDSHAKE_FRESH_S, pick_wan_fallback, route_uses_iface };
