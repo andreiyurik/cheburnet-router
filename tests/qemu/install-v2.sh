@@ -1,6 +1,6 @@
 #!/bin/bash
 # tests/qemu/install-v2.sh — T3c-v2: установка зависимостей через apk + шаги data-plane
-# против РЕАЛЬНЫХ сервисов на живом OpenWrt snapshot.
+# против РЕАЛЬНЫХ сервисов на живом релизном OpenWrt.
 #
 # Зачем (чего НЕ покрывают T3a-v2 smoke и юниты):
 #   • DEPENDS пакета РЕАЛЬНО резолвятся и ставятся из официальных feed'ов под arch
@@ -10,9 +10,11 @@
 #   • doh-шаг → РЕАЛЬНЫЙ https-dns-proxy стартует с нашими резолверами.
 #   smoke-v2 кладёт движок руками и не ставит пакеты — здесь пакеты настоящие.
 #
+#   • kmod-amneziawg + amneziawg-tools ставятся ТЕМ ЖЕ путём, что на роутере (vendored
+#     awg-инсталлятор), и модуль грузится в ядро — проверка vermagic, которая раньше
+#     существовала только на железе.
+#
 # Честные границы (как в T3c v1):
-#   • kmod-amneziawg на x86-snapshot часто не собран под текущее ядро → ставим
-#     best-effort и РЕПОРТИМ, не валим тест (preflight в проде это и ловит).
 #   • Реальный туннель/handshake и Wi-Fi-радио — только на железе.
 #   • Блокировка рекламы/контента — через выбор фильтрующего DoH-резолвера (не локальным
 #     списком), поэтому отдельного adblock-пакета/шага в установке нет.
@@ -66,7 +68,9 @@ FREE_START="$(free_kb)"
 echo "  свободно до установки: $((FREE_START / 1024)) МБ"
 
 # ─── DEPENDS пакета (источник правды — package/cheburnet/Makefile) ────────────
-# CORE — обязаны ставиться из feed; AWG — best-effort (kmod может отсутствовать на x86).
+# CORE — обязаны ставиться из feed. AWG идёт НЕ из feed: kmod привязан к vermagic сборки ядра,
+# и собирает его upstream awg-openwrt под каждый релиз — ставим тем же инсталлятором, что и
+# bootstrap на роутере (см. блок ниже).
 # Локальный adblock убран: блокировка рекламы/контента — через выбор фильтрующего DoH-резолвера,
 # не локальным списком (см. ADR — DNS-фильтрация). Поэтому adblock-lean в DEPENDS больше нет.
 CORE_DEPS="ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus rpcd rpcd-mod-file nftables ip-full https-dns-proxy uhttpd uhttpd-mod-ubus"
@@ -77,7 +81,7 @@ for pkg in $CORE_DEPS; do
     if apk_try "apk add $pkg"; then
         echo "  ✓ $pkg"
     else
-        echo "  ✗ $pkg — НЕ ставится из feed под x86_64 snapshot"
+        echo "  ✗ $pkg — НЕ ставится из feed под x86_64"
         vm_ssh "apk add $pkg 2>&1 | tail -5"
         exit 1
     fi
@@ -102,19 +106,46 @@ echo "  ✓ dnsmasq-full работает"
 FREE_CORE="$(free_kb)"
 echo "  → CORE + dnsmasq-full съели $(( (FREE_START - FREE_CORE) / 1024 )) МБ"
 
-echo "→ AWG-зависимости (best-effort — на x86-snapshot kmod может отсутствовать)"
+echo "→ AmneziaWG тем же путём, что на роутере (vendored awg-инсталлятор → awg-openwrt)"
+# Инсталлятор берёт версию из `ubus call system board` и качает ассет `_v<версия>_<arch>` —
+# поэтому он работает на РЕЛИЗЕ и не может работать на snapshot (там версия «SNAPSHOT», ассета
+# с таким именем нет). Ровно это и было причиной, по которой туннельный стек в QEMU не
+# проверялся вовсе, пока тесты жили на snapshot.
+#
+# rc инсталлятора игнорируем осознанно — как в bootstrap.sh: upstream делает exit 1, когда нет
+# ассета luci-proto (нам он не нужен). Проверяем ФАКТ установки нужных двух пакетов.
+vm_scp "$REPO_ROOT/vendor/amneziawg-install.sh" "/tmp/awg-install.sh"
+vm_ssh "sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
 AWG_OK=1
 for pkg in $AWG_DEPS; do
-    if apk_try "apk add $pkg"; then
+    if vm_ssh "apk list --installed 2>/dev/null | grep -q '^$pkg-[0-9]'"; then
         echo "  ✓ $pkg"
     else
-        echo "  ⚠ $pkg недоступен под это ядро — ожидаемо на x86-snapshot (preflight это ловит)"
+        echo "  ✗ $pkg не установлен — нет сборки под OpenWrt $OPENWRT_VERSION у awg-openwrt?"
+        vm_ssh "tail -15 /tmp/awg-install.log" || true
         AWG_OK=0
     fi
 done
+[ "$AWG_OK" = "1" ] || {
+    echo "  ✗ AmneziaWG не встала. На роутере это тот же самый шаг bootstrap — значит установка"
+    echo "    у пользователя тоже встанет. Если версия пина только что менялась — проверьте,"
+    echo "    что у awg-openwrt есть релиз v$OPENWRT_VERSION (см. шапку tests/qemu/lib.sh)."
+    exit 1
+}
+
+# vermagic: пакет мог поставиться, но модуль не грузиться в это ядро — на роутере это
+# «туннель не поднимается» без внятной причины. Ловим здесь, а не на живом железе.
+vm_ssh "modprobe amneziawg 2>/dev/null; lsmod | grep -q '^amneziawg'" \
+    || { echo "  ✗ модуль amneziawg не загрузился в ядро (vermagic не совпал)"; \
+         vm_ssh "modprobe amneziawg 2>&1 | tail -3; dmesg | grep -i amneziawg | tail -5" || true; exit 1; }
+vm_ssh "command -v awg >/dev/null" \
+    || { echo "  ✗ утилита awg не появилась в PATH (amneziawg-tools встали неполно)"; exit 1; }
+echo "  ✓ модуль amneziawg загружен в ядро, утилита awg на месте"
 
 FREE_AWG="$(free_kb)"
-echo "  → AWG-пакеты съели $(( (FREE_CORE - FREE_AWG) / 1024 )) МБ"
+# В КБ, а не в МБ: kmod+tools весят сотни килобайт, и целочисленное деление печатало «0 МБ» —
+# цифра, из которой нельзя понять, поставилось ли вообще что-нибудь.
+echo "  → AWG-пакеты съели $(( FREE_CORE - FREE_AWG )) КБ"
 
 # ─── движок как пакет (shim + engine без tests/ + ACL) ───────────────────────
 echo "→ Раскладываю движок v2 (как пакет)"
@@ -128,8 +159,9 @@ vm_ssh "chmod +x /usr/libexec/rpcd/cheburnet; /etc/init.d/rpcd restart"
 sleep 2
 
 # ─── preflight на реальном apk (gather → check) ──────────────────────────────
-# check.uc выходит НЕнулём, когда preflight НЕ пройден (на x86-VM так и будет: kmod-amneziawg
-# не ставится). Это КОРРЕКТНО — глушим rc (|| true) и проверяем сам вердикт, а не код выхода.
+# check.uc выходит НЕнулём, когда preflight НЕ пройден — на x86-VM это возможно (например,
+# по флешу или отсутствию радио). Это КОРРЕКТНО: глушим rc (|| true) и проверяем сам вердикт,
+# а не код выхода — тест про то, что preflight отработал на реальной системе.
 echo "→ preflight на реальной системе (gather + check --json)"
 out="$(vm_ssh 'ucode -R /usr/share/cheburnet/engine/preflight/gather.uc | ucode -R /usr/share/cheburnet/engine/preflight/check.uc --json || true')"
 echo "$out" | python3 -c '
@@ -151,7 +183,7 @@ vm_ssh 'uci -q get dhcp.cheburnet_dns4.domain | grep -q "example.com"' \
 # Урок живого прогона: старая модель (list nftset в секции dnsmasq) писалась в uci «успешно»,
 # но init её молча игнорировал — проверка одного uci этот тихий отказ не ловила.
 # Формат строки зависит от версии init: старый — домен-на-строку
-# (nftset=/example.com/4#...), новый snapshot склеивает домены одной директивой
+# (nftset=/example.com/4#...), новый init склеивает домены одной директивой
 # (nftset=/example.com/example.org/4#...). Ассертим суть: example.com в nftset-строке
 # нашего сета — оба домена проверяем по отдельности, порядок склейки не фиксируем.
 vm_ssh 'grep -qE "nftset=.*/example\.com/.*4#inet#fw4#direct" /var/etc/dnsmasq.conf.* && grep -qE "nftset=.*/example\.org/.*4#inet#fw4#direct" /var/etc/dnsmasq.conf.*' \
@@ -190,7 +222,7 @@ echo "  ✓ https-dns-proxy принял конфиг и работает"
 echo "→ подготовка: возвращаю fw4 (vm_boot_and_setup его стопил) + ssh-правило"
 # Как в smoke-v2: шаг добавляет цепочки в СУЩЕСТВУЮЩУЮ таблицу inet fw4 — на
 # остановленном firewall её нет. Старый fw4 прощал reload из stopped-состояния
-# (создавал таблицу), новый snapshot — нет: apply падал именно здесь. ssh-доступ
+# (создавал таблицу), новые сборки — нет: apply падал именно здесь. ssh-доступ
 # страхуем постоянным uci-правилом (переживает reload'ы, в отличие от nft-инъекции).
 vm_ssh 'uci add firewall rule >/dev/null
         uci set firewall.@rule[-1].name="qemu-ssh"
@@ -241,9 +273,6 @@ echo "→ ЗАМЕР расхода флеша (дельта свободног�
 echo "    пакеты + движок:      $SPENT_KB КБ (≈ $(( SPENT_KB / 1024 )) МБ)"
 echo "    порог preflight:      $MIN_FLASH МБ (min_flash_mb, Light-тир)"
 echo "    запас на пороге:      $(( MIN_FLASH - SPENT_KB / 1024 )) МБ"
-if [ "$AWG_OK" != "1" ]; then
-    echo "    ⚠ kmod-amneziawg НЕ установился — реальный расход на роутере чуть выше замера"
-fi
 if [ "$(( SPENT_KB / 1024 ))" -ge "$MIN_FLASH" ]; then
     echo "  ✗ ПОРОГ ЗАНИЖЕН: стек не влезает в заявленный минимум — поднять min_flash_mb"
     exit 1
@@ -258,9 +287,6 @@ fi
 # ─── итог ────────────────────────────────────────────────────────────────────
 echo
 echo "✓ T3c-v2 pass — установка через apk и data-plane на реальных пакетах:"
-echo "  CORE-зависимости ставятся из feed, dnsmasq-full↔nftset, https-dns-proxy↔наши резолверы."
-if [ "$AWG_OK" = "1" ]; then
-    echo "  AmneziaWG-пакеты тоже встали (kmod под это ядро есть)."
-else
-    echo "  ⚠ AmneziaWG-пакеты недоступны на x86-snapshot (ожидаемо) — туннель проверяется на железе."
-fi
+echo "  CORE-зависимости ставятся из feed, dnsmasq-full↔nftset, https-dns-proxy↔наши резолверы,"
+echo "  AmneziaWG встала путём bootstrap'а и модуль загрузился в ядро (vermagic сошёлся)."
+echo "  Handshake с живым VPN-сервером — по-прежнему только на железе."

@@ -1,7 +1,7 @@
 #!/bin/bash
 # tests/qemu/smoke-v2.sh — T3a hermetic VM smoke для движка v2 (ucode).
 #
-# Поднимает свежий OpenWrt snapshot и проверяет то, что юниты и dry-run'ы
+# Поднимает релизный OpenWrt (пин — tests/qemu/lib.sh) и проверяет то, что юниты и dry-run'ы
 # проверить НЕ могут — живой стек: реальный ucode-интерпретатор роутера,
 # busybox-уровень (uci/awk/passwd), настоящие ubusd/rpcd, реальный fw4/nft.
 # НЕ ходит в интернет: движок кладётся через ssh+cat (tar), apk не зовётся.
@@ -39,7 +39,7 @@ vm_boot_and_setup
 # ─── деплой v2-движка (как пакет: shim + engine без tests/README + ACL) ──────
 echo "→ Раскладываю движок v2 (как пакет)"
 vm_ssh "command -v rpcd >/dev/null && command -v ubus >/dev/null && command -v ucode >/dev/null" \
-    || { echo "✗ snapshot не имеет rpcd/ubus/ucode"; exit 1; }
+    || { echo "✗ образ не имеет rpcd/ubus/ucode"; exit 1; }
 # fs-модуль ucode обязателен движку (его тянет fw4 — но проверяем явно).
 vm_ssh "ucode -e 'import { readfile } from \"fs\"; print(\"fs-ok\")' >/dev/null" \
     || { echo "✗ на snapshot нет ucode-mod-fs"; exit 1; }
@@ -236,6 +236,6 @@ echo "$out" | grep -q "ubus_rpc_session" \
     || { echo "  FAIL: session.login не выдал сессию"; echo "$out"; exit 1; }
 
 echo
-echo "✓ T3a-v2 smoke pass — движок v2 работает на реальном OpenWrt snapshot:"
+echo "✓ T3a-v2 smoke pass — движок v2 работает на реальном OpenWrt $OPENWRT_VERSION:"
 echo "  rpcd/ubus/ACL, граница доверия, wifi no-op,"
 echo "  NAT-зона + nft + teardown, rootpass+session.login."

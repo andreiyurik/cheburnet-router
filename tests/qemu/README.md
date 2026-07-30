@@ -1,7 +1,9 @@
 # tests/qemu — VM smoke-тесты для cheburnet-router
 
-Поднимают свежий **OpenWrt-snapshot x86-64** в qemu/KVM, накатывают движок и проверяют, что он
-работает на **реальном** busybox-окружении (а не gawk/host-bash, на которых гоняются T1/T2).
+Поднимают **релизный OpenWrt x86-64** (пин версии — в `lib.sh`) в qemu/KVM, накатывают движок и
+проверяют, что он работает на **реальном** busybox-окружении (а не gawk/host-bash, на которых
+гоняются T1/T2). Релиз, а не rolling snapshot: у пользователей стоит именно релиз, файл релиза
+неизменен (пин не протухает), и только под релиз существует `kmod-amneziawg` из awg-openwrt.
 
 ## Запуск
 
@@ -12,7 +14,7 @@
 | `make qemu-install-v2` | T3c — установка через **apk** + data-plane против реальных сервисов (dnsmasq-full/https-dns-proxy) | ~5-8мин | да (apk) |
 
 Все запускаются из корня репо. При падении автоматически выводят последние 60 строк
-serial-консоли VM и возвращают exit ≠ 0. (*первый запуск качает образ snapshot'а — дальше кэш.)
+serial-консоли VM и возвращают exit ≠ 0. (*первый запуск качает образ — дальше кэш.)
 
 ### T3a — `smoke-v2.sh` (hermetic)
 
@@ -46,15 +48,16 @@ Svelte-бандл (`index.html` + hashed asset) и принимают JSON-RPC �
 **настоящих** сервисов (а не подсунутых руками): проверяет, что `package/cheburnet/Makefile`
 DEPENDS вообще резолвятся под arch; `dnsmasq` → `dnsmasq-full` swap; `dns`-шаг (реальный
 dnsmasq-full перечитывает наш nftset); `doh`-шаг (реальный https-dns-proxy стартует с нашими
-резолверами); preflight на живом `apk --simulate` даёт вердикт. `kmod-amneziawg` (нет под
-x86-ядро snapshot) — ожидаемый partial-fail, репортится честно. Реальный AWG-туннель/handshake
-и Wi-Fi-радио — вне охвата QEMU, проверяются на железе (см.
+резолверами); preflight на живом `apk --simulate` даёт вердикт. **AmneziaWG ставится тем же
+vendored-инсталлятором, что и на роутере**, и модуль грузится в ядро — проверка vermagic, которая
+раньше жила только на железе. Реальный handshake с VPN-сервером и Wi-Fi-радио — вне охвата QEMU,
+проверяются на железе (см.
 [docs/v2/meta/release-checklist.md](../../docs/v2/meta/release-checklist.md)).
 
 ## Что НЕ покрывает
 
-- **Реальный AmneziaWG/VLESS happy-path** на целевой arch (kmod на mips/arm недоступен в
-  x86-snapshot) — ручной smoke на физическом роутере перед релизом.
+- **Реальный AmneziaWG/VLESS happy-path** на целевой arch: в QEMU kmod ставится и грузится, но
+  handshake с живым сервером и arch-специфика (mips/arm) — ручной smoke на роутере перед релизом.
 - **Браузерный рендеринг** (CSS, race conditions при кликах, JS-ошибки). T3b шлёт те же
   ubus-запросы, что и UI, но не кликает по кнопкам в реальном движке рендеринга.
 - **Реальный Wi-Fi / nft kill-switch на целевой arch.** VM = x86-64; реальные роутеры — другие
@@ -64,7 +67,8 @@ x86-ядро snapshot) — ожидаемый partial-fail, репортится
 
 `tests/qemu/.work/` (в .gitignore) содержит:
 
-- `openwrt-snapshot.img.gz` — кешированный образ (15 МБ).
+- `openwrt-<версия>.img.gz` — кешированный образ (15 МБ); имя с версией, чтобы смена пина
+  не подменяла кеш молча.
 - `disk.img` — пересоздаётся из `.gz` каждый запуск (никакого state'а от прошлых прогонов).
 - `id_ed25519` / `id_ed25519.pub` — переиспользуемый SSH-ключ для VM.
 - `serial.log` — лог serial-консоли (полезен при падении).
@@ -72,19 +76,28 @@ x86-ядро snapshot) — ожидаемый partial-fail, репортится
 
 Очистить кеш целиком: `rm -rf tests/qemu/.work` (только образ перекачается заново).
 
-## Как обновить SHA256 при апгрейде snapshot
+## Как перейти на новую версию OpenWrt
 
-OpenWrt snapshot — это rolling-сборка, upstream может обновиться в любой момент. Если SHA256 в
-`lib.sh` не совпадает с реальным — тест падает с понятной ошибкой `SHA256 mismatch`.
+Пин живёт в `tests/qemu/lib.sh` (`OPENWRT_VERSION` + `IMG_SHA256`). Порядок — не формальность:
+каждый пункт закрывает конкретный способ получить «зелёный» тест, ничего не проверивший.
 
-Чтобы прибить новый pin:
+1. Взять хеш из **upstream-файла** `sha256sums` рядом с образом, а не посчитать по скачанному
+   (иначе пин подтверждает лишь то, что файл скачался целиком):
 
-```sh
-sha256sum tests/qemu/.work/openwrt-snapshot.img.gz
-```
+   ```sh
+   curl -s https://downloads.openwrt.org/releases/<версия>/targets/x86/64/sha256sums \
+     | grep 'generic-ext4-combined.img.gz'
+   ```
 
-Скопировать первое поле в `IMG_SHA256` в `tests/qemu/lib.sh`. **Только после ручной проверки**,
-что новая сборка ничего критичного не сломала (например, не сменилась версия busybox-awk).
+2. Проверить, что у [awg-openwrt](https://github.com/Slava-Shchipunov/awg-openwrt/releases)
+   есть релиз `v<версия>`: `kmod-amneziawg` собирается под конкретную сборку ядра, и без него
+   `make qemu-install-v2` упадёт на установке AmneziaWG (это и есть смысл проверки).
+3. Прогнать `make qemu-v2`, `make qemu-install-v2`, `make qemu-reality-v2` локально.
+4. Только после этого менять цифры в `lib.sh` — одним коммитом с результатом прогона.
+
+Снапшот при этом не забыт: джоб `qemu-snapshot-canary` (`.github/workflows/test.yml`) раз в
+неделю гоняет smoke на rolling snapshot с `continue-on-error` — ранний сигнал о поломках
+upstream, который **не блокирует** релиз.
 
 ## Архитектура
 

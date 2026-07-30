@@ -15,15 +15,25 @@
 # ssh-keygen, sha256sum, gunzip, python3, wget.
 
 # ─── конфиг по умолчанию (можно переопределить ДО vm_lib_init) ───────────────
-: "${IMG_URL:=https://downloads.openwrt.org/snapshots/targets/x86/64/openwrt-x86-64-generic-ext4-combined.img.gz}"
-# Пин образа. Snapshot — РОЛЛИНГ: upstream пересобирает его ежедневно, и старый файл исчезает
-# с зеркала, поэтому пин приходится обновлять руками — это плата за воспроизводимость прогонов.
-# ПОРЯДОК ОБНОВЛЕНИЯ (иначе пин перестаёт что-либо гарантировать):
-#   1. скачать образ и сверить хеш с upstream-файлом sha256sums рядом с ним (а не «что скачалось»);
-#   2. прогнать на новом образе qemu-v2 и qemu-install-v2 локально;
-#   3. только потом менять цифру здесь, в одном коммите с результатом прогона.
-# Обновлено 2026-07-31 (сверено с sha256sums; qemu-v2 + qemu-install-v2 зелёные на этом образе).
-: "${IMG_SHA256:=334fd33a87d2b17e64467008290795fa36eb8ee7a1418f1ab72ef10b16abbf08}"
+# Гоняем ОБРАЗ РЕЛИЗА, а не rolling snapshot. Три причины, каждая оплачена:
+#   - пользователи ставят релиз (README требует OpenWrt 25.12+); snapshot не стоит ни у кого,
+#     то есть вся QEMU-пирамида проверяла сборку, которой нет ни на одном роутере;
+#   - файл релиза неизменен и не исчезает с зеркала → пин перестаёт протухать сам по себе.
+#     Snapshot переписывался upstream'ом ежедневно и ронял master в произвольный момент;
+#   - kmod-amneziawg из awg-openwrt собирается ПОД РЕЛИЗ (тег vX.Y.Z) — под snapshot его нет
+#     в принципе, поэтому туннельная часть стека в QEMU не проверялась вообще.
+# Snapshot не выброшен: отдельный необязательный джоб (test.yml, раз в неделю) гоняет smoke
+# на нём и даёт ранний сигнал о поломках upstream, НЕ блокируя релиз.
+#
+# ПОРЯДОК ОБНОВЛЕНИЯ ВЕРСИИ (иначе пин перестаёт что-либо гарантировать):
+#   1. взять хеш из upstream-файла sha256sums рядом с образом (а не «что скачалось»);
+#   2. убедиться, что у awg-openwrt есть релиз vX.Y.Z под эту версию — иначе install-тест
+#      упадёт на AWG (это и есть смысл проверки, а не повод её ослабить);
+#   3. прогнать qemu-v2, qemu-install-v2 и qemu-reality-v2 локально;
+#   4. только потом менять цифры здесь, одним коммитом с результатом прогона.
+: "${OPENWRT_VERSION:=25.12.5}"
+: "${IMG_URL:=https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/x86/64/openwrt-$OPENWRT_VERSION-x86-64-generic-ext4-combined.img.gz}"
+: "${IMG_SHA256:=23e2538e8ab0eb52dfed1c65d608ecdb71ffd432dd54885da138ae67cd9e4461}"
 : "${SSH_PORT:=2222}"
 : "${HTTP_PORT:=8080}"      # для smoke-http (port-forward 8080→80)
 : "${VM_RAM_MB:=512}"
@@ -70,7 +80,8 @@ vm_lib_init() {
     # REPO_ROOT — корень репо (lib.sh лежит в tests/qemu/).
     REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
     WORK="$REPO_ROOT/tests/qemu/.work"
-    IMG_GZ="$WORK/openwrt-snapshot.img.gz"
+    # Имя с версией: при смене пина старый образ остаётся в кеше, а не молча подменяется.
+    IMG_GZ="$WORK/openwrt-$OPENWRT_VERSION.img.gz"
     IMG_RAW="$WORK/disk.img"
     CMD_FIFO="$WORK/cmd.fifo"
     SERIAL_LOG="$WORK/serial.log"
@@ -103,15 +114,15 @@ vm_lib_init() {
 vm_prepare_image() {
     if [ ! -f "$IMG_GZ" ] \
        || [ "$(sha256sum "$IMG_GZ" | awk '{print $1}')" != "$IMG_SHA256" ]; then
-        echo "→ Качаю OpenWrt snapshot ($(basename "$IMG_URL"))"
+        echo "→ Качаю образ OpenWrt $OPENWRT_VERSION ($(basename "$IMG_URL"))"
         wget -qO "$IMG_GZ.tmp" "$IMG_URL"
         local actual; actual="$(sha256sum "$IMG_GZ.tmp" | awk '{print $1}')"
         if [ "$actual" != "$IMG_SHA256" ]; then
             echo "✗ SHA256 mismatch."
             echo "  expected: $IMG_SHA256"
             echo "  actual:   $actual"
-            echo "  Snapshot обновился upstream — после ручной проверки изменений"
-            echo "  обновите IMG_SHA256 в этом скрипте."
+            echo "  Файл релиза неизменен — расхождение значит подмену на зеркале либо"
+            echo "  правку OPENWRT_VERSION без обновления IMG_SHA256 (см. порядок в шапке)."
             rm -f "$IMG_GZ.tmp"; exit 1
         fi
         mv "$IMG_GZ.tmp" "$IMG_GZ"
@@ -194,7 +205,7 @@ vm_wait_tcp() {
 vm_ssh()  { ssh "${SSH_OPTS[@]}" root@127.0.0.1 "$@"; }
 
 # vm_scp LOCAL REMOTE — стримит файл через ssh+cat (а не sftp), потому что
-# dropbear на snapshot OpenWrt не поставляет sftp-server, на котором работает
+# dropbear в OpenWrt не поставляет sftp-server, на котором работает
 # современный scp. Способ proto-независимый и бинарно-безопасный.
 vm_scp()  { vm_ssh "cat > '$2'" < "$1"; }
 
@@ -209,7 +220,7 @@ vm_boot_and_setup() {
     vm_wait_serial "SHELL_READY_$$" 15
 
     echo "→ Конфигурирую DHCP на br-lan"
-    # Ждём пока netifd зарегистрирует lan в ubus — на свежих snapshot'ах
+    # Ждём пока netifd зарегистрирует lan в ubus — на свежих сборках
     # /etc/init.d/network restart, запущенный СРАЗУ после shell-ready, валится
     # с `Command failed: Not found` (lan-секции ещё нет в активной конфиге
     # netifd, хотя в /etc/config/network она уже есть).

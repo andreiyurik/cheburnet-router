@@ -4,6 +4,10 @@ on:
   push:
     branches: [master]
   pull_request:
+  # Ранний сигнал о поломках upstream: раз в неделю гоняем smoke на rolling snapshot
+  # (см. job qemu-snapshot-canary). Понедельник, 04:00 UTC.
+  schedule:
+    - cron: '0 4 * * 1'
   # Ручной запуск из вкладки Actions — для отладки QEMU-job'ов и release-gates.
   workflow_dispatch:
 
@@ -13,7 +17,7 @@ jobs:
   # доверия, NAT-зона + nft + teardown на реальном fw4, rootpass + session.login.
   # Интернет НЕ нужен (движок кладётся через ssh+cat, apk не зовётся). ~2 мин с KVM.
   qemu-v2-smoke:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +52,7 @@ jobs:
   # Единственная проверка DEPENDS пакета и DoH/DNS-провайдера на живом
   # https-dns-proxy. Нужен интернет (apk update/add). Release-gate, не PR-gate.
   qemu-install-v2:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     needs: qemu-v2-smoke
     timeout-minutes: 30
@@ -81,4 +85,62 @@ jobs:
           path: |
             tests/qemu/.work/serial.log
             /tmp/install-test*.log
+          retention-days: 7
+
+  # ── Канарейка на rolling snapshot: ранний сигнал, НЕ гейт ────────────────────
+  # Основные тесты гоняются на пинованном РЕЛИЗЕ (см. шапку tests/qemu/lib.sh) — это то,
+  # что стоит у пользователей, и пин там не протухает. Но снапшот показывает будущее:
+  # поломку apk-tools/dnsmasq/netifd видно за месяцы до релиза. Поэтому раз в неделю
+  # гоняем smoke на снапшоте с `continue-on-error` — красная канарейка это ЗАДАЧА
+  # разобраться, а не блок релиза (раньше именно она и роняла master в случайный момент).
+  qemu-snapshot-canary:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU + ncat
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              qemu-system-x86 qemu-utils ncat python3
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+              | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Пин снапшота брать неоткуда — он меняется ежедневно. Берём текущий хеш из
+      # upstream-файла sha256sums: проверка целостности остаётся (скачанное сверяется с
+      # тем, что заявил upstream), а «вечного» пина здесь и не может быть по определению.
+      # Если снапшот пересоберётся между этими двумя шагами — канарейка честно покраснеет.
+      - name: Текущий snapshot из upstream sha256sums
+        id: snap
+        run: |
+          set -eu
+          BASE=https://downloads.openwrt.org/snapshots/targets/x86/64
+          IMG=openwrt-x86-64-generic-ext4-combined.img.gz
+          SHA="$(curl -fsSL "$BASE/sha256sums" | awk -v f="*$IMG" '$2 == f { print $1 }')"
+          [ -n "$SHA" ] || { echo "::error::$IMG не найден в upstream sha256sums"; exit 1; }
+          echo "url=$BASE/$IMG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA"       >> "$GITHUB_OUTPUT"
+          echo "snapshot: $SHA"
+
+      - name: T3a-v2 smoke на snapshot (ранний сигнал)
+        env:
+          OPENWRT_VERSION: snapshot
+          IMG_URL: ${{ steps.snap.outputs.url }}
+          IMG_SHA256: ${{ steps.snap.outputs.sha }}
+        run: make qemu-v2
+
+      - name: Upload serial-лог при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-snapshot-canary-serial-log
+          path: tests/qemu/.work/serial.log
           retention-days: 7
