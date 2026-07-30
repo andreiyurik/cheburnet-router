@@ -46,13 +46,31 @@ jobs:
           # бесполезна — apk доверяет только подписанному индексу репо, не файлу (см. шапку).
 
       # Находим собранный .apk и нормализуем имя до cheburnet.apk (стабильный ассет для bootstrap).
+      #
+      # ИМЯ ИЩЕМ ТОЧНО, а не по маске `cheburnet*.apk`: Makefile определяет ДВА пакета — сам
+      # `cheburnet` (с полезной нагрузкой) и метапакет `cheburnet-full` (только DEPENDS, ~900 байт).
+      # Маска матчила оба, а `head -n1` брал тот, что первым отдал find (порядок каталога —
+      # недетерминирован): 30.07.2026 в артефакт уехал метапакет, и bootstrap получил бы .apk,
+      # который лишь ссылается на отсутствующий рядом `cheburnet`. Поэтому берём файл по имени,
+      # собранному из PKG_VERSION/PKG_RELEASE, и ПРОВЕРЯЕМ РАЗМЕР — тихий подлог не должен
+      # доезжать до Release (реальный пакет с web-бандлом ~125 КБ).
       - name: Collect package
         id: collect
         run: |
           set -eu
-          APK="$(find bin/packages -name 'cheburnet*.apk' | head -n1)"
-          [ -n "$APK" ] || { echo "::error::cheburnet .apk не найден в bin/packages"; \
-                             find bin/packages -type f | head -50; exit 1; }
+          VER="$(sed -n 's/^PKG_VERSION:=\(.*\)$/\1/p' package/cheburnet/Makefile)"
+          REL="$(sed -n 's/^PKG_RELEASE:=\(.*\)$/\1/p' package/cheburnet/Makefile)"
+          [ -n "$VER" ] && [ -n "$REL" ] \
+            || { echo "::error::не удалось прочитать PKG_VERSION/PKG_RELEASE"; exit 1; }
+          echo "Ожидаю пакет cheburnet-$VER-r$REL.apk"
+          APK="$(find bin/packages -name "cheburnet-$VER-r$REL.apk" | head -n1)"
+          [ -n "$APK" ] || { echo "::error::cheburnet-$VER-r$REL.apk не найден в bin/packages"; \
+                             find bin/packages -name '*.apk' | head -50; exit 1; }
+          SIZE="$(wc -c < "$APK")"
+          MIN=50000
+          [ "$SIZE" -ge "$MIN" ] || { \
+            echo "::error::$APK всего $SIZE байт (< $MIN): похоже, собрался метапакет или пустая сборка"; \
+            find bin/packages -name '*.apk' -exec ls -l {} +; exit 1; }
           mkdir -p dist
           cp "$APK" dist/cheburnet.apk
           ls -l dist/
