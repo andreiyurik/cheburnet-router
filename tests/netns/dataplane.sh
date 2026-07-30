@@ -205,15 +205,21 @@ scenario_membership() {
 
 	# Апстрим-резолвер (авторитетно отвечает на тестовые домены). Отдельный процесс — чтобы путь
 	# был «форвард к апстриму», как в проде (dnsmasq наполняет nftset на форварднутом ответе).
+	# Вывод dnsmasq НЕ глушим в /dev/null: если он не смог добавить IP в nftset (нет прав на
+	# netlink, AppArmor, сборка без поддержки), он скажет об этом именно в stderr — а мы прежде
+	# выбрасывали единственное объяснение и получали загадочный пустой сет (CLAUDE.md: «2>/dev/null
+	# глушит причину»). Логи печатаем ТОЛЬКО при провале — в норме вывод не засоряется.
+	UP_LOG="${TMPDIR:-/tmp}/netns-dnsmasq-upstream.log"
+	CB_LOG="${TMPDIR:-/tmp}/netns-dnsmasq-cheburnet.log"
 	dnsmasq -k -u root -p 5354 --no-resolv --no-hosts --bind-interfaces --listen-address=127.0.0.1 \
 		--address=/directtest.example/203.0.113.77 \
-		--address=/othertest.example/198.51.100.55 >/dev/null 2>&1 &
+		--address=/othertest.example/198.51.100.55 > "$UP_LOG" 2>&1 &
 	UP_PID=$!
 	# Наш dnsmasq: nftset-строку берём из РЕАЛЬНОГО вывода движка (render_dnsmasq).
 	nftset_line=$(emit '{"what":"dnsmasq","domains":["directtest.example"],"routing_opts":{"ipv6":false}}')
 	dnsmasq -k -u root -p 53 --no-resolv --no-hosts --bind-interfaces \
 		--listen-address=10.0.0.1 --listen-address=127.0.0.1 \
-		--server=127.0.0.1#5354 --nftset="$nftset_line" >/dev/null 2>&1 &
+		--server=127.0.0.1#5354 --nftset="$nftset_line" > "$CB_LOG" 2>&1 &
 	CB_PID=$!
 	sleep 0.5
 
@@ -230,9 +236,18 @@ scenario_membership() {
 	resolve othertest.example
 	sleep 0.2
 	setdump=$(nft list set inet fw4 direct)
-	echo "$setdump" | grep -q '203.0.113.77' \
-		&& ok "[membership] direct-домен зарезолвлен → IP в @direct (dnsmasq→nftset)" \
-		|| bad "[membership] IP direct-домена НЕ попал в @direct: $setdump"
+	if echo "$setdump" | grep -q '203.0.113.77'; then
+		ok "[membership] direct-домен зарезолвлен → IP в @direct (dnsmasq→nftset)"
+	else
+		bad "[membership] IP direct-домена НЕ попал в @direct: $setdump"
+		# Диагностика ровно там, где она нужна: пустой сет сам по себе не отличает «dnsmasq не
+		# умеет nftset» от «не смог применить» и от «наш nftset-аргумент не тот».
+		printf '     nftset-аргумент движка: %s\n' "$nftset_line"
+		printf '     dnsmasq compile options: %s\n' \
+			"$(dnsmasq --version 2>/dev/null | sed -n 's/^Compile time options: //p')"
+		printf '     лог нашего dnsmasq:\n'; sed 's/^/       /' "$CB_LOG" 2>/dev/null | tail -15
+		printf '     лог апстрим-dnsmasq:\n'; sed 's/^/       /' "$UP_LOG" 2>/dev/null | tail -5
+	fi
 	echo "$setdump" | grep -q '198.51.100.55' \
 		&& bad "[membership] непрямой домен ошибочно попал в @direct (лишнее исключение)" \
 		|| ok "[membership] непрямой домен НЕ в @direct (исключён только direct-список)"
