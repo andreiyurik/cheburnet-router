@@ -200,6 +200,17 @@ scenario_membership() {
 	if dnsmasq --version 2>/dev/null | grep -qw 'no-nftset'; then
 		note "[membership] пропуск: dnsmasq собран без nftset-поддержки (no-nftset)"; return
 	fi
+	# Rootless-namespace запрещает setgroups → dnsmasq не может сбросить привилегии и умирает
+	# на старте (см. ветку NS_UNSHARE ниже). Это ограничение окружения, а не data-plane:
+	# честный скип с ПРИЧИНОЙ, чтобы никто снова не искал баг в nftset. В CI джоб идёт под sudo.
+	# ВАЖНО: внутри userns `id -u` == 0 ВСЕГДА (мы root в нём), поэтому «настоящий ли root»
+	# определяет внешний диспетчер и передаёт сюда через NETNS_ROOTLESS — сам сценарий это
+	# отличить не может.
+	if [ "${NETNS_ROOTLESS:-0}" = "1" ]; then
+		note "[membership] пропуск: нужен настоящий root (rootless netns запрещает setgroups,"
+		note "             dnsmasq не стартует). Покрытие: CI под sudo + qemu-install-v2."
+		return
+	fi
 
 	build_topology "$TUN" home  # @direct пустой — его наполнит dnsmasq на резолве
 
@@ -215,8 +226,10 @@ scenario_membership() {
 	# только внутри него), а /var/run принадлежит настоящему root. Дефолтный
 	# /var/run/dnsmasq.pid → EACCES → dnsmasq УМИРАЕТ на старте, и @direct остаётся пустым.
 	# Ровно на это тест и падал в CI с 17.07, выглядя как «dnsmasq не умеет nftset».
+	# --log-facility=- : ВСЁ в stderr. Без него ошибки старта уходят в syslog, и наш лог пуст —
+	# именно так «dnsmasq не стартовал» пришёл в CI без единой строки объяснения.
 	dnsmasq -k -u root -p 5354 --no-resolv --no-hosts --bind-interfaces --listen-address=127.0.0.1 \
-		--pid-file="${TMPDIR:-/tmp}/netns-dnsmasq-upstream.pid" \
+		--pid-file="${TMPDIR:-/tmp}/netns-dnsmasq-upstream.pid" --log-facility=- \
 		--address=/directtest.example/203.0.113.77 \
 		--address=/othertest.example/198.51.100.55 > "$UP_LOG" 2>&1 &
 	UP_PID=$!
@@ -224,7 +237,7 @@ scenario_membership() {
 	nftset_line=$(emit '{"what":"dnsmasq","domains":["directtest.example"],"routing_opts":{"ipv6":false}}')
 	dnsmasq -k -u root -p 53 --no-resolv --no-hosts --bind-interfaces \
 		--listen-address=10.0.0.1 --listen-address=127.0.0.1 \
-		--pid-file="${TMPDIR:-/tmp}/netns-dnsmasq-cheburnet.pid" \
+		--pid-file="${TMPDIR:-/tmp}/netns-dnsmasq-cheburnet.pid" --log-facility=- \
 		--server=127.0.0.1#5354 --nftset="$nftset_line" > "$CB_LOG" 2>&1 &
 	CB_PID=$!
 	sleep 0.5
@@ -234,8 +247,11 @@ scenario_membership() {
 	for d in "up:$UP_PID:$UP_LOG" "cheburnet:$CB_PID:$CB_LOG"; do
 		name=${d%%:*}; rest=${d#*:}; pid=${rest%%:*}; log=${rest#*:}
 		if ! kill -0 "$pid" 2>/dev/null; then
+			# `wait` отдаёт код упавшего процесса, а под `set -e` это убило бы скрипт ДО печати
+			# диагностики (ровно так предыдущая версия молчала). Поэтому `|| drc=$?`.
+			drc=0; wait "$pid" 2>/dev/null || drc=$?
 			hdr "MEMBERSHIP — реальный dnsmasq наполняет @direct на резолве"
-			bad "[membership] dnsmasq ($name) не стартовал — сет заведомо пуст, ассерты бессмысленны"
+			bad "[membership] dnsmasq ($name) не стартовал (код $drc) — сет заведомо пуст"
 			printf '     лог:\n'; sed 's/^/       /' "$log" 2>/dev/null | tail -10
 			return
 		fi
@@ -311,12 +327,28 @@ else
 	bad "nft-правила разошлись между awg0 и singtun0 — data-plane НЕ взаимозаменяем"
 fi
 
-# Поведенческие сценарии — каждый в свежем rootless netns.
+# Поведенческие сценарии — каждый в свежем netns.
+#
+# ПОЧЕМУ ветка по root: rootless-namespace (`unshare -rn`) для маршрутов достаточен, но он
+# ЗАПРЕЩАЕТ setgroups (ядро пишет deny в /proc/self/setgroups, иначе gid_map нельзя было бы
+# заполнить без CAP_SETGID). dnsmasq при сбросе привилегий вызывает setgroups+setgid ОДНИМ
+# условием — значит в rootless он не стартует НИКОГДА и печатает «failed to change group-id»,
+# что месяц читалось как «dnsmasq не умеет nftset». Под настоящим root userns не нужен:
+# `unshare -n` даёт netns без ограничения setgroups, и membership реально проверяется.
 rc=0
+if [ "$(id -u)" = "0" ]; then
+	NS_UNSHARE="unshare -n"      # настоящий root: netns без userns → dnsmasq может сбросить права
+	NETNS_ROOTLESS=0
+else
+	NS_UNSHARE="unshare -rn"     # обычный пользователь: rootless (маршрутные сценарии)
+	NETNS_ROOTLESS=1             # membership пропустится с причиной: setgroups запрещён
+fi
+export NETNS_ROOTLESS
 for spec in "home awg0" "home singtun0" "travel awg0" "membership -"; do
 	# shellcheck disable=SC2086
 	set -- $spec
-	unshare -rn sh "$SELF" __run "$1" "$2" || rc=1
+	# shellcheck disable=SC2086
+	$NS_UNSHARE sh "$SELF" __run "$1" "$2" || rc=1
 done
 
 hdr "ИТОГ"

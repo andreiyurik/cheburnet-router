@@ -95,7 +95,13 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           export LD_LIBRARY_PATH="$HOME/.local/lib:${LD_LIBRARY_PATH:-}"
           ucode -e 'print("ucode ok\n")'
-          NETNS_REQUIRE=1 make test-netns
+          # ПОД SUDO — иначе сценарий membership не проверяется НИКОГДА: rootless-namespace
+          # запрещает setgroups, а dnsmasq при сбросе привилегий вызывает его вместе с setgid,
+          # поэтому просто не стартует («failed to change group-id» — месяц читалось как
+          # «dnsmasq не умеет nftset»). Под настоящим root скрипт берёт `unshare -n` без userns.
+          # PATH/LD_LIBRARY_PATH передаём явно: sudo их сбрасывает, а ucode лежит в ~/.local.
+          sudo env "PATH=$PATH" "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" \
+               NETNS_REQUIRE=1 make test-netns
 
   # ── Сборка пакета через OpenWrt SDK (матрица arch) ──────────────────────────
   # Ручная/по тегу. Реальная установка и data-plane проверяются в QEMU (qemu-install-v2 в
