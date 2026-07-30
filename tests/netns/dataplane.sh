@@ -211,7 +211,12 @@ scenario_membership() {
 	# глушит причину»). Логи печатаем ТОЛЬКО при провале — в норме вывод не засоряется.
 	UP_LOG="${TMPDIR:-/tmp}/netns-dnsmasq-upstream.log"
 	CB_LOG="${TMPDIR:-/tmp}/netns-dnsmasq-cheburnet.log"
+	# --pid-file В ПИСЧЕЕ МЕСТО — обязательно: сценарий живёт в rootless user-namespace (мы root
+	# только внутри него), а /var/run принадлежит настоящему root. Дефолтный
+	# /var/run/dnsmasq.pid → EACCES → dnsmasq УМИРАЕТ на старте, и @direct остаётся пустым.
+	# Ровно на это тест и падал в CI с 17.07, выглядя как «dnsmasq не умеет nftset».
 	dnsmasq -k -u root -p 5354 --no-resolv --no-hosts --bind-interfaces --listen-address=127.0.0.1 \
+		--pid-file="${TMPDIR:-/tmp}/netns-dnsmasq-upstream.pid" \
 		--address=/directtest.example/203.0.113.77 \
 		--address=/othertest.example/198.51.100.55 > "$UP_LOG" 2>&1 &
 	UP_PID=$!
@@ -219,9 +224,22 @@ scenario_membership() {
 	nftset_line=$(emit '{"what":"dnsmasq","domains":["directtest.example"],"routing_opts":{"ipv6":false}}')
 	dnsmasq -k -u root -p 53 --no-resolv --no-hosts --bind-interfaces \
 		--listen-address=10.0.0.1 --listen-address=127.0.0.1 \
+		--pid-file="${TMPDIR:-/tmp}/netns-dnsmasq-cheburnet.pid" \
 		--server=127.0.0.1#5354 --nftset="$nftset_line" > "$CB_LOG" 2>&1 &
 	CB_PID=$!
 	sleep 0.5
+
+	# Живость демонов проверяем ДО ассертов: мёртвый dnsmasq и рабочий-но-без-nftset дают
+	# одинаково пустой сет, а диагнозы разные. Без этой проверки тест месяц врал про nftset.
+	for d in "up:$UP_PID:$UP_LOG" "cheburnet:$CB_PID:$CB_LOG"; do
+		name=${d%%:*}; rest=${d#*:}; pid=${rest%%:*}; log=${rest#*:}
+		if ! kill -0 "$pid" 2>/dev/null; then
+			hdr "MEMBERSHIP — реальный dnsmasq наполняет @direct на резолве"
+			bad "[membership] dnsmasq ($name) не стартовал — сет заведомо пуст, ассерты бессмысленны"
+			printf '     лог:\n'; sed 's/^/       /' "$log" 2>/dev/null | tail -10
+			return
+		fi
+	done
 
 	resolve() { # resolve NAME → запрос к нашему dnsmasq (10.0.0.1) из клиента
 		if [ "$resolver" = "nslookup" ]; then
