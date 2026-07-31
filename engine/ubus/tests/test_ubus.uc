@@ -234,7 +234,11 @@ test("acl_split: тиры выведены из реестра", () => {
 	ok(index(s.admin.write, "install") >= 0, "install тоже доступен admin");
 	ok(index(s.admin.write, "service_restart") >= 0, "service_restart в admin write");
 	ok(index(s.admin.write, "factory_reset") >= 0, "factory_reset в admin write");
-	deep_eq(s.admin.read, [ "preflight", "status", "check_lan_conflict", "install_progress" ], "admin read = все read");
+	deep_eq(s.admin.read, [ "preflight", "status", "check_lan_conflict", "install_progress", "diagnostics" ],
+		"admin read = все read");
+	// Диагностика — ТОЛЬКО admin: даже с вырезанными секретами она раскрывает топологию сети и
+	// содержимое логов, поэтому соседу по LAN недоступна (в anon-тир попасть не должна).
+	ok(index(s.unauth.read, "diagnostics") < 0, "diagnostics недоступна без входа");
 });
 
 test("rpcd-acl.json синхронен с реестром (build_acl)", () => {

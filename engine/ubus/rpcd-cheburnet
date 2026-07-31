@@ -725,6 +725,20 @@ function m_factory_reset(v) {
 	respond({ status: "started", pid: pid });
 }
 
+// Диагностика для поддержки: собирает логи/состояние/версии и ВЫРЕЗАЕТ секреты (diagnostics.uc
+// делает это сам, до вывода — здесь секретов уже не бывает). Отдаём текст в браузер владельца;
+// никуда не отправляем — см. WHY в diagnostics.uc.
+function m_diagnostics() {
+	let out = sh(engine_cli("install/diagnostics.uc") + " --json 2>/dev/null");
+	let parsed = null;
+	try { parsed = json(trim(out)); } catch (e) { parsed = null; }
+	// Сборщик не отдал JSON (упал/нет ucode-модуля) — честная ошибка вместо пустого файла:
+	// пустой пакет человек отправит и будет ждать помощи, которой по нему не оказать.
+	if (type(parsed) != "object" || type(parsed.text) != "string")
+		respond(make_error("не удалось собрать диагностику (см. logread)"));
+	respond({ status: "ok", text: parsed.text, removed: parsed.removed ?? [] });
+}
+
 // === точка входа: rpcd `list` / `call <method>` ===
 
 let action = (length(ARGV) > 0) ? ARGV[0] : "";
@@ -783,5 +797,6 @@ else if (method == "install_full_tier")     m_install_full_tier(v);
 else if (method == "switch_to_reality")     switch_tunnel("reality", v.reality_conf);
 else if (method == "switch_to_hysteria2")   switch_tunnel("hysteria2", v.hysteria2_conf);
 else if (method == "switch_to_awg")         switch_tunnel("awg", v.awg_conf);
+else if (method == "diagnostics")           m_diagnostics();
 else if (method == "factory_reset")         m_factory_reset(v);
 else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

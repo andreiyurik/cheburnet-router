@@ -116,6 +116,11 @@ const REGISTRY = [
 	{ name: "replace_hysteria2_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "hysteria2_conf", type: "string", required: true },
 	] },
+	// Диагностический пакет для поддержки: логи + состояние + версии, с ВЫРЕЗАННЫМИ секретами
+	// (engine/install/diagnostics.uc, чистка — lib/redact.uc под юнитами). auth=admin: даже
+	// вычищенный пакет раскрывает топологию сети и содержимое логов, и сосед по LAN его получать
+	// не должен. Роутер никуда его не отправляет — только отдаёт владельцу в браузер.
+	{ name: "diagnostics", access: "read", auth: "admin", token: false, args: [] },
 	{ name: "factory_reset", access: "write", auth: "admin", token: false, args: [
 		// защитное слово; значение ("RESET") сверяет импурный слой — здесь лишь обязательность
 		{ name: "confirm", type: "string", required: true },

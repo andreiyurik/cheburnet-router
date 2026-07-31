@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import mascot from '../../assets/cheburashka.png';
   import { cheburnet } from '../ubus.js';
-  import { STEP_LABELS, explainFail } from '../logic.js';
+  import { STEP_LABELS, explainFail, SUPPORT } from '../logic.js';
 
   // args — { awg_conf, root_password, [ssid, wifi_key], domains, token } для метода install.
   // onDone — установка завершилась успешно. onRetry — вернуться на Setup при ошибке.
@@ -186,6 +186,13 @@
         <button onclick={downloadLog}>Скачать журнал</button>
       {/if}
     </div>
+    <!-- Куда писать — именно здесь: это единственный экран, где человек уже упёрся и ещё не ушёл.
+         Полной диагностики тут нет намеренно: она admin-метод, а пароль root на этом шаге ещё не
+         применён — сессии нет. Журнал установки при этом уже содержит всё нужное. -->
+    <p class="muted small">Не получается разобраться — напишите мне в Telegram
+      <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a> и
+      приложите журнал (кнопка выше). Когда роутер настроится, в панели появится кнопка
+      «Собрать диагностику» — она вырезает пароли и ключи автоматически.</p>
   {/if}
 
   {#if log && phase !== 'running'}

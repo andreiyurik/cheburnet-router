@@ -64,6 +64,8 @@ const ADMIN_METHODS = new Set([
   'set_mode', 'update_list', 'service_restart', 'set_dns_provider',
   'replace_awg_conf', 'replace_reality_conf', 'replace_hysteria2_conf', 'install_full_tier',
   'switch_to_reality', 'switch_to_hysteria2', 'switch_to_awg', 'factory_reset',
+  // Диагностика — read, но admin: даже вычищенная, она раскрывает топологию и логи.
+  'diagnostics',
 ]);
 
 const PROVIDERS = [
@@ -114,6 +116,15 @@ function ubusReply(method, args, session) {
       bg = { polls: 0, method, args };
       lastBg = { method, args };
       return [0, { status: 'started', pid: 111 }];
+    // Диагностика: движок отдаёт УЖЕ вычищенный текст и список вырезанного. Мок возвращает текст
+    // с маской внутри — так e2e проверяет, что панель показывает содержимое человеку до отправки
+    // и честно называет, что убрано (обещание «мы вычистили» иначе непроверяемо).
+    case 'diagnostics':
+      return [0, {
+        status: 'ok',
+        text: '════ cheburnet — диагностика ════\nPrivateKey = <удалено>\nEndpoint = 203.0.113.10:51820\n',
+        removed: ['ключи туннеля', 'пароль Wi-Fi'],
+      }];
     case 'check_lan_conflict':
       return [0, { conflict: false }];
     case 'preflight':

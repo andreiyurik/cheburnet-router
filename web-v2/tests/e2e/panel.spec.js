@@ -175,6 +175,35 @@ test('панель: результат действия печатается р�
   await expect(page.locator('h3.danger-h ~ p', { hasText: 'Список обновлён' })).toHaveCount(0);
 });
 
+// Диагностика — единственный путь помочь удалённо, и одновременно самый опасный: пакет уходит в
+// мессенджер. Проверяем оба обещания UI: содержимое показано ДО скачивания и список вырезанного
+// назван. Без этого «мы всё вычистили» — слова, которые пользователь проверить не может.
+test('панель: диагностика показывается до отправки и называет вырезанное', async ({ page, request }) => {
+  await openPanel(page, request, {});
+
+  await expect(page.getByRole('link', { name: '@industrialprofi' })).toBeVisible();
+  // Кнопки скачивания до сбора нет: скачивать нечего, и пустой файл человек бы отправил.
+  await expect(page.getByRole('button', { name: 'Скачать файл' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Собрать диагностику' }).click();
+
+  await expect(page.getByText('Вырезано: ключи туннеля; пароль Wi-Fi', { exact: false }))
+    .toBeVisible({ timeout: 10_000 });
+  // Текст пакета виден на экране — именно то, что уйдёт в чат.
+  await expect(page.locator('pre.log', { hasText: 'cheburnet — диагностика' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Скачать файл' })).toBeVisible();
+});
+
+// Диагностика содержит логи и топологию сети, поэтому она admin-метод: без входа rpcd отбивает
+// её так же, как мутации, и панель обязана вести на вход, а не показывать голую ошибку.
+test('панель: диагностика без входа ведёт на вход, а не отдаёт логи', async ({ page, request }) => {
+  await openPanel(page, request, { adminLocked: true });
+
+  await page.getByRole('button', { name: 'Собрать диагностику' }).click();
+  await expect(page.getByRole('heading', { name: 'Вход в управление' })).toBeVisible();
+  await expect(page.locator('pre.log', { hasText: 'cheburnet — диагностика' })).toHaveCount(0);
+});
+
 test('панель: admin-метод без сессии → модалка входа; неверный пароль → счётчик; верный → успех', async ({ page, request }) => {
   await openPanel(page, request, { adminLocked: true });
 

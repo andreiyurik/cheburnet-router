@@ -29,7 +29,8 @@
                     "preflight",
                     "status",
                     "check_lan_conflict",
-                    "install_progress"
+                    "install_progress",
+                    "diagnostics"
                 ]
             }
         },

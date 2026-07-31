@@ -284,9 +284,59 @@ else
     echo "  ✓ стек влезает в порог с запасом"
 fi
 
+# ─── диагностика для поддержки: секреты обязаны исчезнуть ────────────────────
+# Юниты доказывают шаблоны чистки (engine/lib/tests/test_redact.uc), но НЕ сборщик: он читает
+# logread/awg/nft/init.d — то, чего на хосте нет. Здесь проверяем полный путь на живой системе:
+# подкладываем в журнал установки настоящие формы секретов и пароль Wi-Fi в UCI, затем требуем,
+# чтобы в собранном пакете их не осталось, а адрес сервера остался (без него диагноза нет).
+# Провал этой проверки = пользователь отправляет свои ключи в мессенджер.
+echo
+echo "→ Диагностика: секреты вырезаны, адрес сервера сохранён"
+SECRET_KEY="QFxsc0Gk3nJ2VZUwvVYqNlH9y7bTf1cKmXpRsAeDgHo="
+SECRET_WIFI="wifi-secret-9times"
+SECRET_UUID="b82175ba-6b0f-4c2e-9a11-7d3e5f8c1a22"
+vm_ssh "mkdir -p /tmp/cheburnet && cat > /tmp/cheburnet/install.log <<'EOF'
+install: применяю шаг vpn
+[Interface]
+PrivateKey = $SECRET_KEY
+Address = 10.13.13.2/32
+[Peer]
+Endpoint = 203.0.113.10:51820
+sing-box check: ошибка в {\"type\":\"hysteria2\",\"password\":\"HyPass123\"}
+ссылка: vless://$SECRET_UUID@203.0.113.10:443?pbk=SomePubKey123&sid=eaab3dad
+EOF
+uci set wireless.@wifi-iface[0].key='$SECRET_WIFI' 2>/dev/null || true
+uci commit wireless 2>/dev/null || true"
+
+DIAG="$(vm_ssh "ucode -R /usr/share/cheburnet/engine/install/diagnostics.uc 2>&1")"
+diag_must_not_contain() { # diag_must_not_contain <строка> <что это>
+    if printf '%s' "$DIAG" | grep -qF "$1"; then
+        echo "  ✗ УТЕЧКА: в диагностике остался $2 — пакет нельзя отдавать пользователю"
+        exit 1
+    fi
+    echo "  ✓ $2 вырезан"
+}
+diag_must_not_contain "$SECRET_KEY"  "приватный ключ AmneziaWG"
+diag_must_not_contain "$SECRET_WIFI" "пароль Wi-Fi"
+diag_must_not_contain "$SECRET_UUID" "UUID пользователя VLESS"
+diag_must_not_contain "HyPass123"    "пароль Hysteria2 из вывода sing-box check"
+diag_must_not_contain "SomePubKey123" "публичный ключ Reality (pbk)"
+# Обратная сторона: слишком жадная чистка сделала бы пакет бесполезным.
+if printf '%s' "$DIAG" | grep -qF "203.0.113.10:51820"; then
+    echo "  ✓ адрес и порт сервера сохранены (по ним и ищут причину)"
+else
+    echo "  ✗ адрес сервера вырезан вместе с секретами — по такому пакету помочь нельзя"
+    exit 1
+fi
+# Шапка обязана НАЗЫВАТЬ вырезанное: обещание «мы вычистили» без списка непроверяемо.
+printf '%s' "$DIAG" | grep -q "Вырезано перед сохранением" \
+    || { echo "  ✗ пакет не сообщает, что именно вырезано"; exit 1; }
+echo "  ✓ пакет перечисляет вырезанные категории"
+
 # ─── итог ────────────────────────────────────────────────────────────────────
 echo
 echo "✓ T3c-v2 pass — установка через apk и data-plane на реальных пакетах:"
 echo "  CORE-зависимости ставятся из feed, dnsmasq-full↔nftset, https-dns-proxy↔наши резолверы,"
-echo "  AmneziaWG встала путём bootstrap'а и модуль загрузился в ядро (vermagic сошёлся)."
+echo "  AmneziaWG встала путём bootstrap'а и модуль загрузился в ядро (vermagic сошёлся),"
+echo "  диагностика для поддержки не выносит ключи и пароли наружу."
 echo "  Handshake с живым VPN-сервером — по-прежнему только на железе."

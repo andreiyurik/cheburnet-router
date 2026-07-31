@@ -15,8 +15,20 @@ import {
   heroKind, tunnelFallback, switchTargets, tunnelRowText, fullReasons, explainFullTierFail,
   fullMissingText, FULL_MISSING_LABELS,
   PROTOCOLS, PROTOCOL_ORDER, protocolList, protocolInfo, requiresFull, defaultProtocol,
-  withDeclaredSpeed, SPEED_DEFAULTS, SPEED_MAX,
+  withDeclaredSpeed, SPEED_DEFAULTS, SPEED_MAX, SUPPORT,
 } from './logic.js';
+
+// Контакт поддержки показывается на трёх экранах и вшивается в прошивку на годы. Проверяем
+// инвариант, который ломается копипастой: ссылка и подпись должны указывать на одного адресата.
+describe('SUPPORT — контакт поддержки', () => {
+  it('ссылка Telegram соответствует показанному имени', () => {
+    expect(SUPPORT.telegram.startsWith('@')).toBe(true);
+    expect(SUPPORT.telegramUrl).toBe(`https://t.me/${SUPPORT.telegram.slice(1)}`);
+  });
+  it('указана долговечная страница проекта — её содержимое правится без перепрошивки', () => {
+    expect(SUPPORT.page).toMatch(/^https:\/\//);
+  });
+});
 
 // Валидная база формы: каждый тест ломает ровно одно поле. Конфиги — по протоколам (confs),
 // как их и хранит Setup: переключение выбора не должно терять уже вставленное.

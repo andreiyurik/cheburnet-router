@@ -3,7 +3,7 @@
   import { cheburnet, login, isLoggedIn, logout } from '../ubus.js';
   import { hs, FORCED_LABELS, heroKind, tunnelFallback, switchTargets, tunnelRowText,
            explainFullTierFail, fullMissingText, protocolInfo,
-           withDeclaredSpeed, SPEED_DEFAULTS } from '../logic.js';
+           withDeclaredSpeed, SPEED_DEFAULTS, SUPPORT } from '../logic.js';
 
   // onReinstall — запустить мастер заново (с preflight).
   let { onReinstall } = $props();
@@ -166,6 +166,36 @@
     const f = e.target.files?.[0];
     if (!f) return;
     switchConfs[id] = await f.text();
+  }
+
+  // Диагностика для поддержки: пакет собирает роутер (логи + состояние + версии) с ВЫРЕЗАННЫМИ
+  // секретами. Показываем его на экране ДО скачивания — обещание «мы всё вычистили» человек может
+  // проверить только глазами, и это единственный честный способ его дать.
+  let diagText = $state('');
+  let diagRemoved = $state([]);
+  let diagPhase = $state('idle'); // idle | running | ok | fail
+  async function collectDiagnostics() {
+    diagPhase = 'running';
+    actionScope = 'support';
+    action = '';
+    try {
+      const r = await cheburnet('diagnostics');
+      diagText = r.text ?? '';
+      diagRemoved = r.removed ?? [];
+      diagPhase = 'ok';
+    } catch (e) {
+      diagPhase = 'fail';
+      needLogin(e, 'Сбор диагностики', 'support');
+    }
+  }
+  // Скачивание через Blob: работает по http без сервера-помощника (панель отдаётся с роутера).
+  function downloadDiagnostics() {
+    const blob = new Blob([diagText], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cheburnet-диагностика.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   // hy2Conf(id, conf) — ссылка Hysteria2 с объявленной скоростью, если владелец её включил.
@@ -620,6 +650,39 @@
           <pre class="log">{switchLog}</pre>
         </details>
       {/if}
+    {/if}
+
+    <!-- Поддержка. Стоит ПЕРЕД опасной зоной осознанно: человек, у которого не работает, должен
+         найти путь «спросить» раньше, чем кнопку «сбросить всё». -->
+    <h3 id="support">Если что-то не работает</h3>
+    <p class="muted small">Напишите мне в Telegram — <a href={SUPPORT.telegramUrl} target="_blank"
+      rel="noreferrer">{SUPPORT.telegram}</a>. Там же можно предложить идею. Проект и документация:
+      <a href={SUPPORT.page} target="_blank" rel="noreferrer">на GitHub</a>.</p>
+    <p class="muted small">Чтобы разобраться быстрее, приложите диагностику: роутер соберёт логи,
+      состояние сети и версии. <strong>Пароли и ключи из пакета вырезаются</strong> — иначе вместе
+      с логами вы отправили бы рабочие ключи от VPN и пароль Wi-Fi. Файл никуда не уходит сам:
+      сначала посмотрите его здесь, потом отправьте вручную.</p>
+    <div class="row">
+      <button disabled={busy || diagPhase === 'running'} onclick={collectDiagnostics}>
+        {diagPhase === 'running' ? 'Собираю…' : 'Собрать диагностику'}
+      </button>
+      {#if diagPhase === 'ok'}
+        <button onclick={downloadDiagnostics}>Скачать файл</button>
+      {/if}
+    </div>
+    {@render actionNote('support')}
+    {#if diagPhase === 'ok'}
+      <p class="muted small">
+        {#if diagRemoved.length > 0}
+          Вырезано: {diagRemoved.join('; ')}. Адрес сервера оставлен — без него причину не найти.
+        {:else}
+          Секретов известных форм не нашлось. Всё равно пролистайте текст перед отправкой.
+        {/if}
+      </p>
+      <details open>
+        <summary>Что будет отправлено</summary>
+        <pre class="log">{diagText}</pre>
+      </details>
     {/if}
 
     <h3 class="danger-h">Опасная зона</h3>
