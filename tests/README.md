@@ -16,6 +16,8 @@ tests/
 │   ├── lib.sh                    #      обвязка: доступ, бэкап, exit-IP, PMTU, отчёты
 │   ├── inventory.sh              #      шаг 1: read-only инвентаризация + вердикт preflight
 │   ├── backup.sh                 #      шаг 2: sysupgrade -b + путь назад одной командой
+│   ├── install.sh                #      шаг 3: установка методом мастера, конфиг со стенда
+│   ├── switch.sh                 #      шаг 4: смена протокола/сервера теми же методами панели
 │   └── verify.sh                 #      проверка активного туннеля насквозь (панель/exit-IP/PMTU/split)
 └── qemu/                         # T3 — живой OpenWrt в qemu/KVM
     ├── lib.sh                    # общая инфра (образ snapshot'а, serial-консоль)
@@ -127,9 +129,11 @@ scp tests/vps/provision-lab.sh root@<vps>:/root/ && ssh root@<vps> 'bash /root/p
 
 ```sh
 export R_HOST=192.168.1.1 R_KEY=~/.ssh/id_ed25519
-bash tests/router/inventory.sh    # шаг 1: read-only, вердикт preflight по железу
-bash tests/router/backup.sh       # шаг 2: путь назад одной командой
-bash tests/router/verify.sh       # проверка активного туннеля насквозь
+bash tests/router/inventory.sh        # шаг 1: read-only, вердикт preflight по железу
+bash tests/router/backup.sh           # шаг 2: путь назад одной командой
+bash tests/router/install.sh awg      # шаг 3: установка (метод мастера, конфиг со стенда)
+bash tests/router/verify.sh           # проверка насквозь: панель / exit-IP / PMTU / split
+bash tests/router/switch.sh reality   # шаг 4: смена протокола (или замена сервера)
 ```
 
 Полный сценарий — [tests/router/RUNBOOK.md](router/RUNBOOK.md). Это **исполняемый** документ:
@@ -146,5 +150,8 @@ bash tests/router/verify.sh       # проверка активного тунн
 
 Что покрывает только этот уровень: **Reality насквозь** (в окружении разработчика непроверяем —
 TLS-инспекция переписывает ClientHello), **PMTU на реальном канале**, поведение на настоящей
-архитектуре (QEMU — только x86_64), сутки и физическая перезагрузка. Чек-лист релиза —
+архитектуре (QEMU — только x86_64), сутки и физическая перезагрузка. Первый полный прогон
+(2026-08-01, GL-MT3000) нашёл два дефекта, невидимых на всех прежних уровнях: Full-тир не мог
+соединиться с сервером после снятия Light-тира и split-tunnel выключался после перезагрузки —
+разбор в [ADR 0004](../docs/v2/decisions/0004-multi-protocol-tiers.md). Чек-лист релиза —
 [docs/v2/meta/release-checklist.md](../docs/v2/meta/release-checklist.md).

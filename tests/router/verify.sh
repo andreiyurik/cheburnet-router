@@ -72,10 +72,26 @@ r_msg "Разделение трафика: direct-домен идёт НЕ че
 # это тот самый мост «домен → IP → nftset», главный шрам прошлой архитектуры.
 dom="$(r_ssh "uci -q get dhcp.cheburnet_dns4.domain 2>/dev/null | awk '{print \$1}'")"
 if [ -n "$dom" ]; then
-    r_ssh "nslookup $dom 127.0.0.1 >/dev/null 2>&1 || true; sleep 1
-           nft list set inet fw4 direct 2>/dev/null | grep -qE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'" \
-        && r_ok "адрес direct-домена ($dom) попал в набор — split работает" \
-        || r_bad "резолв direct-домена не наполнил набор — split-routing не работает"
+    # ДВЕ проверки, а не одна. Членство в наборе — только половина моста: правило направления живёт
+    # в ядре и, например, не переживало перезагрузку (живой прогон 2026-08-01). Тогда адрес в наборе
+    # был, а помеченный трафик всё равно уходил в туннель — и проверка «есть в наборе» давала
+    # ложную зелень на сломанном split-tunnel. Поэтому спрашиваем ядро, куда реально пойдёт пакет.
+    ip4="$(r_ssh "nslookup $dom 127.0.0.1 >/dev/null 2>&1 || true; sleep 1
+                  nft list set inet fw4 direct 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1")"
+    if [ -z "$ip4" ]; then
+        r_bad "резолв direct-домена ($dom) не наполнил набор — мост «домен → IP → nftset» не работает"
+    else
+        r_ok "адрес direct-домена ($dom) попал в набор: $ip4"
+        route="$(r_ssh "ip route get $ip4 mark 0x1 2>/dev/null | head -1")"
+        if printf '%s' "$route" | grep -q "dev $IFACE"; then
+            r_bad "помеченный трафик идёт В ТУННЕЛЬ ($IFACE) — split-tunnel не работает: $route"
+            printf '    Обычная причина: нет правила policy-routing (ip rule fwmark) или таблицы direct.\n'
+            printf '    Проверьте: ip rule show | grep fwmark; ip route show table 100\n'
+        else
+            r_ok "помеченный трафик идёт мимо туннеля — split реально работает"
+            r_record "SPLIT route=$route"
+        fi
+    fi
 else
     r_warn "direct-домены не настроены — split проверять нечем (в мастере список был пуст?)"
 fi
