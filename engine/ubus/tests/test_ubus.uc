@@ -236,9 +236,17 @@ test("acl_split: тиры выведены из реестра", () => {
 	ok(index(s.admin.write, "factory_reset") >= 0, "factory_reset в admin write");
 	deep_eq(s.admin.read, [ "preflight", "status", "check_lan_conflict", "install_progress", "diagnostics" ],
 		"admin read = все read");
+	// install_token — write, а не read: метод ВЫПУСКАЕТ токен, если его нет. Классифицировать
+	// создание состояния как чтение было бы нечестно по отношению к ACL.
+	ok(index(s.admin.write, "install_token") >= 0, "install_token в admin write (он создаёт состояние)");
+	ok(index(s.admin.read, "install_token") < 0, "install_token НЕ числится чтением");
 	// Диагностика — ТОЛЬКО admin: даже с вырезанными секретами она раскрывает топологию сети и
 	// содержимое логов, поэтому соседу по LAN недоступна (в anon-тир попасть не должна).
 	ok(index(s.unauth.read, "diagnostics") < 0, "diagnostics недоступна без входа");
+	// Выдача install-токена — тем более: токен и есть признак «это владелец» на пути установки.
+	// Попади метод в anon-тир, любой в LAN выписал бы себе право пройти мастер на чужом роутере.
+	ok(index(s.unauth.read, "install_token") < 0, "install_token недоступен без входа (read)");
+	ok(index(s.unauth.write, "install_token") < 0, "install_token недоступен без входа (write)");
 });
 
 test("rpcd-acl.json синхронен с реестром (build_acl)", () => {

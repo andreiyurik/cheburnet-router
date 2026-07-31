@@ -155,8 +155,27 @@ vm_ssh 'grep -q "^0$" /tmp/cheburnet/done' \
 vm_ssh 'ubus call cheburnet status | grep -q installed' \
     || { echo "  ✗ rpcd/status мёртв после reset"; exit 1; }
 echo "  ✓ reset отработал, ssh/rpcd живы (network restart не оборвал VM)"
-# reset снёс /etc/cheburnet вместе с токеном — восстанавливаем для следующих ассертов.
-vm_ssh 'mkdir -p /etc/cheburnet && echo qemu-test-token > /etc/cheburnet/install-token'
+# Сброс токен НЕ оставляет (пропуск не должен лежать без спроса) — а повторная настройка обязана
+# быть возможной без SSH. Значит install_token должен ВЫПУСТИТЬ его на чистой системе. Проверяем
+# здесь, а не юнитом: выпуск делает импурный слой rpcd, и права на файл видны только на живой ФС.
+vm_ssh '[ ! -e /etc/cheburnet/install-token ]' \
+    || { echo "  ✗ reset оставил install-токен — пропуск лежит без спроса"; exit 1; }
+out="$(vm_ssh 'ubus call cheburnet install_token')"
+echo "$out" | grep -q '"token"' \
+    || { echo "  ✗ install_token не выпустил токен после сброса — повторная настройка потребует SSH";
+         echo "  output: $out"; exit 1; }
+# Права читаем через ls -l, а НЕ stat: в busybox этого образа stat не собран («ash: stat: not
+# found»), и проверка молча превращалась в провал при корректных правах.
+vm_ssh "ls -l /etc/cheburnet/install-token | grep -q '^-rw-------'" \
+    || { echo "  ✗ выпущенный install-токен имеет права не 600"; vm_ssh 'ls -l /etc/cheburnet/install-token'; exit 1; }
+# Повторный вызов обязан отдать ТОТ ЖЕ токен: иначе ссылка, уже открытая у человека, перестаёт
+# работать при каждом обновлении панели.
+out2="$(vm_ssh 'ubus call cheburnet install_token')"
+[ "$(echo "$out" | grep -o '"token"[^,}]*')" = "$(echo "$out2" | grep -o '"token"[^,}]*')" ] \
+    || { echo "  ✗ install_token выпускает новый токен на каждый вызов — открытая ссылка мастера умрёт"; exit 1; }
+echo "  ✓ токен выпускается по запросу владельца (0600) и повторный вызов отдаёт тот же"
+# Возвращаем предсказуемое значение для следующих ассертов.
+vm_ssh 'echo qemu-test-token > /etc/cheburnet/install-token'
 
 # ─── steps/wifi: честный no-op без радио ─────────────────────────────────────
 echo "→ assert: wifi-шаг на VM без радио — no-op с кодом 0"

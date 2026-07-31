@@ -204,6 +204,46 @@ test('панель: диагностика без входа ведёт на в�
   await expect(page.locator('pre.log', { hasText: 'cheburnet — диагностика' })).toHaveCount(0);
 });
 
+// «Сбросить настройку» люди читают как «удалить программу», а это не так. Плюс сброс раньше
+// удалял install-токен, и повторная настройка упиралась в «запустите bootstrap по SSH» — стена для
+// того, кто в SSH не ходит. Проверяем оба обещания: текст говорит, что останется, и после сброса
+// есть путь в мастер прямо из панели.
+test('панель: сброс честно говорит, что останется, и ведёт назад в мастер', async ({ page, request }) => {
+  await openPanel(page, request, {});
+
+  await page.getByRole('button', { name: 'Сбросить настройку cheburnet…' }).click();
+  // Честность до подтверждения: программа и панель остаются, удаление — отдельная команда.
+  await expect(page.getByText('apk del cheburnet', { exact: false })).toBeVisible();
+  await expect(page.getByText('Wi-Fi, пароль роутера', { exact: false })).toBeVisible();
+
+  await page.getByLabel('Введите слово RESET для подтверждения').fill('RESET');
+  await page.getByRole('button', { name: 'Подтвердить сброс' }).click();
+
+  // Панель ЖДЁТ завершения, а не говорит «запущен» и умывает руки.
+  await expect(page.getByText('конфигурация cheburnet снята', { exact: false }))
+    .toBeVisible({ timeout: 15_000 });
+  // Путь назад: ссылка со свежим токеном, выпущенным сбросом.
+  const link = page.getByRole('link', { name: 'открыть мастер настройки' });
+  await expect(link).toBeVisible();
+  expect(await link.getAttribute('href')).toContain('token=');
+
+  const calls = await (await request.get('/__calls')).json();
+  expect(calls).toContain('factory_reset');
+  expect(calls).toContain('install_token');
+});
+
+// Та же стена стояла и без сброса: установка снимает токен как одноразовый, поэтому «Настроить
+// заново» доводило человека до последней кнопки мастера и получало «токен не найден».
+test('панель: «Настроить заново» уносит в мастер с токеном, а не в отказ', async ({ page, request }) => {
+  await openPanel(page, request, {});
+
+  await page.getByRole('button', { name: 'Настроить заново' }).click();
+  await expect(page).toHaveURL(/token=/, { timeout: 10_000 });
+
+  const calls = await (await request.get('/__calls')).json();
+  expect(calls).toContain('install_token');
+});
+
 test('панель: admin-метод без сессии → модалка входа; неверный пароль → счётчик; верный → успех', async ({ page, request }) => {
   await openPanel(page, request, { adminLocked: true });
 

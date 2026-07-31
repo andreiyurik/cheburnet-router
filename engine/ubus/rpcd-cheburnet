@@ -11,7 +11,7 @@
 // шаги) и фон+poll установки. Логику НЕ дублируем — переиспользуем install/run.uc,
 // preflight, list, steps. Проверяется в QEMU (живой ubus/uci), не юнитами.
 
-import { stdin, readfile, writefile, unlink, access, chmod } from "fs";
+import { stdin, readfile, writefile, unlink, access, chmod, mkdir } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { list_descriptor, validate_request, requires_token, make_error } from "./ubus.uc";
 import { cidr_overlap, suggest_lan, valid_lan_ip, full_hw_missing } from "../preflight/preflight.uc";
@@ -739,6 +739,27 @@ function m_diagnostics() {
 	respond({ status: "ok", text: parsed.text, removed: parsed.removed ?? [] });
 }
 
+// Install-токен для повторной настройки: отдаём существующий, а нет — выпускаем. Единственное
+// место выпуска после bootstrap'а (reset.uc намеренно этого не делает — см. WHY в ubus.uc).
+// Права 0600 ставим ДО записи значения: иначе секрет успевает полежать с правами по умолчанию.
+function m_install_token() {
+	let tok = trim(readfile(TOKEN_FILE) ?? "");
+	if (length(tok) == 0) {
+		mkdir(ETC_CHEBURNET, 0o700); // существует → false, это норма (каталог мог остаться)
+		writefile(TOKEN_FILE, "");
+		chmod(TOKEN_FILE, 0o600);
+		// UUID ядра — тот же источник и формат, что у bootstrap.sh. Нет /proc → hex из urandom
+		// тем же способом, что в bootstrap (единый формат токена в проекте).
+		tok = trim(readfile("/proc/sys/kernel/random/uuid") ?? "");
+		if (length(tok) == 0)
+			tok = trim(sh("tr -dc 'a-f0-9' < /dev/urandom | head -c 32"));
+		if (length(tok) == 0)
+			respond(make_error("не удалось выпустить install-токен (нет источника случайности)"));
+		writefile(TOKEN_FILE, tok + "\n");
+	}
+	respond({ status: "ok", token: tok });
+}
+
 // === точка входа: rpcd `list` / `call <method>` ===
 
 let action = (length(ARGV) > 0) ? ARGV[0] : "";
@@ -798,5 +819,6 @@ else if (method == "switch_to_reality")     switch_tunnel("reality", v.reality_c
 else if (method == "switch_to_hysteria2")   switch_tunnel("hysteria2", v.hysteria2_conf);
 else if (method == "switch_to_awg")         switch_tunnel("awg", v.awg_conf);
 else if (method == "diagnostics")           m_diagnostics();
+else if (method == "install_token")         m_install_token();
 else if (method == "factory_reset")         m_factory_reset(v);
 else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

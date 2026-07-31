@@ -66,6 +66,8 @@ const ADMIN_METHODS = new Set([
   'switch_to_reality', 'switch_to_hysteria2', 'switch_to_awg', 'factory_reset',
   // Диагностика — read, но admin: даже вычищенная, она раскрывает топологию и логи.
   'diagnostics',
+  // install_token — тем более admin: токен и есть признак «это владелец» на пути установки.
+  'install_token',
 ]);
 
 const PROVIDERS = [
@@ -125,6 +127,16 @@ function ubusReply(method, args, session) {
         text: '════ cheburnet — диагностика ════\nPrivateKey = <удалено>\nEndpoint = 203.0.113.10:51820\n',
         removed: ['ключи туннеля', 'пароль Wi-Fi'],
       }];
+    // Сброс — такая же фоновая операция, как замена/переключение: панель ждёт завершения через
+    // общий канал install_progress, а не говорит «запущен» и умывает руки.
+    case 'factory_reset':
+      if (args.confirm !== 'RESET') return [0, { error: 'confirm должен быть ровно "RESET"' }];
+      bg = { polls: 0, method, args };
+      lastBg = { method, args };
+      return [0, { status: 'started', pid: 222 }];
+    // Свежий токен после сброса: движок выпускает его в reset.uc, панель ведёт им в мастер.
+    case 'install_token':
+      return [0, { status: 'ok', token: TOKEN }];
     case 'check_lan_conflict':
       return [0, { conflict: false }];
     case 'preflight':
@@ -182,6 +194,8 @@ function ubusReply(method, args, session) {
         const op = bg; bg = null;
         if (bgResult === 'ok') {
           if (op.method === 'install_full_tier') fullInstalled = true;
+          // Сброс возвращает роутер в ненастроенное состояние — как на живой системе.
+          if (op.method === 'factory_reset') installed = false;
           // switch_to_<id> → активным становится <id>: так мок не приходится править на каждый
           // новый протокол (и он не может «забыть» один из них).
           const sw = op.method.match(/^switch_to_(.+)$/);

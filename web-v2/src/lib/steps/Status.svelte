@@ -256,14 +256,66 @@
     }
   }
 
-  // Factory reset: двойное подтверждение — ввод слова RESET руками.
+  // obtainToken() — install-токен для мастера: движок отдаёт существующий или выпускает новый
+  // (install_token, admin). Нужен и после сброса, и для «Настроить заново»: успешная установка
+  // токен снимает как одноразовый, поэтому без этого шага мастер доходил до последней кнопки и
+  // получал «токен не найден — запустите bootstrap по SSH». Пусто → ссылку не выдумываем.
+  async function obtainToken() {
+    try {
+      const t = await cheburnet('install_token');
+      return t.token ?? '';
+    } catch (e) {
+      needLogin(e, 'Повторная настройка', 'danger');
+      return '';
+    }
+  }
+
+  // «Настроить заново» из панели: сначала токен, потом мастер — иначе человек заполнит все поля и
+  // упрётся в отказ на последнем шаге. Без токена мастер всё равно откроем (там честно скажут,
+  // что делать), но пробовать получить его обязаны.
+  async function reinstall() {
+    const t = await obtainToken();
+    if (t) {
+      location.search = `?token=${encodeURIComponent(t)}`;
+      return;
+    }
+    onReinstall();
+  }
+
+  // Factory reset: двойное подтверждение — ввод слова RESET руками. Ждём ЗАВЕРШЕНИЯ (тот же
+  // канал install_progress, что у остальных фоновых операций): раньше панель говорила «запущен» и
+  // на этом заканчивала, а человек оставался наедине с роутером в промежуточном состоянии.
+  let resetPhase = $state('idle'); // idle | running | ok | fail
+  let resetToken = $state('');
+  let resetTimer = null;
   const factoryReset = () =>
     admin('Сброс cheburnet', async () => {  // scope 'danger' — сообщение остаётся в опасной зоне
       await cheburnet('factory_reset', { confirm: resetWord.trim() });
-      action = 'Сброс запущен: конфигурация cheburnet снимается, роутер вернётся к обычной маршрутизации.';
+      action = 'Снимаю конфигурацию — роутер вернётся к обычной маршрутизации.';
       resetWord = '';
       resetArmed = false;
+      resetPhase = 'running';
+      resetTimer = setInterval(pollReset, 2000);
     }, 'danger');
+
+  async function pollReset() {
+    try {
+      const p = await cheburnet('install_progress');
+      if (!p.done) return;
+      clearInterval(resetTimer); resetTimer = null;
+      actionScope = 'danger';
+      if (p.result === 'ok') {
+        resetPhase = 'ok';
+        action = 'Готово: конфигурация cheburnet снята, роутер вернулся к обычной маршрутизации.';
+        resetToken = await obtainToken();
+      } else {
+        resetPhase = 'fail';
+        action = 'Сброс завершился с ошибкой — часть настройки могла остаться. '
+          + 'Соберите диагностику (блок «Если что-то не работает») и пришлите её.';
+      }
+      await refresh();
+    } catch { /* единичный сбой поллинга — следующий тик повторит */ }
+  }
 
   refresh();
   // 15 с, не чаще: каждый опрос — это спавн rpcd-скрипта + shell-батч на роутере (слабое железо).
@@ -273,6 +325,7 @@
     if (replaceTimer) clearInterval(replaceTimer);
     if (fullTimer) clearInterval(fullTimer);
     if (switchTimer) clearInterval(switchTimer);
+    if (resetTimer) clearInterval(resetTimer);
   });
 
   // In-place смена туннеля: приносим только конфиг нового туннеля, домены/DNS берутся из
@@ -689,10 +742,17 @@
     {#if !resetArmed}
       <button class="danger" disabled={busy} onclick={() => (resetArmed = true)}>Сбросить настройку cheburnet…</button>
     {:else}
+      <!-- Честно перечисляем и то, что останется: «сбросить всё» люди читают как «удалить
+           программу», а это не так — и обнаружить расхождение постфактум хуже, чем прочитать
+           заранее. -->
       <p class="warn">
-        Будет снята вся конфигурация cheburnet (туннель, split-routing, шифрованный DNS,
-        блок-листы). Роутер вернётся к обычной маршрутизации. Wi-Fi и пароль роутера останутся.
+        Будет снята вся конфигурация cheburnet: туннель, разделение трафика, шифрованный DNS,
+        фильтрация. Роутер вернётся к обычной маршрутизации, и сайты снова пойдут напрямую —
+        без VPN.
       </p>
+      <p class="muted small">Что <strong>останется</strong>: сама программа и её панель (удалить
+        полностью — <code>apk del cheburnet</code> по SSH), Wi-Fi, пароль роутера. Настроить
+        заново можно сразу отсюда — мастер откроется по ссылке, которая появится после сброса.</p>
       <label>
         <span>Введите слово <code>RESET</code> для подтверждения</span>
         <input type="text" bind:value={resetWord} placeholder="RESET" />
@@ -704,13 +764,29 @@
         </button>
       </div>
     {/if}
+    {#if resetPhase === 'running'}
+      <p><span class="spinner"></span> Снимаю конфигурацию — роутер на несколько секунд
+        перезапустит сеть.</p>
+    {/if}
     {@render actionNote('danger')}
+    <!-- Путь назад в мастер: ссылка несёт свежий токен, выпущенный сбросом (reset.uc), поэтому
+         человек проходит настройку сразу и не упирается в «запустите bootstrap по SSH».
+         Токена нет (метод не ответил) — честно показываем путь через SSH, а не битую ссылку. -->
+    {#if resetPhase === 'ok'}
+      {#if resetToken}
+        <p class="ok-msg">Можно настраивать заново:
+          <a href="?token={encodeURIComponent(resetToken)}">открыть мастер настройки</a>.</p>
+      {:else}
+        <p class="muted small">Чтобы настроить заново, запустите команду установки по SSH — она
+          напечатает новую ссылку на мастер.</p>
+      {/if}
+    {/if}
   {:else}
     <p class="muted">Загрузка…</p>
   {/if}
 
   <hr />
-  <button onclick={onReinstall}>Настроить заново</button>
+  <button onclick={reinstall}>Настроить заново</button>
 
   {#if loginOpen}
     <div class="modal-back" role="presentation" onclick={() => (loginOpen = false)}>

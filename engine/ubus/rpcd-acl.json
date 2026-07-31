@@ -51,6 +51,7 @@
                     "replace_awg_conf",
                     "replace_reality_conf",
                     "replace_hysteria2_conf",
+                    "install_token",
                     "factory_reset"
                 ]
             }

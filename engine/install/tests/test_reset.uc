@@ -1,7 +1,8 @@
 // test_reset.uc — host-тест полного teardown'а (install/reset.uc) через фейки (harness.uc).
 //
 // Инварианты: reset снимает data-plane (firewall teardown), наши uci-секции (имена — из
-// шагов-владельцев, не хардкод) и /etc/cheburnet ЦЕЛИКОМ; идемпотентен (повтор на чистой
+// шагов-владельцев, не хардкод) и /etc/cheburnet ЦЕЛИКОМ, включая install-токен (новый выпускает
+// ubus-метод install_token по запросу владельца, а не сброс); идемпотентен (повтор на чистой
 // системе — no-op без ошибок). Пакеты/Wi-Fi/пароль root не трогаются (проверяем от противного:
 // в calls-логе нет apk/wifi/passwd). Живой fw4/netifd — QEMU; здесь — состав действий.
 
@@ -27,6 +28,17 @@ test("reset: /etc/cheburnet снят целиком, data-plane и туннел�
 	ok(index(log, "delete network.awg0") >= 0, "секции AWG-туннеля сняты");
 	ok(index(log, "delete network.singtun") >= 0, "секции reality-туннеля сняты (независимо от протокола)");
 	ok(index(log, "delete dhcp.@dnsmasq[0].noresolv") >= 0, "dnsmasq возвращён к обычному резолву");
+	cleanup(sb);
+});
+
+// Токен сброс НЕ оставляет намеренно: лежащий без спроса токен — это стоящий без нужды пропуск на
+// установку. Выпускает его ubus-метод install_token, когда владелец действительно идёт настраивать
+// заново (проверка выпуска — test_rpcd/QEMU, здесь фиксируем именно отсутствие).
+test("reset не оставляет install-токен (пропуск не лежит без спроса)", () => {
+	let sb = mk_sandbox();
+	seed_installed(sb);
+	run_uc(sb, "install/reset.uc");
+	ok(!access(sb.etc + "/install-token"), "токен снят вместе с каталогом");
 	cleanup(sb);
 });
 
