@@ -11,6 +11,9 @@
 #   make qemu-webui-v2    — T3b: VM smoke с HTTP/ubus через uhttpd + UI (~3мин, нужен интернет).
 #   make qemu-install-v2  — T3c: DEPENDS + data-plane против реальных сервисов (~5-8мин,
 #                            нужен интернет). Release-gate.
+#   make qemu-rollback-v2 — T3g: ПОЛНАЯ установка через ubus + откат при мёртвом сервере
+#                            (~5-8мин, интернет). Единственная живая проверка оркестратора.
+#   make qemu-reboot-v2   — T3h: конфигурация переживает перезагрузку роутера (~6-9мин, интернет).
 #   make qemu-reality-v2  — T3d: обвязка VLESS+Reality на живом OpenWrt (~4-6мин, интернет).
 #   make qemu-hysteria-v2 — T3e: обвязка Hysteria2 + замер веса Full-тира (~4-6мин, интернет).
 #   make qemu-netem-v2    — T3f: ЗАМЕР goodput/CPU при потерях (netem), QUIC против TCP
@@ -18,7 +21,7 @@
 #   make qemu-live-vps    — T4a: трафик НАСКВОЗЬ через настоящий сервер Full-тира. Нужен
 #                            поднятый стенд (tests/vps/) — не для CI.
 
-.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2 qemu-hysteria-v2 qemu-netem-v2 qemu-live-vps
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-rollback-v2 qemu-reboot-v2 qemu-reality-v2 qemu-hysteria-v2 qemu-netem-v2 qemu-live-vps
 
 lint:
 	@bash tests/lint.sh
@@ -62,6 +65,22 @@ qemu-install-v2:
 # без деструктивных эффектов. Нужен интернет в VM (apk add uhttpd-mod-ubus).
 qemu-webui-v2:
 	@./tests/qemu/webui-v2.sh
+
+# T3g-v2 — ПОЛНАЯ установка через ubus и ОТКАТ на живом OpenWrt: оркестратор доходит до
+# health-check, мёртвый сервер НЕ выдаётся за успех, steps/vpn/apply.uc применяется
+# по-настоящему (kmod в ядре), откат возвращает network/dnsmasq/install.json как было,
+# токен остаётся, интернет на роутере цел. Рабочий VPN-сервер НЕ нужен — это и есть
+# случай «сервера нет». Нужен интернет для apk. ~5-8 мин с KVM.
+qemu-rollback-v2:
+	@./tests/qemu/rollback-v2.sh
+
+# T3h-v2 — data-plane ПЕРЕЖИВАЕТ ПЕРЕЗАГРУЗКУ: kill-switch и наборы возвращаются в ядро сами
+# (правила в /etc/nftables.d, а не в памяти), dnsmasq/https-dns-proxy стартуют по procd, мост
+# «домен→IP→набор» работает после загрузки. fw4 reload покрыт install-v2, но полный ребут со
+# всеми init-скриптами — нет, а он случается у каждого. Рабочий VPN-сервер НЕ нужен.
+# Нужен интернет для apk. ~6-9 мин с KVM.
+qemu-reboot-v2:
+	@./tests/qemu/reboot-v2.sh
 
 # T3d-v2 — Full-тир (VLESS+Reality) data-plane WIRING на живом OpenWrt: singbox-шаг
 # применяет config.json + netifd-маршрут singtun0 (half-routes), connectivity-probe

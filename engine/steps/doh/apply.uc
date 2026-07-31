@@ -53,6 +53,7 @@ if (dry) {
 	for (let i = 0; i < length(plan.hdp_teardown); i++) print("  " + plan.hdp_teardown[i] + "\n");
 	for (let i = 0; i < length(plan.hdp_setup); i++)    print("  " + plan.hdp_setup[i] + "\n");
 	for (let i = 0; i < length(plan.dnsmasq_ops); i++)  print("  " + plan.dnsmasq_ops[i] + "\n");
+	for (let i = 0; i < length(plan.dnsmasq_cleanup ?? []); i++) print("  " + plan.dnsmasq_cleanup[i] + "\n");
 	exit(0);
 }
 
@@ -70,6 +71,11 @@ if (rc != 0)
 let rc2 = uci_batch(plan.dnsmasq_ops, "dhcp");
 if (rc2 != 0)
 	die(sprintf("doh/apply: uci batch (dhcp upstream) не прошёл (код %d)", rc2));
+// Уборка служебных ключей пакета — СВОИМ батчем, и код возврата тут игнорируем осознанно:
+// отсутствие ключей нормально (повторное применение, чистая система), а uci_batch считает сбоем
+// любой вывод, включая «Entry not found». В обязательном батче эти строки роняли шаг на повторе.
+// Зачем уборка вообще — WHY в doh.uc (пакет иначе восстанавливает сток при каждой перезагрузке).
+uci_batch(plan.dnsmasq_cleanup ?? [], "dhcp");
 
 sh("/etc/init.d/https-dns-proxy restart >/dev/null 2>&1");
 sh("/etc/init.d/dnsmasq reload >/dev/null 2>&1 || /etc/init.d/dnsmasq restart >/dev/null 2>&1");

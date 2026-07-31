@@ -112,9 +112,32 @@ function build_doh_plan(current, opts) {
 	for (let i = 0; i < length(rec.add); i++)
 		push(dops, sprintf("add_list dhcp.%s.server='%s'", sect, rec.add[i]));
 
+	// Снимаем СЛУЖЕБНЫЕ ключи пакета в секции dnsmasq — иначе шифрованный DNS отключался сам
+	// после первой же перезагрузки, молча (поймано qemu-reboot-v2, 2026-07-31).
+	//
+	// Механика: при установке пакет сам правит dnsmasq и запоминает «как было» в
+	// doh_backup_noresolv (или '-1', если ключа не было) и doh_backup_server, а свои
+	// upstream-записи помечает списком doh_server. При остановке — в том числе при КАЖДОМ
+	// ребуте — он восстанавливает dnsmasq из этих ключей. Мы забрали управление себе
+	// (dnsmasq_config_update='-'), но пакет не знает, что noresolv и server теперь наши: он
+	// добросовестно возвращал сток, и dnsmasq снова шёл к резолверу провайдера. Split-routing
+	// при этом продолжал работать, поэтому снаружи всё выглядело здоровым.
+	//
+	// ОТДЕЛЬНЫМ списком, а не в dnsmasq_ops: отсутствие ключей — норма (второй запуск, чистая
+	// система), а uci_batch считает сбоем ЛЮБОЙ вывод, включая «Entry not found». В обязательном
+	// батче эти строки роняли шаг при повторном применении — поймано release-gate'ом на смене
+	// провайдера. Здесь rc игнорируется осознанно (см. apply.uc).
+	let cleanup = [];
+	if (o.manage_dnsmasq) {
+		push(cleanup, sprintf("delete dhcp.%s.doh_backup_noresolv", sect));
+		push(cleanup, sprintf("delete dhcp.%s.doh_backup_server", sect));
+		push(cleanup, sprintf("delete dhcp.%s.doh_server", sect));
+	}
+
 	return {
 		ok: true, errors: [],
 		hdp_teardown: td, hdp_setup: su, dnsmasq_ops: dops,
+		dnsmasq_cleanup: cleanup,
 		servers: desired,
 	};
 }

@@ -115,15 +115,26 @@ echo "→ AmneziaWG тем же путём, что на роутере (vendored
 # rc инсталлятора игнорируем осознанно — как в bootstrap.sh: upstream делает exit 1, когда нет
 # ассета luci-proto (нам он не нужен). Проверяем ФАКТ установки нужных двух пакетов.
 vm_scp "$REPO_ROOT/vendor/amneziawg-install.sh" "/tmp/awg-install.sh"
-vm_ssh "sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
-AWG_OK=1
+# Ретраим САМ ИНСТАЛЛЯТОР, а не только apk: он тянет ассет с GitHub, и фильтрующая сеть рвёт
+# запрос («Failed to send request: Operation not permitted»). Прогон при этом падал с диагнозом
+# «нет сборки под эту версию OpenWrt» — то есть указывал на upstream при полностью рабочей сборке.
+AWG_OK=0
+for attempt in 1 2 3; do
+    vm_ssh "sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
+    AWG_OK=1
+    for pkg in $AWG_DEPS; do
+        vm_ssh "apk list --installed 2>/dev/null | grep -q '^$pkg-[0-9]'" || AWG_OK=0
+    done
+    [ "$AWG_OK" = "1" ] && break
+    echo "    попытка $attempt не удалась (скачивание ассета), повтор через 15с"
+    sleep 15
+done
 for pkg in $AWG_DEPS; do
     if vm_ssh "apk list --installed 2>/dev/null | grep -q '^$pkg-[0-9]'"; then
         echo "  ✓ $pkg"
     else
         echo "  ✗ $pkg не установлен — нет сборки под OpenWrt $OPENWRT_VERSION у awg-openwrt?"
         vm_ssh "tail -15 /tmp/awg-install.log" || true
-        AWG_OK=0
     fi
 done
 [ "$AWG_OK" = "1" ] || {

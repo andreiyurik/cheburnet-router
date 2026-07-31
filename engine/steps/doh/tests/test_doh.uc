@@ -86,6 +86,24 @@ test("manage_dnsmasq=false: строк отключения авто-привя�
 	ok(index(join("\n", p.hdp_setup), "dnsmasq_config_update") < 0);
 });
 
+// Регресс, найденный qemu-reboot-v2: пакет восстанавливает dnsmasq из своих служебных ключей при
+// каждой остановке (в т.ч. при ребуте) — и уносил наш noresolv с апстримом. Шифрованный DNS
+// отключался сам, молча, при живом split-routing. Забрали управление → служебные ключи обязаны
+// исчезнуть: восстанавливать нечего, значит ломать нечего.
+test("manage_dnsmasq=true: служебные ключи пакета в секции dnsmasq снимаются", () => {
+	let p = build_doh_plan({ hdp_sections: [], servers: [] }, {});
+	let ops = join("\n", p.dnsmasq_cleanup);
+	// В обязательный батч они попасть НЕ должны: «Entry not found» там роняет шаг на повторе.
+	ok(index(join("\n", p.dnsmasq_ops), "doh_backup") < 0, "уборка идёт отдельным списком");
+	ok(index(ops, "delete dhcp.@dnsmasq[0].doh_backup_noresolv") >= 0, "снят бэкап noresolv");
+	ok(index(ops, "delete dhcp.@dnsmasq[0].doh_backup_server") >= 0, "снят бэкап server");
+	ok(index(ops, "delete dhcp.@dnsmasq[0].doh_server") >= 0, "снят маркер своих upstream-записей");
+});
+test("manage_dnsmasq=false: служебные ключи пакета НЕ трогаем (управляет он)", () => {
+	let p = build_doh_plan({ hdp_sections: [], servers: [] }, { manage_dnsmasq: false });
+	ok(index(join("\n", p.dnsmasq_cleanup), "doh_backup") < 0, "чужим владением не распоряжаемся");
+});
+
 // --- валидация ---
 test("валидация: пустой список резолверов → ok=false", () => {
 	let p = build_doh_plan({ hdp_sections: [], servers: [] }, { resolvers: [] });
