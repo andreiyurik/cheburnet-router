@@ -59,9 +59,21 @@ network namespace — проверяет, что сгенерированные 
 make qemu-v2           # T3a: hermetic smoke, без интернета, ~2 мин
 make qemu-webui-v2     # T3b: + HTTP/ubus через uhttpd, нужен интернет, ~3 мин
 make qemu-install-v2   # T3c: DEPENDS + data-plane на реальном apk-feed, ~5-8 мин
+make qemu-reality-v2   # T3d: обвязка VLESS+Reality на живом netifd, ~4-6 мин
+make qemu-hysteria-v2  # T3e: обвязка Hysteria2 + замер веса Full-тира, ~4-6 мин
+make qemu-netem-v2     # T3f: ЗАМЕР goodput/CPU при потерях (QUIC vs TCP), ~6-10 мин
 ```
 
-Поднимают OpenWrt-snapshot x86-64 в qemu/KVM и гоняют движок на **реальном** busybox-окружении
+T3d/T3e герметичны: рабочий внешний сервер НЕ нужен — проверяется наша обвязка (генерация
+конфига, netifd-маршрут, TUN, проба, teardown), а недостижимость сервера-заглушки как раз и
+обязана валить пробу. T3e вдобавок подтверждает фактом два допущения ADR 0004: `sing-box-tiny`
+ставит тот же бинарь `sing-box` и её сборка **умеет** hysteria2.
+
+T3f — не гейт, а **измеритель**: он печатает цифры (goodput и CPU при `tc netem loss 0/5/15 %`) и
+валится только на сломанном стенде. Цифры переносятся в ADR 0004 руками — железо CI разное, и
+гейтить релиз по ним нельзя.
+
+Поднимают релизный образ OpenWrt x86-64 в qemu/KVM и гоняют движок на **реальном** busybox-окружении
 (не host-bash/gawk, на которых работают T1/T2). Детали и что именно каждый уровень покрывает —
 [tests/qemu/README.md](qemu/README.md). Гейтят CI: `qemu-v2-smoke` на каждый push/PR,
 `qemu-install-v2` — release-gate (нужен интернет, не гоняется на PR).

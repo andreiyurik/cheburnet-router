@@ -5,7 +5,7 @@
 #   • singbox-шаг РЕАЛЬНО применяется на живом netifd/uci: config.json пишется, создаётся
 #     интерфейс network.singtun (proto none) + half-routes, sing-box поднимает TUN singtun0,
 #     netifd ставит 0.0.0.0/1 + 128.0.0.0/1 dev singtun0 в main-таблицу.
-#   • connectivity-probe (reality_connectivity) на ЖИВОЙ системе КОРРЕКТНО валит неработающий
+#   • connectivity-probe (tunnel_connectivity) на ЖИВОЙ системе КОРРЕКТНО валит неработающий
 #     туннель (сервер-заглушка недостижим) — подтверждение fail-safe: процесс жив ≠ туннель везёт.
 #   • teardown снимает интерфейс+маршрут+сервис начисто (LAN не остаётся без интернета).
 #
@@ -14,6 +14,8 @@
 # пишем; сам Reality-handshake sing-box (не наш код) тут заведомо не проходит, и это ОЖИДАЕМО:
 # проба обязана его отвергнуть. Полный трафик через живой Reality-сервер — только на железе с
 # внешним VPS (см. ADR 0004, раздел «что НЕ подтверждено живьём»).
+#
+# Замер потерь/goodput — отдельный стенд (make qemu-netem-v2); Hysteria2-обвязка — qemu-hysteria-v2.
 #
 # Запуск: make qemu-reality-v2 (нужен интернет для apk). ~4-6 мин с KVM.
 
@@ -69,12 +71,16 @@ for pkg in kmod-tun ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus ip-full; do
 done
 
 FREE_BEFORE_SB="$(free_kb)"
-echo "→ Ставлю sing-box (замер веса Full-тира)"
-apk_try "apk add sing-box" || { echo "  ✗ sing-box не ставится из feed"; exit 1; }
+# sing-box-tiny — предпочтительная сборка Full-тира (ADR 0004): те же нужные теги (with_utls для
+# Reality, with_quic для Hysteria2), но легче. Она объявляет PROVIDES:=sing-box и ставит ТОТ ЖЕ
+# /usr/bin/sing-box — на это допущение опирается весь детект Full-тира, поэтому проверяем фактом.
+echo "→ Ставлю sing-box-tiny (замер веса Full-тира)"
+apk_try "apk add sing-box-tiny" || { echo "  ✗ sing-box-tiny не ставится из feed"; exit 1; }
+vm_ssh "command -v sing-box >/dev/null" \
+    || { echo "  ✗ бинарь sing-box не появился — PROVIDES сломан, детект Full-тира не работает"; exit 1; }
 FREE_AFTER_SB="$(free_kb)"
 SB_KB=$(( FREE_BEFORE_SB - FREE_AFTER_SB ))
-echo "  ✓ sing-box занял $SB_KB КБ (≈ $(( SB_KB / 1024 )) МБ) на флеше"
-# Сборка и её фичи: понять, что внутри (VLESS/Reality/uTLS) — на случай перехода на sing-box-tiny.
+echo "  ✓ sing-box-tiny занял $SB_KB КБ (≈ $(( SB_KB / 1024 )) МБ) на флеше, бинарь sing-box на месте"
 vm_ssh "sing-box version" 2>/dev/null | sed 's/^/    /' || true
 
 echo "→ Раскладываю движок v2 (как пакет)"
@@ -160,12 +166,12 @@ else
 fi
 
 # ─── 2. connectivity-probe отвергает неработающий туннель (fail-safe) ─────────
-# Сервер недостижим → байты через туннель не идут → reality_connectivity ОБЯЗАН вернуть false.
+# Сервер недостижим → байты через туннель не идут → tunnel_connectivity ОБЯЗАН вернуть false.
 # Это суть надёжности: «процесс жив» тут true (pgrep sing-box), но проба смотрит на ТРАФИК.
 echo "→ connectivity-probe на живой системе — должен ОТВЕРГНУТЬ мёртвый туннель"
 cat > "$WORK/probe-check.uc" <<'UC'
-import { reality_connectivity } from "/usr/share/cheburnet/engine/install/probe.uc";
-printf("%s\n", reality_connectivity("singtun0") ? "UP" : "DOWN");
+import { tunnel_connectivity } from "/usr/share/cheburnet/engine/install/probe.uc";
+printf("%s\n", tunnel_connectivity("singtun0") ? "UP" : "DOWN");
 UC
 vm_scp "$WORK/probe-check.uc" "/tmp/probe-check.uc"
 probe="$(vm_ssh 'ucode -R /tmp/probe-check.uc 2>/dev/null')"
@@ -198,7 +204,7 @@ echo "  ✓ tunnel_health=down"
 # Порог прочитан заранее (FULL_MIN_FLASH) — из блока FULL_REQUIREMENTS preflight.uc.
 SB_MB=$(( SB_KB / 1024 ))
 echo ""
-echo "→ ЗАМЕР Full-тира: sing-box = $SB_KB КБ (≈ $SB_MB МБ), порог min_flash_mb = $FULL_MIN_FLASH МБ"
+echo "→ ЗАМЕР Full-тира: sing-box-tiny = $SB_KB КБ (≈ $SB_MB МБ), порог min_flash_mb = $FULL_MIN_FLASH МБ"
 if [ "$SB_MB" -ge "$FULL_MIN_FLASH" ]; then
     echo "  ✗ ПОРОГ ЗАНИЖЕН: sing-box не влезает в заявленный минимум Full-тира"
     exit 1

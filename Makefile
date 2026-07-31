@@ -11,8 +11,12 @@
 #   make qemu-webui-v2    — T3b: VM smoke с HTTP/ubus через uhttpd + UI (~3мин, нужен интернет).
 #   make qemu-install-v2  — T3c: DEPENDS + data-plane против реальных сервисов (~5-8мин,
 #                            нужен интернет). Release-gate.
+#   make qemu-reality-v2  — T3d: обвязка VLESS+Reality на живом OpenWrt (~4-6мин, интернет).
+#   make qemu-hysteria-v2 — T3e: обвязка Hysteria2 + замер веса Full-тира (~4-6мин, интернет).
+#   make qemu-netem-v2    — T3f: ЗАМЕР goodput/CPU при потерях (netem), QUIC против TCP
+#                            (~6-10мин, интернет). Печатает цифры, релиз не гейтит.
 
-.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2 qemu-hysteria-v2 qemu-netem-v2
 
 lint:
 	@bash tests/lint.sh
@@ -63,3 +67,18 @@ qemu-webui-v2:
 # Reality-сервер НЕ нужен (герметично). Нужен интернет для apk. ~4-6 мин с KVM.
 qemu-reality-v2:
 	@./tests/qemu/reality-v2.sh
+
+# T3e-v2 — Hysteria2 (Full-тир) на живом OpenWrt: сборка sing-box-tiny РЕАЛЬНО умеет hysteria2
+# (sing-box check принимает наш конфиг), port hopping доезжает в server_ports, TUN и маршруты
+# встают, битый конфиг отвергается ДО подмены рабочего, проба отвергает мёртвый туннель,
+# teardown чистит. Плюс ЗАМЕР веса Full-тира и сверка с порогом preflight в обе стороны.
+# Рабочий Hysteria2-сервер НЕ нужен. Нужен интернет для apk. ~4-6 мин с KVM.
+qemu-hysteria-v2:
+	@./tests/qemu/hysteria-v2.sh
+
+# T3f-v2 — ЗАМЕР ради которого Hysteria2 и берут: goodput и CPU при tc netem loss 0/5/15 %.
+# Герметичный стенд целиком внутри VM (netns-сервер + veth + netem): QUIC (наш сгенерированный
+# hysteria2-конфиг) против TCP через тот же sing-box, плюс baseline без туннеля. Печатает цифры
+# для ADR 0004; релиз по ним НЕ гейтится (железо CI разное). Нужен интернет. ~6-10 мин с KVM.
+qemu-netem-v2:
+	@./tests/qemu/netem-v2.sh

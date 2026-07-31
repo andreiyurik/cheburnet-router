@@ -16,6 +16,9 @@ updated: 2026-07-10
 - [ ] `make lint` — shellcheck/POSIX-проверки.
 - [ ] `make test-engine` — юниты движка на ucode.
 - [ ] CI на `master`: `engine-tests`, `qemu-v2-smoke`, `qemu-install-v2` — зелёные.
+- [ ] Если менялся Full-тир (sing-box, протоколы, пороги): локально `make qemu-reality-v2` и
+      `make qemu-hysteria-v2` — зелёные. Второй печатает ЗАМЕР веса бинаря: сверить его с
+      `min_flash_mb` в `FULL_REQUIREMENTS` и с таблицей в [[hardware-requirements]].
 - [ ] `PKG_VERSION` в `package/cheburnet/Makefile` **увеличен** относительно предыдущего тега
       (иначе `apk add` на роутерах с уже установленным пакетом будет no-op — см.
       [[bootstrap#Обновление|bootstrap]]).

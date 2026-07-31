@@ -16,7 +16,8 @@
 #   make test-netns          # или:  sh tests/netns/dataplane.sh
 #   NETNS_REQUIRE=1 …         # в CI: отсутствие инструментов = ФЕЙЛ, а не тихий скип
 #
-# Покрывает: split (direct→WAN, остальное→туннель) для awg0 И singtun0; kill-switch антиутечку
+# Покрывает: split (direct→WAN, остальное→туннель) для awg0 И singtun0 (общий интерфейс обоих
+# Full-протоколов — Reality и Hysteria2); kill-switch антиутечку
 # (туннель упал → непрямой трафик ДРОПается, не течёт в WAN); travel (весь трафик в туннель);
 # идентичность data-plane обоих протоколов; реальный dnsmasq: резолв direct-домена → IP попадает
 # в @direct → маршрут уходит в WAN (мост «домен→IP→set», главный шрам v1).
@@ -316,8 +317,11 @@ require_or_skip
 
 printf '\033[1mnetns data-plane тест — поведение split-routing после установки\033[0m\n'
 
-# Чистая проверка (без netns): data-plane awg и reality ИДЕНТИЧЕН — kill-switch/пометка не зависят
-# от имени туннеля (ключуются по WAN-oifname и метке). Это доказывает «туннель взаимозаменяем».
+# Чистая проверка (без netns): data-plane в ядре и на sing-box ИДЕНТИЧЕН — kill-switch/пометка не
+# зависят ни от имени туннеля, ни от протокола (ключуются по WAN-oifname и метке пакета, БЕЗ портов).
+# Это доказывает «туннель взаимозаменяем» и заодно то, что port hopping Hysteria2 не требует правок
+# firewall-слоя: портов в правилах нет. Оба Full-протокола едут на singtun0, поэтому проверка
+# awg0 vs singtun0 покрывает и Reality, и Hysteria2.
 hdr "Идентичность data-plane (awg0 vs singtun0)"
 nft_awg=$(emit '{"what":"nft","domains":["x.example"],"routing_opts":{"ipv6":false,"wan_if":"wan0","mode":"home"},"fw_opts":{"tunnel_if":"awg0"}}')
 nft_rea=$(emit '{"what":"nft","domains":["x.example"],"routing_opts":{"ipv6":false,"wan_if":"wan0","mode":"home"},"fw_opts":{"tunnel_if":"singtun0"}}')
@@ -354,7 +358,7 @@ done
 hdr "ИТОГ"
 if [ "$rc" -eq 0 ] && [ "$fail" -eq 0 ]; then
 	printf '  \033[32mРазделение трафика и kill-switch подтверждены на реальном ядре\n'
-	printf '  (форвард-путь, реальный вывод движка) — для AmneziaWG и VLESS+Reality.\033[0m\n'
+	printf '  (форвард-путь, реальный вывод движка) — для AmneziaWG и Full-тира (singtun0).\033[0m\n'
 	exit 0
 fi
 printf '  \033[31mЕсть провалы — смотри выше.\033[0m\n'

@@ -27,6 +27,11 @@ updated: 2026-06-08
 7. [[kill-switch]] — защита от утечки, если туннель упал
 8. [[adblock]] — блокировка рекламы на уровне DNS
 
+Запасные туннели Full-тира (нужны, когда основной не выручает — каждый лечит СВОЮ поломку):
+
+- [[vless-reality]] — трафик через VPN вообще не проходит (DPI, активное зондирование, блок UDP)
+- [[hysteria2]] — трафик проходит, но теряет пакеты: тормозит и рвётся (QUIC, Brutal, port hopping)
+
 ## 🏗 Архитектура (как примитивы собраны в систему)
 
 - [[architecture-overview]] — слои целиком
@@ -41,7 +46,7 @@ updated: 2026-06-08
 - [[0001-why-not-singbox]] — почему ушли от sing-box к примитивам ядра
 - [[0002-ucode-over-go]] — почему движок на ucode, а не на Go
 - [[0003-svelte-for-ui]] — почему Svelte для веб-мастера
-- [[0004-multi-protocol-tiers]] — тиры железа + AmneziaWG/Reality/Hysteria2 под устойчивость к DPI
+- [[0004-multi-protocol-tiers]] — тиры железа + три оси покрытия: AmneziaWG / Reality / Hysteria2
 - [[0005-dns-filtering-not-local-adblock]] — фильтрация рекламы/контента = выбор DNS-провайдера
 
 ## 📖 Справка
