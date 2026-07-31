@@ -73,12 +73,13 @@
 
   const active = $derived(protocolInfo(protocol));
 
-  // Загрузка конфига файлом (вставить нормису тяжело — даём три пути: файл/вставка/—).
-  // Только для .conf: ссылку файлом не приносят.
+  // Загрузка конфига файлом — только у протоколов с `file: true` (.conf у AmneziaWG; ссылку
+  // файлом не приносят). Пишем в АКТИВНЫЙ протокол, а не в awg жёстко: иначе появление второго
+  // файлового протокола молча уводило бы файл не в то поле.
   async function onFile(e) {
     const f = e.target.files?.[0];
     if (!f) return;
-    confs.awg = await f.text();
+    confs[active.id] = await f.text();
   }
 
   // Валидация и сборка аргументов install — чистая validateSetup (logic.js, под vitest).

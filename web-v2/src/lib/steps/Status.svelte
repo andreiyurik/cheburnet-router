@@ -20,8 +20,12 @@
   let resetArmed = $state(false);
   let fullPhase = $state('idle'); // догрузка компонента: idle | running | ok | fail
   let fullLog = $state('');
-  // Смена туннеля: конфиги хранятся ПО ПРОТОКОЛАМ (переключение блоков не теряет вставленное).
+  // Смена туннеля: конфиги хранятся ПО ПРОТОКОЛАМ (переключение выбора не теряет вставленное).
   let switchConfs = $state({ awg: '', reality: '', hysteria2: '' });
+  // switchPick — ВЫБРАННОЕ направление (радио), switchTarget — то, что уже переключается.
+  // Раньше блоков было по одному на протокол: три похожих поля для ссылок на одной странице, и
+  // вставить в чужое — обычное дело. Теперь как в мастере: сначала выбор по симптому, потом одно поле.
+  let switchPick = $state('');
   let switchTarget = $state('');  // направление текущего свитча
   let switchPhase = $state('idle');
   let switchLog = $state('');
@@ -128,6 +132,14 @@
   const active = $derived(protocolInfo(s?.protocol));
   const fallback = $derived(tunnelFallback(s));
   const targets = $derived(switchTargets(s));
+  // Выбранное направление смены туннеля. Эффект, а не $derived: значение принадлежит радио
+  // (пользователь его меняет), а список вариантов приходит асинхронно и меняется после каждого
+  // переключения — активный протокол из targets уходит. Досеиваем на первый доступный, чтобы поле
+  // ссылки и кнопка никогда не остались без протокола.
+  $effect(() => {
+    if (targets.length > 0 && !targets.some((p) => p.id === switchPick)) switchPick = targets[0].id;
+  });
+  const pick = $derived(protocolInfo(switchPick));
   // Чего не хватает железу для Full-тира (status.full_missing) — человеческими словами.
   const fullMissing = $derived(fullMissingText(s?.full_missing));
   const setProvider = () =>
@@ -139,10 +151,10 @@
     if (!f) return;
     replaceConf = await f.text();
   }
-  async function onSwitchFile(e) {
+  async function onSwitchFile(e, id) {
     const f = e.target.files?.[0];
     if (!f) return;
-    switchConfs.awg = await f.text();
+    switchConfs[id] = await f.text();
   }
 
   // hy2Conf(id, conf) — ссылка Hysteria2 с объявленной скоростью, если владелец её включил.
@@ -297,6 +309,37 @@
   }
 </script>
 
+<!-- Скорость канала (Brutal) — сниппет, потому что рендерится РЯДОМ С ПОЛЕМ, к которому относится:
+     в замене сервера, если Hysteria2 уже активен, и в смене туннеля, если на него переключаются.
+     Раньше блок стоял единожды в конце страницы — то есть НИЖЕ кнопок, которые его применяют, и
+     человек нажимал раньше, чем узнавал о настройке. Оба места одновременно не выпадают: активный
+     протокол в targets не попадает, поэтому общее состояние declareSpeed однозначно.
+     Поле не голое сознательно: завышенная цифра делает связь ХУЖЕ и молча (см. ADR 0004). -->
+{#snippet speedFields()}
+  <h4>Скорость канала</h4>
+  <label class="radio">
+    <input type="radio" bind:group={declareSpeed} value={false} disabled={busy} />
+    <span><strong>Подбирать автоматически</strong> — рекомендуем.</span>
+  </label>
+  <label class="radio">
+    <input type="radio" bind:group={declareSpeed} value={true} disabled={busy} />
+    <span><strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями.</span>
+  </label>
+  {#if declareSpeed}
+    <p class="warn">Указывайте скорость, которую интернет <strong>реально держит</strong>, и
+      лучше немного меньше. Если написать больше, чем есть, связь станет <strong>хуже</strong>:
+      вырастут задержки и начнутся обрывы — и никакой ошибки при этом не появится.</p>
+    <label>
+      <span>Скорость приёма (Мбит/с)</span>
+      <input type="number" min="1" max="10000" bind:value={speedDown} disabled={busy} />
+    </label>
+    <label>
+      <span>Скорость отдачи (Мбит/с)</span>
+      <input type="number" min="1" max="10000" bind:value={speedUp} disabled={busy} />
+    </label>
+  {/if}
+{/snippet}
+
 <section>
   <h2>Состояние</h2>
 
@@ -328,7 +371,11 @@
         <p class="note">
           Вставили свежий конфиг, а туннель всё равно не поднимается? Значит дело, скорее всего, не
           в сервере, а в сети. Компонент уже установлен — попробуйте другой туннель:
-          {#each fallback.targets as t, i}{#if i > 0}, {/if}<a href="#switch-{t}">{protocolInfo(t).name}</a>{/each}.
+          <!-- Ссылка не только ведёт к блоку, но и ВЫБИРАЕТ там нужный туннель: человек попадает
+               на готовое поле, а не выбирает второй раз то, что уже выбрал здесь. href оставлен
+               настоящим (работает и без JS, и как обычная ссылка на якорь). -->
+          {#each fallback.targets as t, i}{#if i > 0}, {/if}<a href="#switch-tunnel"
+            onclick={() => (switchPick = t)}>{protocolInfo(t).name}</a>{/each}.
           Переключение обратимо: если новый не поднимется, прежний вернётся сам.
         </p>
       {/if}
@@ -390,6 +437,16 @@
     </ul>
 
     <h3>Управление</h3>
+    <!-- Подсказка про вход — ЗДЕСЬ, перед первой кнопкой. Раньше она стояла в конце страницы:
+         человек прокручивал экран серых неактивных кнопок и только внизу узнавал, почему они серые. -->
+    {#if loggedIn}
+      <p class="muted small">Вы вошли как root. <button class="linklike" onclick={doLogout}>Выйти</button></p>
+    {:else}
+      <p class="muted small">
+        Управляющие действия ниже требуют входа.
+        <button class="linklike" onclick={() => (loginOpen = true)}>Войти</button>
+      </p>
+    {/if}
     <div class="row">
       <button disabled={busy} onclick={() => setMode(s.mode === 'travel' ? 'home' : 'travel')}>
         {s.mode === 'travel' ? 'Режим «Дома» — выбранные сайты напрямую' : 'Режим «В поездке» — весь трафик через VPN'}
@@ -434,6 +491,7 @@
         <input type="file" accept=".conf,text/plain" onchange={onReplaceFile} disabled={busy} />
       </label>
     {/if}
+    {#if active.id === 'hysteria2'}{@render speedFields()}{/if}
     <div class="row">
       <button disabled={busy || replaceConf.trim().length === 0} onclick={replaceTunnel}>
         {replacePhase === 'running' ? 'Применяю…' : 'Заменить конфиг'}
@@ -488,33 +546,39 @@
       {/if}
     {/if}
 
-    <!-- Смена туннеля: один блок на каждый доступный вариант. AmneziaWG доступен всегда,
-         Full-протоколы — когда компонент установлен (иначе выше кнопка догрузки). -->
+    <!-- Смена туннеля: СНАЧАЛА выбор направления по симптому (как в мастере), потом одно поле
+         ссылки. Раньше здесь было по блоку на протокол — три похожих поля подряд на одной
+         странице, и вставить ссылку в чужое поле было проще, чем в своё. AmneziaWG доступен
+         всегда, Full-протоколы — когда компонент установлен (иначе выше кнопка догрузки). -->
     {#if targets.length > 0}
-      <h3>Сменить туннель</h3>
+      <h3 id="switch-tunnel">Сменить туннель</h3>
       <p class="muted small">Сейчас активен <strong>{active.name}</strong>. Переключение идёт на
         месте: домены, DNS и режим сохранятся, мастер проходить не нужно. Если новый туннель не
         поднимется, прежний вернётся автоматически.</p>
       {#each targets as p}
-        <h4 id="switch-{p.id}">{p.name} — {p.symptom.toLowerCase()}</h4>
-        <p class="muted small">{p.why}</p>
-        <label>
-          <span>{p.confLabel}</span>
-          <textarea bind:value={switchConfs[p.id]} rows="4" disabled={busy}
-            placeholder={p.placeholder}></textarea>
+        <label class="radio">
+          <input type="radio" bind:group={switchPick} value={p.id} disabled={busy} />
+          <span><strong>{p.symptom}</strong> — {p.why}
+            <br /><small class="muted">Протокол: {p.name}</small></span>
         </label>
-        {#if p.file}
-          <label class="file">
-            <span>…или загрузить файлом</span>
-            <input type="file" accept=".conf,text/plain" onchange={onSwitchFile} disabled={busy} />
-          </label>
-        {/if}
-        <div class="row">
-          <button disabled={busy || (switchConfs[p.id] ?? '').trim().length === 0} onclick={() => switchTo(p)}>
-            {switchPhase === 'running' && switchTarget === p.id ? 'Переключаю…' : `Переключиться на ${p.name}`}
-          </button>
-        </div>
       {/each}
+      <label>
+        <span>{pick.confLabel}</span>
+        <textarea bind:value={switchConfs[switchPick]} rows="4" disabled={busy}
+          placeholder={pick.placeholder}></textarea>
+      </label>
+      {#if pick.file}
+        <label class="file">
+          <span>…или загрузить файлом</span>
+          <input type="file" accept=".conf,text/plain" onchange={(e) => onSwitchFile(e, switchPick)} disabled={busy} />
+        </label>
+      {/if}
+      {#if switchPick === 'hysteria2'}{@render speedFields()}{/if}
+      <div class="row">
+        <button disabled={busy || (switchConfs[switchPick] ?? '').trim().length === 0} onclick={() => switchTo(pick)}>
+          {switchPhase === 'running' && switchTarget === switchPick ? 'Переключаю…' : `Переключиться на ${pick.name}`}
+        </button>
+      </div>
       {#if switchPhase === 'running'}
         <p><span class="spinner"></span> Поднимаю {protocolInfo(switchTarget).name} — при сбое
           вернётся {active.name}.</p>
@@ -527,44 +591,7 @@
       {/if}
     {/if}
 
-    <!-- Скорость канала (Brutal) относится к Hysteria2: и когда он уже активен (замена сервера),
-         и когда на него переключаются. Поле не голое: завышенное значение делает связь ХУЖЕ, и
-         молча — поэтому дефолт автоматический, а ручной режим с предупреждением. -->
-    {#if active.id === 'hysteria2' || targets.some((p) => p.id === 'hysteria2')}
-      <h4>Скорость канала (только для Hysteria2)</h4>
-      <label class="radio">
-        <input type="radio" bind:group={declareSpeed} value={false} disabled={busy} />
-        <span><strong>Подбирать автоматически</strong> — рекомендуем.</span>
-      </label>
-      <label class="radio">
-        <input type="radio" bind:group={declareSpeed} value={true} disabled={busy} />
-        <span><strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями.</span>
-      </label>
-      {#if declareSpeed}
-        <p class="warn">Указывайте скорость, которую интернет <strong>реально держит</strong>, и
-          лучше немного меньше. Если написать больше, чем есть, связь станет <strong>хуже</strong>:
-          вырастут задержки и начнутся обрывы — и никакой ошибки при этом не появится.</p>
-        <label>
-          <span>Скорость приёма (Мбит/с)</span>
-          <input type="number" min="1" max="10000" bind:value={speedDown} disabled={busy} />
-        </label>
-        <label>
-          <span>Скорость отдачи (Мбит/с)</span>
-          <input type="number" min="1" max="10000" bind:value={speedUp} disabled={busy} />
-        </label>
-      {/if}
-    {/if}
-
     {#if action}<p class="muted">{action}</p>{/if}
-
-    {#if loggedIn}
-      <p class="muted small">Вы вошли как root. <button class="linklike" onclick={doLogout}>Выйти</button></p>
-    {:else}
-      <p class="muted small">
-        Управляющие действия требуют входа.
-        <button class="linklike" onclick={() => (loginOpen = true)}>Войти</button>
-      </p>
-    {/if}
 
     <h3 class="danger-h">Опасная зона</h3>
     {#if !resetArmed}

@@ -87,7 +87,7 @@ label.radio > span { display: inline; margin: 0; font-weight: 400; }
 label.radio input { width: auto; margin: 0; }
 label.radio.disabled { cursor: not-allowed; opacity: 0.6; }
 
-textarea, input[type="text"], input[type="password"], select {
+textarea, input[type="text"], input[type="password"], input[type="number"], select {
   width: 100%;
   background: var(--bg);
   color: var(--fg);
@@ -98,6 +98,8 @@ textarea, input[type="text"], input[type="password"], select {
   font-size: 0.9rem;
 }
 textarea { resize: vertical; }
+/* Числовое поле на всю ширину выглядело бы полем для длинного значения — а тут 2–4 цифры. */
+input[type="number"] { width: 8rem; }
 
 button {
   background: var(--card);
@@ -133,8 +135,11 @@ ul.checks .fix { color: var(--muted); font-size: 0.85rem; }
 .risk-accept { display: flex; gap: 0.55rem; align-items: flex-start; margin: 1rem 0 0; font-size: 0.9rem; cursor: pointer; }
 .risk-accept input { flex: none; width: auto; margin: 0.3rem 0 0; }
 
-ul.status li { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
+/* gap обязателен: на узком экране (телефон ~390px) значение упиралось в подпись и читалось
+   как одно слово — «РежимДома — выбранные сайты напрямую». */
+ul.status li { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
 ul.status li span { color: var(--muted); }
+ul.status li strong { text-align: right; }
 ul.status li.ok strong { color: var(--ok); }
 ul.status li.bad strong { color: var(--bad); }
 

@@ -69,7 +69,7 @@ test('мёртвый AWG, компонент уже стоит: ведёт пе�
   // AmneziaWG, значит сеть, которая режет UDP, ломает их вместе. Предлагать его тут = гонять по кругу.
   await expect(hint.getByRole('link', { name: 'Hysteria2' })).toHaveCount(0);
   // Но в общем блоке «Сменить туннель» он доступен — как осознанный выбор, а не как лечение.
-  await expect(page.getByRole('heading', { name: /^Hysteria2 —/ })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /Протокол: Hysteria2/ })).toBeVisible();
 });
 
 test('мёртвый Reality: починка — свежая ссылка, есть куда уйти', async ({ page, request }) => {
