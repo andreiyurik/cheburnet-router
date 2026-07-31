@@ -15,7 +15,7 @@
 // транспорта»): туннель остаётся один (singtun0), значит firewall/policy-routing не знают, какой
 // протокол активен, и health/проба у обоих одни.
 //
-// ИНВАРИАНТ (тот же, что route_allowed_ips='0' у AWG): auto_route=false — маршрутизацией
+// ИНВАРИАНТ (у AWG тот же смысл несёт route_allowed_ips='1'): auto_route=false — маршрутизацией
 // управляет ЯДРО (наш policy-routing / [[policy-routing]]), а НЕ sing-box. sing-box лишь
 // презентует TUN-интерфейс (singtun0); тот же firewall/routing-слой направляет в него
 // помеченный трафик — ровно как в awg0. Тунель становится взаимозаменяемым (Light↔Full).
@@ -84,6 +84,8 @@ function network_sections(opts) {
 // (1) direct-трафик уходит через него по нашей policy-routing (mark→table→WAN); (2) сам sing-box
 // коннектится к Reality-серверу через WAN (auto_detect_interface читает /0-дефолт = WAN — half-
 // routes его не трогают, петли нет). Тот же приём, что `redirect-gateway def1` у OpenVPN.
+// Наличие этого WAN-дефолта — предусловие шага, а не надежда: apply.uc проверяет его перед
+// подъёмом сервиса (pick_wan_fallback из lib/route.uc), потому что AWG умеет его вытеснить.
 //
 // proto none: интерфейс лишь привязан к устройству singtun0 (адрес назначает сам sing-box,
 // 172.19.0.1/30) — netifd не трогает L3, только держит маршруты и ждёт появления устройства.

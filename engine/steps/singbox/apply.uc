@@ -11,6 +11,7 @@
 
 import { stdin, popen } from "fs";
 import { build_singbox_plan, build_net_plan, config_path, service_name, network_sections } from "./singbox.uc";
+import { pick_wan_fallback } from "../../lib/route.uc";
 import { sh, uci_batch } from "../../lib/proc.uc";
 
 let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
@@ -62,6 +63,37 @@ if (!plan.ok) {
 	for (let i = 0; i < length(plan.errors); i++)
 		warn("singbox: " + plan.errors[i] + "\n");
 	exit(1);
+}
+
+// ПРЕДУСЛОВИЕ ШАГА, проверяем ДО любых изменений: в main-таблице обязан быть маршрут по умолчанию
+// МИМО туннелей. sing-box с auto_detect_interface выбирает по нему интерфейс для соединения С
+// СЕРВЕРОМ; без него он не набирает вообще — «dial tcp <сервер>: no route to internet», что читается
+// как «сервер мёртв» при исправном сервере (поймано на живом роутере, 2026-08-01).
+//
+// Туннели ИСКЛЮЧАЕМ оба: и свой TUN (петля), и awg0. Дефолт через awg0 в этот момент — это остаток
+// снятого Light-тира: `ifdown` у netifd асинхронный, поэтому маршрут ещё виден секунду-две, а затем
+// исчезает — принять его за выход в интернет значит поднять sing-box в среду без выхода.
+// Ждём (netifd тоже асинхронный), а не проверяем однократно.
+const TUNNEL_IFS = [ "awg0" ];   // + свой TUN добавляем ниже: он известен из плана
+function wan_ready(tun) {
+	let skip = [ tun ];
+	for (let i = 0; i < length(TUNNEL_IFS); i++) push(skip, TUNNEL_IFS[i]);
+	return pick_wan_fallback(sh("ip -4 route show default 2>/dev/null"), skip) != null;
+}
+if (!dry) {
+	let ok_wan = false;
+	for (let i = 0; i < 10; i++) {
+		if (wan_ready(plan.tun)) { ok_wan = true; break; }
+		// Владелец WAN-маршрута — netifd; просим его переустановить, а не правим таблицу сами.
+		if (i == 0)
+			sh("ifup wan >/dev/null 2>&1");
+		sh("sleep 1");
+	}
+	if (!ok_wan) {
+		warn("singbox: в main-таблице нет маршрута по умолчанию мимо туннелей — sing-box не сможет дозвониться до сервера\n");
+		warn("singbox: проверьте WAN (uci show network.wan; ip route show default) — шаг не применён, туннель не тронут\n");
+		exit(1);
+	}
 }
 
 let config_text = sprintf("%J\n", plan.config);

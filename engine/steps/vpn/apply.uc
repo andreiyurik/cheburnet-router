@@ -10,6 +10,7 @@
 
 import { stdin, popen } from "fs";
 import { sh, uci_batch } from "../../lib/proc.uc";
+import { pick_wan_fallback } from "../../lib/route.uc";
 import { parse_awg_conf, build_vpn_plan, owned_sections } from "./vpn.uc";
 
 // dev_present(iface) — создал ли netifd kernel-устройство интерфейса (ip link).
@@ -29,7 +30,27 @@ if (teardown) {
 	for (let i = 0; i < length(sects); i++)
 		push(ops, "delete network." + sects[i]);
 	uci_batch(ops, "network");
-	printf("vpn: teardown выполнен (интерфейс %s снят из network)\n", sects[0]);
+	// Вернуть WAN его маршрут по умолчанию и ДОЖДАТЬСЯ его. НЕ «на всякий случай»: netifd ставит
+	// default через WAN, а поднявшийся awg0 с route_allowed_ips='1' ЗАМЕЩАЕТ его в main (тот же
+	// prefix и метрика), продолжая считать свой установленным. Поэтому после снятия awg0 в main не
+	// остаётся ни одного дефолта, и следующий шаг — sing-box — не может соединиться с сервером
+	// («no route to internet», поймано на живом роутере при переключении AWG → Full-тир).
+	//
+	// Ждём, потому что ifdown/ifup у netifd асинхронные: без ожидания следующий шаг видит либо ещё
+	// не убранный дефолт через awg0, либо уже пустую таблицу — оба состояния обманчивы. ifup
+	// идемпотентен, а невозврат маршрута здесь НЕ фатален: teardown обязан довести уборку до конца,
+	// а на отсутствие выхода пожалуется следующий шаг (у него это предусловие).
+	sh("ifup wan >/dev/null 2>&1");
+	let wan_back = false;
+	for (let i = 0; i < 10; i++) {
+		if (pick_wan_fallback(sh("ip -4 route show default 2>/dev/null"), [ sects[0], "singtun0" ]) != null) {
+			wan_back = true;
+			break;
+		}
+		sh("sleep 1");
+	}
+	printf("vpn: teardown выполнен (интерфейс %s снят из network, WAN-маршрут %s)\n",
+		sects[0], wan_back ? "вернулся" : "НЕ вернулся — смотрите wan в netifd");
 	exit(0);
 }
 
