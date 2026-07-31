@@ -11,6 +11,10 @@
   let s = $state(null);
   let error = $state('');
   let action = $state(''); // текст результата/ошибки управляющего действия
+  // Где показать это сообщение. Одно место на всю страницу означало, что результат нажатия
+  // верхней кнопки появлялся через два экрана вниз — человек его просто не видел. Каждое
+  // сообщение печатается у той группы кнопок, которая его вызвала.
+  let actionScope = $state('manage'); // manage | restart | dns | replace | switch | full | danger
   let busy = $state(false);
   // Замена сервера АКТИВНОГО туннеля: одно поле, метод и подпись — из каталога протоколов.
   let replaceConf = $state('');
@@ -58,12 +62,16 @@
 
   // Управляющие действия — admin-методы. Без сессии (или с протухшей) ubus отдаёт
   // PERMISSION_DENIED — открываем модалку входа, а не показываем голую ошибку.
-  async function admin(label, fn) {
+  async function admin(label, fn, scope = 'manage') {
     busy = true;
     action = '';
+    actionScope = scope;
     try {
       await fn();
-      action = `${label} — готово.`;
+      // Само действие могло сообщить конкретику («Список обновлён: N доменов») — не затираем её
+      // безликим «готово». Раньше затирало, и счётчик доменов, который для этого и считался,
+      // до экрана не доезжал.
+      if (action === '') action = `${label} — готово.`;
       await refresh();
     } catch (e) {
       if (e.message.includes('PERMISSION_DENIED')) {
@@ -81,8 +89,9 @@
 
   // needLogin(e, what) — общая обработка PERMISSION_DENIED для фоновых операций (они не идут
   // через admin(), потому что там свой поллинг прогресса).
-  function needLogin(e, what) {
+  function needLogin(e, what, scope = 'manage') {
     busy = false;
+    actionScope = scope;
     if (e.message.includes('PERMISSION_DENIED')) {
       logout(); loggedIn = false; loginOpen = true;
       action = `${what}: нужен вход — введите пароль роутера.`;
@@ -99,6 +108,7 @@
       loginOpen = false;
       loginPass = '';
       loginAttempts = 0;
+      actionScope = 'manage';
       action = 'Вход выполнен — повторите действие.';
     } catch (e) {
       loginAttempts += 1;
@@ -112,6 +122,7 @@
   function doLogout() {
     logout();
     loggedIn = false;
+    actionScope = 'manage';
     action = 'Вы вышли — управление снова требует входа.';
   }
 
@@ -122,7 +133,7 @@
       action = `Список обновлён: ${r.direct_domains} доменов.`;
     });
   const restart = (service, label) =>
-    admin(`Перезапуск: ${label}`, () => cheburnet('service_restart', { service }));
+    admin(`Перезапуск: ${label}`, () => cheburnet('service_restart', { service }), 'restart');
   // DNS-провайдер = уровень фильтрации (реклама/семейный/без). Выбор из каталога (status.dns_providers).
   let providerSel = $state('');
 
@@ -143,7 +154,7 @@
   // Чего не хватает железу для Full-тира (status.full_missing) — человеческими словами.
   const fullMissing = $derived(fullMissingText(s?.full_missing));
   const setProvider = () =>
-    admin(`DNS-провайдер: ${providerSel}`, () => cheburnet('set_dns_provider', { provider: providerSel }));
+    admin(`DNS-провайдер: ${providerSel}`, () => cheburnet('set_dns_provider', { provider: providerSel }), 'dns');
 
   // Загрузка .conf файлом (только у AmneziaWG — ссылку файлом не приносят).
   async function onReplaceFile(e) {
@@ -170,6 +181,7 @@
   // install_progress (тот же, что у установки).
   async function replaceTunnel() {
     const conf = replaceConf.trim();
+    actionScope = 'replace';
     if (conf.length === 0) {
       action = `Вставьте ${active.confLabel.toLowerCase()}.`;
       return;
@@ -182,7 +194,7 @@
       replacePhase = 'running';
       replaceTimer = setInterval(pollReplace, 2000);
     } catch (e) {
-      needLogin(e, 'Замена конфига');
+      needLogin(e, 'Замена конфига', 'replace');
     }
   }
 
@@ -194,6 +206,7 @@
         clearInterval(replaceTimer);
         replaceTimer = null;
         busy = false;
+        actionScope = 'replace';
         if (p.result === 'ok') {
           replacePhase = 'ok';
           replaceConf = '';
@@ -215,12 +228,12 @@
 
   // Factory reset: двойное подтверждение — ввод слова RESET руками.
   const factoryReset = () =>
-    admin('Сброс cheburnet', async () => {
+    admin('Сброс cheburnet', async () => {  // scope 'danger' — сообщение остаётся в опасной зоне
       await cheburnet('factory_reset', { confirm: resetWord.trim() });
       action = 'Сброс запущен: конфигурация cheburnet снимается, роутер вернётся к обычной маршрутизации.';
       resetWord = '';
       resetArmed = false;
-    });
+    }, 'danger');
 
   refresh();
   // 15 с, не чаще: каждый опрос — это спавн rpcd-скрипта + shell-батч на роутере (слабое железо).
@@ -238,6 +251,7 @@
   // возвращается автоматически. Одна функция на все шесть переходов — метод берём из каталога.
   async function switchTo(p) {
     const conf = (switchConfs[p.id] ?? '').trim();
+    actionScope = 'switch';
     if (conf.length === 0) {
       action = `Вставьте ${p.confLabel.toLowerCase()}.`;
       return;
@@ -249,7 +263,7 @@
       switchPhase = 'running';
       switchTimer = setInterval(pollSwitch, 2000);
     } catch (e) {
-      needLogin(e, 'Переключение');
+      needLogin(e, 'Переключение', 'switch');
     }
   }
 
@@ -259,6 +273,7 @@
       switchLog = p.log ?? '';
       if (p.done) {
         clearInterval(switchTimer); switchTimer = null; busy = false;
+        actionScope = 'switch';
         const to = protocolInfo(switchTarget).name;
         const from = active.name;
         if (p.result === 'ok') {
@@ -284,7 +299,7 @@
       fullPhase = 'running';
       fullTimer = setInterval(pollFull, 2000);
     } catch (e) {
-      needLogin(e, 'Установка запасного туннеля');
+      needLogin(e, 'Установка запасного туннеля', 'full');
     }
   }
 
@@ -294,6 +309,7 @@
       fullLog = p.log ?? '';
       if (p.done) {
         clearInterval(fullTimer); fullTimer = null; busy = false;
+        actionScope = 'full';
         if (p.result === 'ok') {
           fullPhase = 'ok';
           action = 'Компонент установлен. Ниже появился блок «Сменить туннель» — вставьте туда ссылку от вашего сервера.';
@@ -308,6 +324,13 @@
     } catch { /* единичный сбой поллинга — следующий тик повторит */ }
   }
 </script>
+
+<!-- Результат действия печатается только у той группы кнопок, которая его вызвала (actionScope).
+     Одно место на всю страницу означало, что итог нажатия верхней кнопки появлялся под опасной
+     зоной — то есть там, куда человек не смотрит. -->
+{#snippet actionNote(scope)}
+  {#if action && actionScope === scope}<p class="muted">{action}</p>{/if}
+{/snippet}
 
 <!-- Скорость канала (Brutal) — сниппет, потому что рендерится РЯДОМ С ПОЛЕМ, к которому относится:
      в замене сервера, если Hysteria2 уже активен, и в смене туннеля, если на него переключаются.
@@ -453,6 +476,7 @@
       </button>
       <button disabled={busy} onclick={updateList}>Обновить список доменов</button>
     </div>
+    {@render actionNote('manage')}
 
     <h3>Перезапуск сервисов</h3>
     <div class="row">
@@ -460,6 +484,7 @@
       <button disabled={busy} onclick={() => restart('dns', 'DNS')}>DNS</button>
       <button disabled={busy} onclick={() => restart('doh', 'шифрованный DNS')}>Шифрованный DNS</button>
     </div>
+    {@render actionNote('restart')}
 
     <h3>Фильтрация (DNS)</h3>
     <label>
@@ -474,6 +499,7 @@
       <button disabled={busy || !providerSel || providerSel === s.dns_provider} onclick={setProvider}>Применить</button>
     </div>
     <p class="muted small">«Семейный» провайдер блокирует сайты 18+ и форсит безопасный поиск. Выбор провайдера = уровень фильтрации.</p>
+    {@render actionNote('dns')}
 
     <!-- Замена сервера АКТИВНОГО туннеля. Метод, подпись и placeholder — из каталога протоколов. -->
     <h3 id="replace-tunnel">Замена сервера ({active.name})</h3>
@@ -500,6 +526,7 @@
     {#if replacePhase === 'running'}
       <p><span class="spinner"></span> Применяю новый конфиг — при сбое прежний вернётся автоматически.</p>
     {/if}
+    {@render actionNote('replace')}
     {#if replaceLog && replacePhase !== 'idle'}
       <details open={replacePhase === 'fail'}>
         <summary>Журнал замены</summary>
@@ -545,6 +572,9 @@
           (extroot) — тогда кнопка появится.{/if}</p>
       {/if}
     {/if}
+    <!-- ЗА пределами {#if !full_installed}: после успешной догрузки блок с кнопкой исчезает, и
+         сообщение об успехе исчезло бы вместе с ним — ровно в тот момент, когда его читают. -->
+    {@render actionNote('full')}
 
     <!-- Смена туннеля: СНАЧАЛА выбор направления по симптому (как в мастере), потом одно поле
          ссылки. Раньше здесь было по блоку на протокол — три похожих поля подряд на одной
@@ -583,6 +613,7 @@
         <p><span class="spinner"></span> Поднимаю {protocolInfo(switchTarget).name} — при сбое
           вернётся {active.name}.</p>
       {/if}
+      {@render actionNote('switch')}
       {#if switchLog && switchPhase !== 'idle'}
         <details open={switchPhase === 'fail'}>
           <summary>Журнал переключения</summary>
@@ -590,8 +621,6 @@
         </details>
       {/if}
     {/if}
-
-    {#if action}<p class="muted">{action}</p>{/if}
 
     <h3 class="danger-h">Опасная зона</h3>
     {#if !resetArmed}
@@ -612,6 +641,7 @@
         </button>
       </div>
     {/if}
+    {@render actionNote('danger')}
   {:else}
     <p class="muted">Загрузка…</p>
   {/if}

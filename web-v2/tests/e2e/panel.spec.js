@@ -161,6 +161,20 @@ test('панель: при protocol=hysteria2 замена зовёт replace_hy
   expect(calls).not.toContain('replace_reality_conf');
 });
 
+// Результат действия обязан появляться У СВОЕЙ кнопки. Раньше он печатался единственным абзацем
+// под «Опасной зоной»: человек нажимал кнопку в начале страницы, а итог был через два экрана вниз —
+// то есть невидим. Ассертим не «текст есть где-то», а СОСЕДСТВО с рядом кнопок.
+test('панель: результат действия печатается рядом с кнопкой, а не в конце страницы', async ({ page, request }) => {
+  await openPanel(page, request, {});
+
+  await page.getByRole('button', { name: 'Обновить список доменов' }).click();
+  const note = page.locator('.row:has-text("Обновить список доменов") + p');
+  await expect(note).toHaveText(/Список обновлён/);
+
+  // И оно НЕ уехало в опасную зону: там своё сообщение (о сбросе), чужих быть не должно.
+  await expect(page.locator('h3.danger-h ~ p', { hasText: 'Список обновлён' })).toHaveCount(0);
+});
+
 test('панель: admin-метод без сессии → модалка входа; неверный пароль → счётчик; верный → успех', async ({ page, request }) => {
   await openPanel(page, request, { adminLocked: true });
 
@@ -180,7 +194,8 @@ test('панель: admin-метод без сессии → модалка вх
   await modal.getByLabel('Пароль').fill('panel-pass-1');
   await modal.getByRole('button', { name: 'Войти' }).click();
   await expect(page.getByText('Вход выполнен — повторите действие.')).toBeVisible();
-  // admin() после успеха fn() перезаписывает action на «<label> — готово.» — ассертим её.
+  // Конкретика от самого действия сохраняется (сколько доменов подтянулось), а не заменяется
+  // безликим «готово» — admin() ставит дефолтный текст только если действие своего не дало.
   await page.getByRole('button', { name: 'Обновить список доменов' }).click();
-  await expect(page.getByText('Обновление списка — готово.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Список обновлён:', { exact: false })).toBeVisible();
 });
