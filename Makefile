@@ -15,8 +15,10 @@
 #   make qemu-hysteria-v2 — T3e: обвязка Hysteria2 + замер веса Full-тира (~4-6мин, интернет).
 #   make qemu-netem-v2    — T3f: ЗАМЕР goodput/CPU при потерях (netem), QUIC против TCP
 #                            (~6-10мин, интернет). Печатает цифры, релиз не гейтит.
+#   make qemu-live-vps    — T4a: трафик НАСКВОЗЬ через настоящий сервер Full-тира. Нужен
+#                            поднятый стенд (tests/vps/) — не для CI.
 
-.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2 qemu-hysteria-v2 qemu-netem-v2
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-reality-v2 qemu-hysteria-v2 qemu-netem-v2 qemu-live-vps
 
 lint:
 	@bash tests/lint.sh
@@ -82,3 +84,11 @@ qemu-hysteria-v2:
 # для ADR 0004; релиз по ним НЕ гейтится (железо CI разное). Нужен интернет. ~6-10 мин с KVM.
 qemu-netem-v2:
 	@./tests/qemu/netem-v2.sh
+
+# T4a — единственная проверка, доказывающая не «обвязка применилась», а «байты дошли до интернета
+# через туннель»: тянем «какой у меня IP» ЧЕРЕЗ туннель и сверяем с адресом VPS, плюс крупная
+# загрузка (ловит фрагментацию/PMTU). Нужен поднятый стенд: tests/vps/provision-lab.sh на чистом
+# VPS (ключи он генерирует сам) + tests/vps/fetch-links.sh. В CI НЕ входит — зависит от
+# арендованного сервера, см. tests/vps/README.md.
+qemu-live-vps:
+	@./tests/qemu/live-vps.sh

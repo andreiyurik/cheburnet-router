@@ -227,11 +227,13 @@ VLESS_LINK="vless://${UUID}@${PUBIP}:${REALITY_PORT}?security=reality&encryption
 HY2_LINK="hysteria2://${HY2_PASS}@${PUBIP}:${HY2_PORT}?sni=${REALITY_SNI}&insecure=1&obfs=salamander&obfs-password=${OBFS_PASS}#cheburnet-lab"
 HY2_HOP_LINK="hysteria2://${HY2_PASS}@${PUBIP}:${HY2_PORT},${HY2_HOP_FROM}-${HY2_HOP_TO}?sni=${REALITY_SNI}&insecure=1&obfs=salamander&obfs-password=${OBFS_PASS}#cheburnet-lab-hop"
 
+# Значения в ОДИНАРНЫХ кавычках: файл предназначен для `. links.env` на стороне разработчика, а в
+# ссылках есть '&' и '#' — без кавычек shell разваливает их на фоновые команды и комментарии.
 {
     echo "# Ссылки тестового стенда, $(date -u '+%Y-%m-%d %H:%M UTC')"
-    echo "VLESS_REALITY=$VLESS_LINK"
-    echo "HYSTERIA2=$HY2_LINK"
-    echo "HYSTERIA2_PORT_HOPPING=$HY2_HOP_LINK"
+    echo "VLESS_REALITY='$VLESS_LINK'"
+    echo "HYSTERIA2='$HY2_LINK'"
+    echo "HYSTERIA2_PORT_HOPPING='$HY2_HOP_LINK'"
 } > "$LAB_DIR/links.txt"
 chmod 600 "$LAB_DIR/links.txt"
 
