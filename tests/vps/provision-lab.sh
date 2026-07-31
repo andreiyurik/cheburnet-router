@@ -259,11 +259,15 @@ AWG_CLI_PUB="$(printf '%s' "$AWG_CLI_PRIV" | /usr/local/bin/awg pubkey)"
 ok "пары ключей сгенерированы (приватные не печатаем)"
 
 mkdir -p "$LAB_DIR/awg"
+# ВАЖНО: здесь конфиг для `awg setconf`, а НЕ для `awg-quick`. setconf понимает только ключи
+# самого протокола (PrivateKey/ListenPort/Jc…/Peer) и падает с «Line unrecognized» на любом
+# ключе уровня awg-quick — Address, MTU, DNS, Table. Адрес интерфейса назначается отдельно, в
+# up.sh через `ip address add`. В КЛИЕНТСКОМ конфиге ниже Address, наоборот, обязателен: он в
+# формате awg-quick, именно такой файл человек и вставляет в мастер.
 cat > "$LAB_DIR/awg/awg0.conf" <<EOF
 [Interface]
 PrivateKey = $AWG_SRV_PRIV
 ListenPort = $AWG_PORT
-Address = $AWG_NET.1/24
 Jc = $AWG_JC
 Jmin = $AWG_JMIN
 Jmax = $AWG_JMAX
@@ -314,18 +318,33 @@ WAN_IF="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=
 [ -n "$WAN_IF" ] || die "не определился внешний интерфейс для NAT"
 ok "внешний интерфейс: $WAN_IF"
 
-# Скрипт подъёма: amneziawg-go создаёт TUN, awg setconf применяет конфиг, адрес и маршрут — вручную
-# (awg-quick тянет за собой bash+resolvconf, а нам нужен предсказуемый минимум).
-cat > "$LAB_DIR/awg/up.sh" <<EOF
+# Настройка интерфейса ПОСЛЕ старта демона: adres/маршрут ставим вручную, без awg-quick (он тянет
+# bash+resolvconf, а нам нужен предсказуемый минимум).
+#
+# ПОЧЕМУ ждём сокет, а не зовём setconf сразу (поймано живьём, стоило часа): amneziawg-go общается
+# с awg через UAPI-сокет /var/run/amneziawg/awg0.sock, и создаёт его ПОЗЖЕ, чем сам TUN-интерфейс.
+# `awg setconf`, запущенный в этот зазор, не падает, а ВИСНЕТ бесконечно — вместе с юнитом и всем
+# скриптом. Поэтому: сначала дождаться сокета, потом настраивать.
+cat > "$LAB_DIR/awg/configure.sh" <<EOF
 #!/bin/sh
 set -e
-/usr/local/bin/amneziawg-go awg0
+i=0
+while [ ! -S /var/run/amneziawg/awg0.sock ]; do
+    i=\$((i + 1)); [ "\$i" -gt 100 ] && { echo "UAPI-сокет awg0 так и не появился" >&2; exit 1; }
+    sleep 0.1
+done
 /usr/local/bin/awg setconf awg0 $LAB_DIR/awg/awg0.conf
 ip address add $AWG_NET.1/24 dev awg0 2>/dev/null || true
 ip link set awg0 up
 EOF
-chmod 755 "$LAB_DIR/awg/up.sh"
+chmod 755 "$LAB_DIR/awg/configure.sh"
 
+# Демон держим в FOREGROUND под systemd (Type=simple), а не даём ему демонизироваться: тогда
+# интерфейс живёт ровно пока жив юнит, падение перезапускается, а лог идёт в journal.
+# ExecStartPre снимает возможный осиротевший awg0 и stale-сокет: amneziawg-go не стартует, если
+# интерфейс уже есть, и это читалось бы как «сервер не поднялся».
+# Баннер «этому ядру amneziawg-go не нужен, есть модуль» в логе — унаследованное от wireguard-go
+# предупреждение о наличии WireGuard в ЯДРЕ (нам он и не нужен), а не отказ.
 cat > /etc/systemd/system/cheburnet-lab-awg.service <<EOF
 [Unit]
 Description=cheburnet test lab (AmneziaWG, userspace)
@@ -333,23 +352,35 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-Environment=WG_PROCESS_FOREGROUND=0
-ExecStart=$LAB_DIR/awg/up.sh
-ExecStop=/usr/bin/env ip link del awg0
+Type=simple
+Environment=WG_PROCESS_FOREGROUND=1
+ExecStartPre=/bin/sh -c 'ip link del awg0 2>/dev/null; rm -f /var/run/amneziawg/awg0.sock; true'
+ExecStart=/usr/local/bin/amneziawg-go awg0
+ExecStartPost=$LAB_DIR/awg/configure.sh
+ExecStopPost=/bin/sh -c 'ip link del awg0 2>/dev/null; true'
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now cheburnet-lab-awg.service >/dev/null 2>&1 || true
+# enable + restart, а НЕ `enable --now`: --now не трогает уже РАБОТАЮЩИЙ сервис, поэтому повторный
+# запуск стенда генерировал новые ключи, а демон продолжал работать со старыми — стенд отдавал
+# ссылки, которые сам же не принимал (потеряно на этом больше часа живого прогона).
+systemctl enable cheburnet-lab-awg.service >/dev/null 2>&1 || true
+systemctl restart cheburnet-lab-awg.service >/dev/null 2>&1 || true
 sleep 2
-if ip link show awg0 >/dev/null 2>&1; then
-    ok "awg0 поднят на сервере (порт $AWG_PORT)"
+# Проверяем НЕ факт «интерфейс есть»: amneziawg-go создаёт TUN до применения конфига, поэтому при
+# провале setconf остаётся пустой awg0 — стенд выглядел бы поднятым, а клиент не подключился бы
+# никогда. Гейтим на том, что реально нужно клиенту: слушающий порт и заданный peer.
+if /usr/local/bin/awg show awg0 2>/dev/null | grep -q "listening port: $AWG_PORT" \
+   && /usr/local/bin/awg show awg0 2>/dev/null | grep -q '^peer:'; then
+    ok "awg0 поднят на сервере (порт $AWG_PORT, peer задан)"
 else
+    /usr/local/bin/awg show awg0 2>&1 | head -10 || true
     journalctl -u cheburnet-lab-awg.service -n 15 --no-pager || true
-    die "интерфейс awg0 не поднялся"
+    die "awg0 не настроен (интерфейс без порта/peer — смотрите ошибку setconf выше)"
 fi
 
 # ─── сервис ───────────────────────────────────────────────────────────────────
@@ -371,11 +402,76 @@ LimitNOFILE=infinity
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now cheburnet-lab.service >/dev/null 2>&1
+# enable + restart (см. пояснение у AWG-сервиса выше): повторный запуск обязан ПОДХВАТИТЬ новый
+# конфиг, иначе ключи в links.txt и ключи живого демона расходятся молча.
+systemctl enable cheburnet-lab.service >/dev/null 2>&1 || true
+systemctl restart cheburnet-lab.service >/dev/null 2>&1
 sleep 2
 systemctl is-active --quiet cheburnet-lab.service \
     || { journalctl -u cheburnet-lab.service -n 20 --no-pager; die "сервис не поднялся"; }
 ok "cheburnet-lab.service запущен"
+
+# ─── самопроверка: стенд обязан принимать свои же ссылки ──────────────────────
+#
+# ЗАЧЕМ (оплачено часом живого прогона): стенд может отдать ссылки, которых сам не принимает —
+# например, если демон остался работать с прежними ключами. Снаружи это выглядит как «протокол не
+# проходит у провайдера» или «клиент сломан», и поиск уходит в роутер, где всё исправно.
+# Поэтому: поднимаем НАСТОЯЩИЙ клиент sing-box на этом же VPS, ходим через него в интернет и только
+# после успеха печатаем ссылки. Проверка локальная (127.0.0.1) — она проверяет ключи и конфиг, а не
+# сеть: сетевой путь проверяет уже роутер.
+selfcheck() {   # selfcheck <имя> <файл-конфига-клиента> <socks-порт>
+    local name="$1" cfg="$2" port="$3" code=""
+    sing-box check -c "$cfg" >/dev/null 2>&1 || { die "$name: клиентский конфиг самопроверки невалиден"; }
+    sing-box run -c "$cfg" >"$LAB_DIR/selfcheck-$name.log" 2>&1 &
+    local pid=$!
+    sleep 3
+    code="$(curl -sS --max-time 25 --socks5-hostname "127.0.0.1:$port" \
+        -o /dev/null -w '%{http_code}' https://api.ipify.org/ 2>/dev/null || true)"
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    [ "$code" = "200" ] && return 0
+    printf '  \033[31m✗ %s: стенд НЕ принимает свою же ссылку (код «%s»)\033[0m\n' "$name" "${code:-нет ответа}" >&2
+    grep -iE "error|failed" "$LAB_DIR/selfcheck-$name.log" | tail -3 >&2 || true
+    return 1
+}
+
+msg "Самопроверка: принимает ли стенд свои же ссылки"
+
+cat > "$LAB_DIR/selfcheck-reality.json" <<EOF
+{
+  "log": { "level": "error" },
+  "inbounds": [ { "type": "socks", "listen": "127.0.0.1", "listen_port": 11081 } ],
+  "outbounds": [ {
+    "type": "vless", "tag": "out",
+    "server": "127.0.0.1", "server_port": $REALITY_PORT,
+    "uuid": "$UUID", "flow": "xtls-rprx-vision",
+    "tls": { "enabled": true, "server_name": "$REALITY_SNI",
+             "utls": { "enabled": true, "fingerprint": "chrome" },
+             "reality": { "enabled": true, "public_key": "$REALITY_PUB", "short_id": "$SHORT_ID" } }
+  } ]
+}
+EOF
+cat > "$LAB_DIR/selfcheck-hysteria2.json" <<EOF
+{
+  "log": { "level": "error" },
+  "inbounds": [ { "type": "socks", "listen": "127.0.0.1", "listen_port": 11082 } ],
+  "outbounds": [ {
+    "type": "hysteria2", "tag": "out",
+    "server": "127.0.0.1", "server_port": $HY2_PORT,
+    "password": "$HY2_PASS",
+    "obfs": { "type": "salamander", "password": "$OBFS_PASS" },
+    "tls": { "enabled": true, "server_name": "$REALITY_SNI", "insecure": true }
+  } ]
+}
+EOF
+chmod 600 "$LAB_DIR"/selfcheck-*.json
+
+selfcheck "reality" "$LAB_DIR/selfcheck-reality.json" 11081 \
+    || die "Reality не работает на самом стенде — ссылки не отдаю (иначе поиск уйдёт в роутер)"
+ok "Reality: стенд принимает свою ссылку"
+selfcheck "hysteria2" "$LAB_DIR/selfcheck-hysteria2.json" 11082 \
+    || die "Hysteria2 не работает на самом стенде — ссылки не отдаю"
+ok "Hysteria2: стенд принимает свою ссылку"
 
 # ─── ссылки для мастера ───────────────────────────────────────────────────────
 VLESS_LINK="vless://${UUID}@${PUBIP}:${REALITY_PORT}?security=reality&encryption=none&type=tcp&flow=xtls-rprx-vision&sni=${REALITY_SNI}&fp=chrome&pbk=${REALITY_PUB}&sid=${SHORT_ID}#cheburnet-lab"
