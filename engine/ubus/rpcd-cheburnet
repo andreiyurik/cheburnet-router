@@ -18,7 +18,7 @@ import { cidr_overlap, suggest_lan, valid_lan_ip, full_hw_missing } from "../pre
 import { parse_wan_route } from "../preflight/parse.uc";
 import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
 import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
-import { default_protocol, tunnel_info, tunnel_health } from "../install/install.uc";
+import { default_protocol, tunnel_info, tunnel_health, uses_singbox } from "../install/install.uc";
 
 // engine/ — относительно этого файла (engine/ubus/rpcd-cheburnet). Тот же приём, что в run.uc.
 const ENGINE = sourcepath(0, true) + "/..";
@@ -118,17 +118,28 @@ function reapply_step(name, cfg) {
 	return run_stdin(engine_cli(sprintf("steps/%s/apply.uc", name)), payload);
 }
 
+// Человеческое имя протокола для сообщений об ошибках (панель показывает их как есть).
+const PROTO_NAMES = { awg: "AmneziaWG", reality: "VLESS+Reality", hysteria2: "Hysteria2" };
+function proto_name(p) {
+	return PROTO_NAMES[p] ?? (p ?? "?");
+}
+
 // validate_tunnel_conf(protocol, conf) → { ok, error } — СИНХРОННАЯ проверка туннель-конфига
 // ДО фона: битый вход отбиваем сразу, с ПОНЯТНОЙ причиной, а не заставляя пользователя ждать
-// провала всей установки и читать лог. reality: собираем ERROR-строки singbox/plan.uc точечно
-// («нет pbk», «нет sni»); awg: генерик (INI-конфиг обычно бит целиком) — как в replace_awg_conf.
+// провала всей установки и читать лог. Full-протоколы: собираем ERROR-строки singbox/plan.uc
+// точечно («нет pbk», «obfs без пароля», «pinSHA256 не поддерживается»); awg: генерик (INI-конфиг
+// обычно бит целиком) — как в replace_awg_conf.
+// Ветвимся по uses_singbox, а не по имени: один валидатор на все протоколы Full-тира.
 function validate_tunnel_conf(protocol, conf) {
-	if (protocol == "reality") {
+	if (uses_singbox(protocol)) {
+		let expect = (protocol == "hysteria2")
+			? "нужна ссылка hysteria2://… или JSON-конфиг sing-box"
+			: "нужна ссылка vless://… или JSON-конфиг sing-box";
 		if (length(trim(conf ?? "")) == 0)
-			return { ok: false, error: "нужна ссылка vless://… или JSON-конфиг sing-box" };
+			return { ok: false, error: expect };
 		// Секрет (credentials сервера) → 600-temp, чистим сразу. plan.uc печатает ERROR: <причина>
 		// и выходит 1; ловим и код, и текст.
-		let tmp = STATE_DIR + "/reality-validate.txt";
+		let tmp = STATE_DIR + "/tunnel-validate.txt";
 		writefile(tmp, conf);
 		chmod(tmp, 0o600);
 		let out = sh(sprintf("%s < %s 2>&1; echo __rc=$?", engine_cli("steps/singbox/plan.uc"), tmp));
@@ -142,8 +153,8 @@ function validate_tunnel_conf(protocol, conf) {
 			if (m) push(msgs, m[1]);
 		}
 		return { ok: false, error: length(msgs) > 0
-			? "ссылка Reality не разобрана: " + join("; ", msgs)
-			: "ссылка Reality не разобрана — проверьте, что вставлена целиком" };
+			? sprintf("ссылка %s не разобрана: %s", proto_name(protocol), join("; ", msgs))
+			: sprintf("ссылка %s не разобрана — проверьте, что вставлена целиком", proto_name(protocol)) };
 	}
 	// awg (Light): sync-валидация через vpn/plan.uc (генерик-сообщение достаточно).
 	let rc = run_stdin(engine_cli("steps/vpn/plan.uc") + " >/dev/null 2>&1", conf ?? "");
@@ -341,14 +352,19 @@ function m_install(v) {
 	// DNS-провайдер (фильтрация): валидность id уже проверил enum на границе; нет → дефолт каталога.
 	let dns_provider = (type(v.dns_provider) == "string" && length(v.dns_provider) > 0)
 		? v.dns_provider : default_provider();
-	// Туннель: protocol awg (Light, дефолт) | reality (Full). Валидность enum проверил ubus.uc;
-	// нет → дефолт. run.uc по нему выбирает туннель-шаг (vpn/singbox) и tunnel_if.
+	// Туннель: protocol awg (Light, дефолт) | reality | hysteria2 (Full). Валидность enum проверил
+	// ubus.uc; нет → дефолт. run.uc по нему выбирает туннель-шаг (vpn/singbox) и tunnel_if.
 	let protocol = (type(v.protocol) == "string" && length(v.protocol) > 0)
 		? v.protocol : default_protocol();
+	// Конфиг активного туннеля — по conf_key протокола (единый источник соответствия «протокол →
+	// поле», см. PROTOCOLS). Конфиги остальных протоколов игнорируем: писать чужие credentials в
+	// payload незачем.
+	let tunnel_key = tunnel_info(protocol).conf_key;
+	let tunnel_text = (type(v[tunnel_key]) == "string") ? v[tunnel_key] : "";
 
 	// Синхронная валидация туннель-конфига: битую ссылку/конфиг отбиваем ДО фона с понятной
 	// причиной (не гонять весь rollback-цикл и не заставлять читать лог).
-	let vt = validate_tunnel_conf(protocol, protocol == "reality" ? v.reality_conf : v.awg_conf);
+	let vt = validate_tunnel_conf(protocol, tunnel_text);
 	if (!vt.ok)
 		respond(make_error(vt.error));
 
@@ -364,18 +380,20 @@ function m_install(v) {
 		sh(sprintf("cp %s %s.prev", CFG_FILE, CFG_FILE));
 	save_cfg(cfg);
 
-	// Полезная нагрузка для run.uc: его stdin-контракт {protocol, awg_conf|reality_conf, root_password,
-	// ssid, wifi_key, dns_provider, domains, routing_opts}. Содержит секреты (приватный ключ awg_conf,
-	// reality_conf с credentials сервера, пароль root, ключ Wi-Fi) → пишем и тут же сужаем права до 600.
-	writefile(PAYLOAD_FILE, sprintf("%J", {
-		protocol: protocol, awg_conf: v.awg_conf, reality_conf: v.reality_conf,
+	// Полезная нагрузка для run.uc: его stdin-контракт {protocol, <conf_key>, root_password,
+	// ssid, wifi_key, dns_provider, domains, routing_opts}. Содержит секреты (приватный ключ AWG,
+	// credentials Full-сервера, пароль root, ключ Wi-Fi) → пишем и тут же сужаем права до 600.
+	let payload = {
+		protocol: protocol,
 		root_password: v.root_password,
 		ssid: v.ssid, wifi_key: v.wifi_key, dns_provider: dns_provider,
 		domains: domains, routing_opts: routing_opts,
 		// Пропуск soft-проверок железа (мастер спрашивает явным согласием). Только true считаем
 		// согласием — отсутствие/мусор = обычный строгий гейт (fail-safe направление).
 		accept_risk: (v.accept_risk === true),
-	}));
+	};
+	payload[tunnel_key] = tunnel_text;
+	writefile(PAYLOAD_FILE, sprintf("%J", payload));
 	chmod(PAYLOAD_FILE, 0o600);
 
 	// Фон: run.uc — длинная операция (apk + шаги), не держим RPC (см. spawn_bg).
@@ -577,8 +595,10 @@ function m_set_dns_provider(v) {
 function m_replace_awg_conf(v) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
-	if (load_cfg().protocol != "awg")
-		respond(make_error("активный туннель — VLESS+Reality; меняйте сервер через «Замена Reality-сервера»"));
+	let active_awg = load_cfg().protocol;
+	if (active_awg != "awg")
+		respond(make_error(sprintf("активный туннель — %s; меняйте сервер того протокола или переключитесь на AmneziaWG",
+			proto_name(active_awg))));
 	if (length(trim(sh("uci -q get network.awg0 2>/dev/null"))) == 0)
 		respond(make_error("VPN не установлен — пройдите мастер установки"));
 
@@ -596,29 +616,36 @@ function m_replace_awg_conf(v) {
 	respond({ status: "started", pid: pid });
 }
 
-function m_replace_reality_conf(v) {
+// replace_singbox_conf(protocol, conf) — замена сервера Full-протокола без переустановки.
+// ОДНА реализация на reality и hysteria2: у них общий config.json, общий шаг и общая проба, значит
+// и защитный пояс общий (ADR 0004). Методы-обёртки различаются только именем аргумента.
+function replace_singbox_conf(protocol, conf) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
-	// Гейт по АКТИВНОМУ протоколу, не по наличию /etc/config/sing-box: после кнопки
-	// «Включить VLESS+Reality» файл уже есть, а туннель ещё AWG — replace поверх живого awg0
-	// перехватил бы весь LAN-трафик half-routes'ами при NAT-зоне на awg0 (UI это гейтит,
-	// но граница доверия — ubus RPC).
-	if (load_cfg().protocol != "reality")
-		respond(make_error("активный туннель — AmneziaWG; сначала переключитесь на VLESS+Reality"));
+	// Гейт по АКТИВНОМУ протоколу, не по наличию /etc/config/sing-box: после кнопки «Включить
+	// Full-тир» файл уже есть, а туннель ещё AWG — replace поверх живого awg0 перехватил бы весь
+	// LAN-трафик half-routes'ами при NAT-зоне на awg0 (UI это гейтит, но граница доверия — ubus RPC).
+	// Сверяем и с ДРУГИМ Full-протоколом: замена конфига — не смена протокола, для неё есть
+	// switch_to_* (он переприменяет весь data-plane и умеет откатиться).
+	let active = load_cfg().protocol;
+	if (active != protocol)
+		respond(make_error(sprintf("активный туннель — %s; смените конфиг того протокола или переключитесь на %s",
+			proto_name(active), proto_name(protocol))));
 	if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) != "y")
-		respond(make_error("Full-тир не установлен — пройдите мастер с протоколом VLESS+Reality"));
+		respond(make_error(sprintf("Full-тир не установлен — пройдите мастер с протоколом %s", proto_name(protocol))));
 
 	// Синхронная валидация ссылки/конфига ДО фона: битый вход отбиваем сразу с понятной
 	// причиной (нет pbk/sni/…), не тратя rollback-цикл. Тот же валидатор, что в m_install.
-	let vt = validate_tunnel_conf("reality", v.reality_conf);
+	let vt = validate_tunnel_conf(protocol, conf);
 	if (!vt.ok)
 		respond(make_error(vt.error));
 
-	// Фон: replace_reality.uc (бэкап config.json → snapshot → apply → probe → commit/restore).
-	// reality_conf содержит credentials Reality-сервера → payload 600.
-	writefile(PAYLOAD_FILE, v.reality_conf);
+	// Фон: replace_singbox.uc (бэкап config.json → snapshot → apply → probe → commit/restore).
+	// Конфиг содержит credentials сервера → payload 600.
+	writefile(PAYLOAD_FILE, conf);
 	chmod(PAYLOAD_FILE, 0o600);
-	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/replace_reality.uc"), PAYLOAD_FILE), "replacing-reality");
+	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/replace_singbox.uc"), PAYLOAD_FILE),
+		"replacing-" + protocol);
 	respond({ status: "started", pid: pid });
 }
 
@@ -628,87 +655,62 @@ function m_install_full_tier(v) {
 	if (length(trim(sh("command -v sing-box"))) > 0)
 		respond(make_error("Full-тир уже установлен (sing-box стоит)"));
 
-	// Догрузка sing-box по кнопке (opt-in Full-тир) — вынесена в install-singbox.sh (ретраи +
-	// код выхода по факту наличия бинаря; логика под tests/install-singbox-test.sh). Не трогает
+	// Догрузка бинаря sing-box по кнопке (opt-in Full-тир) — вынесена в install-singbox.sh (ретраи,
+	// порядок предпочтения tiny→полный, код выхода по факту наличия бинаря; логика под
+	// tests/install-singbox-test.sh). Один бинарь открывает ОБА Full-протокола. Не трогает
 	// работающий AWG: ставит только пакет.
 	let pid = spawn_bg(sprintf("sh %s/install/install-singbox.sh", ENGINE), "installing-full");
 	respond({ status: "started", pid: pid });
 }
 
-function m_switch_to_reality(v) {
+// switch_tunnel(protocol, conf) — in-place смена активного туннеля на protocol.
+//
+// ОДНА реализация на все переходы (awg↔reality↔hysteria2): переиспользуем run.uc целиком — он
+// делает snapshot → teardown НЕактивного туннеля → apply туннель+dns+doh+firewall(его интерфейс) →
+// health (handshake для awg / connectivity-probe для Full) → commit/rollback. Домены/DNS/режим
+// берём из сохранённого cfg (мастер НЕ проходим), пароль/Wi-Fi не трогаем.
+//
+// protocol в install.json меняем ЗАРАНЕЕ (+.prev): на commit run.uc допишет wan_if в этот же файл,
+// на откате вернёт .prev с прежним протоколом и восстановит config.json (см. run.uc rollback_all).
+// Копий этой последовательности по методам нет намеренно: три копии разъехались бы, а каждая из
+// них — путь, который умеет оставить роутер без интернета.
+function switch_tunnel(protocol, conf) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
 	if (!access(CFG_FILE))
 		respond(make_error("система ещё не настроена — сначала пройдите мастер"));
-	if (length(trim(sh("command -v sing-box"))) == 0)
-		respond(make_error("sing-box не установлен — сначала нажмите «Включить VLESS+Reality»"));
+	// Full-протоколы требуют бинаря; AWG в ядре — нет.
+	if (uses_singbox(protocol) && length(trim(sh("command -v sing-box"))) == 0)
+		respond(make_error("sing-box не установлен — сначала нажмите «Включить запасной туннель»"));
 
 	let cfg = load_cfg();
-	if (cfg.protocol == "reality")
-		respond(make_error("уже используется VLESS+Reality — меняйте сервер через «Замена Reality-сервера»"));
+	if (cfg.protocol == protocol)
+		respond(make_error(sprintf("уже используется %s — меняйте сервер через замену конфига",
+			proto_name(protocol))));
 
-	// Синхронная валидация ссылки ДО фона (понятная ошибка, не rollback-цикл).
-	let vt = validate_tunnel_conf("reality", v.reality_conf);
+	// Синхронная валидация конфига ДО фона (понятная ошибка, не rollback-цикл).
+	let vt = validate_tunnel_conf(protocol, conf);
 	if (!vt.ok)
 		respond(make_error(vt.error));
 
-	// Переиспользуем run.uc целиком: он делает snapshot → teardown awg0 (неактивный туннель) →
-	// apply singbox+dns+doh+firewall(singtun0) → connectivity-probe → commit/rollback. Домены/DNS/
-	// режим берём из сохранённого cfg (мастер НЕ проходим), пароль/Wi-Fi не трогаем.
-	// protocol в install.json меняем ЗАРАНЕЕ (+.prev): на commit run.uc допишет wan_if в этот же
-	// файл, на откате вернёт .prev (protocol=awg) — как у обычной установки.
-	cfg.protocol = "reality";
+	cfg.protocol = protocol;
 	unlink(CFG_FILE + ".prev");
 	sh(sprintf("cp %s %s.prev", CFG_FILE, CFG_FILE));
 	save_cfg(cfg);
 
 	// domains — свежая сборка user+imported (как в m_install), а не устаревший снимок.
-	writefile(PAYLOAD_FILE, sprintf("%J", {
-		protocol: "reality", reality_conf: v.reality_conf,
+	// Конфиг кладём под ключом протокола (conf_key) — его же читает step_stdin в run.uc.
+	let payload = {
+		protocol: protocol,
 		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
 		dns_provider: cfg.dns_provider,
 		accept_risk: accepted_risk(cfg),
-	}));
+	};
+	payload[tunnel_info(protocol).conf_key] = conf;
+	writefile(PAYLOAD_FILE, sprintf("%J", payload));
 	chmod(PAYLOAD_FILE, 0o600);
-	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/run.uc"), PAYLOAD_FILE), "switching-reality");
-	respond({ status: "started", pid: pid });
-}
-
-function m_switch_to_awg(v) {
-	if (pid_alive())
-		respond(make_error("операция уже выполняется"));
-	if (!access(CFG_FILE))
-		respond(make_error("система ещё не настроена — сначала пройдите мастер"));
-
-	let cfg = load_cfg();
-	if (cfg.protocol == "awg")
-		respond(make_error("уже используется AmneziaWG — меняйте сервер через «Замена VPN-конфига»"));
-
-	// Синхронная валидация .conf ДО фона (понятная ошибка, не rollback-цикл).
-	let vt = validate_tunnel_conf("awg", v.awg_conf);
-	if (!vt.ok)
-		respond(make_error(vt.error));
-
-	// Зеркало m_switch_to_reality: run.uc делает snapshot → teardown singtun0 (неактивный туннель)
-	// → apply vpn+dns+doh+firewall(awg0) → handshake-health → commit/rollback. Домены/DNS/режим
-	// берём из сохранённого cfg (мастер НЕ проходим). sing-box остаётся УСТАНОВЛЕННЫМ (снимаем лишь
-	// его туннель/конфиг через teardown singbox-шага) — обратно на Reality можно вернуться сразу.
-	// protocol в install.json меняем ЗАРАНЕЕ (+.prev): на commit run.uc допишет wan_if сюда же, на
-	// откате вернёт .prev (protocol=reality) с восстановлением config.json (см. run.uc rollback_all).
-	cfg.protocol = "awg";
-	unlink(CFG_FILE + ".prev");
-	sh(sprintf("cp %s %s.prev", CFG_FILE, CFG_FILE));
-	save_cfg(cfg);
-
-	// domains — свежая сборка user+imported (как в m_install), а не устаревший снимок.
-	writefile(PAYLOAD_FILE, sprintf("%J", {
-		protocol: "awg", awg_conf: v.awg_conf,
-		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
-		dns_provider: cfg.dns_provider,
-		accept_risk: accepted_risk(cfg),
-	}));
-	chmod(PAYLOAD_FILE, 0o600);
-	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/run.uc"), PAYLOAD_FILE), "switching-awg");
+	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/run.uc"), PAYLOAD_FILE),
+		"switching-" + protocol);
 	respond({ status: "started", pid: pid });
 }
 
@@ -773,9 +775,13 @@ else if (method == "update_list")           m_update_list(v);
 else if (method == "service_restart")       m_service_restart(v);
 else if (method == "set_dns_provider")      m_set_dns_provider(v);
 else if (method == "replace_awg_conf")      m_replace_awg_conf(v);
-else if (method == "replace_reality_conf")  m_replace_reality_conf(v);
+// Замена сервера и смена туннеля — тонкие обёртки над ОДНОЙ реализацией каждая: различаются
+// только протоколом и именем аргумента (оно же — имя формата конфига).
+else if (method == "replace_reality_conf")    replace_singbox_conf("reality", v.reality_conf);
+else if (method == "replace_hysteria2_conf")  replace_singbox_conf("hysteria2", v.hysteria2_conf);
 else if (method == "install_full_tier")     m_install_full_tier(v);
-else if (method == "switch_to_reality")     m_switch_to_reality(v);
-else if (method == "switch_to_awg")         m_switch_to_awg(v);
+else if (method == "switch_to_reality")     switch_tunnel("reality", v.reality_conf);
+else if (method == "switch_to_hysteria2")   switch_tunnel("hysteria2", v.hysteria2_conf);
+else if (method == "switch_to_awg")         switch_tunnel("awg", v.awg_conf);
 else if (method == "factory_reset")         m_factory_reset(v);
 else respond(make_error("unknown method")); // недостижимо: validate_request уже отсёк

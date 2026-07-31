@@ -1,6 +1,10 @@
-// replace_reality.uc — замена VLESS+Reality-конфига без переустановки (импурно, router-side).
+// replace_singbox.uc — замена конфига Full-тира без переустановки (импурно, router-side).
 //
-//   printf '%s' "$reality_conf" | ucode -R replace_reality.uc     # vless://… или JSON sing-box
+//   printf '%s' "$conf" | ucode -R replace_singbox.uc   # vless://… | hysteria2://… | JSON sing-box
+//
+// ОДИН скрипт на все протоколы Full-тира: у них общий шаг, общий config.json и общая проба —
+// значит и защитный пояс замены общий (см. ADR 0004, «единый контракт транспорта»). Какой протокол
+// приехал, определяет сам singbox-шаг по префиксу ссылки; здесь про протокол знать не нужно.
 //
 // Защитный пояс (аналог replace_vpn.uc для AWG): back up config.json → snapshot UCI → применить
 // singbox-шаг → connectivity-probe ЧЕРЕЗ туннель → commit / restore. При сбое возвращаем и uci
@@ -8,7 +12,7 @@
 // перезапускаем sing-box со СТАРЫМ конфигом: пользователь не остаётся с полу-битым туннелем.
 //
 // ПОЧЕМУ config.json отдельно: у AWG весь конфиг в uci (network.awg0) → snapshot восстанавливает
-// всё. У reality в uci только указатель (sing-box.main.conffile), а сам конфиг — /etc/sing-box/
+// всё. У Full-тира в uci только указатель (sing-box.main.conffile), а сам конфиг — /etc/sing-box/
 // config.json. apply.uc его уже перезаписал новым → snapshot-restore uci вернул бы указатель на
 // НОВЫЙ (битый) файл. Поэтому бэкапим и возвращаем config.json руками.
 //
@@ -17,7 +21,7 @@
 
 import { stdin, readfile, writefile, unlink } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
-import { reality_connectivity } from "./probe.uc";
+import { tunnel_connectivity } from "./probe.uc";
 import { config_path, tun_interface } from "../steps/singbox/singbox.uc";
 
 let SELF = sourcepath(0, true);
@@ -53,27 +57,27 @@ sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
 // --- 2. применить singbox-шаг (config.json + uci sing-box/network + рестарт + ifup singtun) ---
 let rc = run_stdin(sprintf("ucode -R %s/steps/singbox/apply.uc", ENGINE), conf);
 if (rc != 0) {
-	warn("replace_reality: singbox-шаг отказал — откат\n");
+	warn("replace_singbox: singbox-шаг отказал — откат\n");
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc restore", ENGINE));
 	restore_config();
 	exit(1);
 }
 
-// --- 3. health: connectivity-probe через туннель. До 30 с: sing-box + Reality-рукопожатие warm-up. ---
+// --- 3. health: connectivity-probe через туннель. До 30 с: старт sing-box + рукопожатие warm-up. ---
 let ok = false;
 for (let i = 0; i < 15; i++) {
 	sh("sleep 2");
-	if (reality_connectivity(iface)) { ok = true; break; }
+	if (tunnel_connectivity(iface)) { ok = true; break; }
 }
 
 // --- 4. commit / restore ---
 if (ok) {
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
 	unlink(bak); // новый конфиг работает — бэкап больше не нужен
-	print("replace_reality: новый конфиг работает (трафик идёт через туннель)\n");
+	print("replace_singbox: новый конфиг работает (трафик идёт через туннель)\n");
 	exit(0);
 }
-warn("replace_reality: туннель не отозвался за 30 с — возвращаю прежний конфиг\n");
+warn("replace_singbox: туннель не отозвался за 30 с — возвращаю прежний конфиг\n");
 sh(sprintf("ucode -R %s/rollback/snapshot.uc restore", ENGINE));
 restore_config();
 exit(1);

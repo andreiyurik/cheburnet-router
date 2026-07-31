@@ -14,12 +14,15 @@ import { is_clean_config } from "../rollback/rollback.uc";
 // rollback: clean = откатывается uci-snapshot'ом; dirty = состояние ядра, safe-fail через teardown.
 // needs — что шагу подать на stdin (для run.uc): awg_conf | domains | none.
 const STEPS = [
-	{ name: "vpn",      configs: [ "network" ],                  rollback: "clean", needs: "awg_conf" },
-	// singbox — альтернативный туннель (Full-тир, VLESS+Reality). Взаимоисключающий с vpn:
-	// активен ровно один (см. PROTOCOLS). Гибрид: uci sing-box + network-маршрут (чистый откат
-	// snapshot'ом) + config.json/сервис (runtime → dirty teardown). network в configs → интерфейс
-	// singtun откатывается uci-снимком (как NAT-зона у firewall). По умолчанию ОТКЛЮЧЁН (awg).
-	{ name: "singbox",  configs: [ "sing-box", "network" ],      rollback: "dirty", needs: "reality" },
+	// needs=tunnel_conf у ОБОИХ туннель-шагов: какой именно текст подать (AWG .conf / vless:// /
+	// hysteria2://), решает conf_key активного протокола — см. PROTOCOLS и step_stdin в run.uc.
+	// Так добавление протокола не требует новой ветки в раздаче stdin.
+	{ name: "vpn",      configs: [ "network" ],                  rollback: "clean", needs: "tunnel_conf" },
+	// singbox — альтернативный туннель (Full-тир: VLESS+Reality или Hysteria2). Взаимоисключающий
+	// с vpn: активен ровно один (см. PROTOCOLS). Гибрид: uci sing-box + network-маршрут (чистый
+	// откат snapshot'ом) + config.json/сервис (runtime → dirty teardown). network в configs →
+	// интерфейс singtun откатывается uci-снимком (как NAT-зона у firewall). По умолчанию ОТКЛЮЧЁН.
+	{ name: "singbox",  configs: [ "sing-box", "network" ],      rollback: "dirty", needs: "tunnel_conf" },
 	{ name: "dns",      configs: [ "dhcp" ],                     rollback: "clean", needs: "domains" },
 	{ name: "doh",      configs: [ "https-dns-proxy", "dhcp" ],  rollback: "clean", needs: "doh" },
 	// wifi — перед firewall: настройка радио независима от split-routing. Нет радио/ключа → no-op.
@@ -29,17 +32,23 @@ const STEPS = [
 	{ name: "firewall", configs: [ "firewall" ],                 rollback: "dirty", needs: "domains" },
 ];
 
-// Туннельные протоколы (две оси покрытия, ADR 0004): awg = AmneziaWG в ядре (Light, дефолт);
-// reality = VLESS+Reality через sing-box (Full, для устойчивости к DPI на мощном железе).
+// Туннельные протоколы — ТРИ ОСИ ПОКРЫТИЯ (ADR 0004), каждая лечит свою поломку:
+//   awg       — AmneziaWG в ядре: слабое железо (единственный, кто считается в ядре). Дефолт.
+//   reality   — VLESS+Reality через sing-box: трафик НЕ ПРОХОДИТ (DPI, зондирование, блок UDP).
+//   hysteria2 — Hysteria2 через тот же sing-box: трафик проходит, но ПЛОХО (потери, 4G, троттлинг).
 // Взаимоисключающие: каждый ставит свой туннель-шаг и презентует свой интерфейс (цель
-// policy-routing/NAT-зоны/health-check). Один интерфейс → весь data-plane (firewall/routing)
-// переиспользуется без изменений — туннель взаимозаменяем.
+// policy-routing/NAT-зоны/health-check). Оба Full-протокола делят ОДИН шаг и ОДИН интерфейс →
+// весь data-plane (firewall/routing/проба/health) переиспользуется без изменений, туннель
+// взаимозаменяем, а третий протокол не приносит своей семантики здоровья (это инвариант ADR 0004).
+// conf_key — под каким ключом лежит конфиг этого протокола в payload установки (run.uc/step_stdin).
 const PROTOCOLS = {
-	awg:     { step: "vpn",     tunnel_if: "awg0" },
-	reality: { step: "singbox", tunnel_if: "singtun0" },
+	awg:       { step: "vpn",     tunnel_if: "awg0",     conf_key: "awg_conf" },
+	reality:   { step: "singbox", tunnel_if: "singtun0", conf_key: "reality_conf" },
+	hysteria2: { step: "singbox", tunnel_if: "singtun0", conf_key: "hysteria2_conf" },
 };
 const DEFAULT_PROTOCOL = "awg";
 const TUNNEL_STEPS = [ "vpn", "singbox" ]; // взаимоисключающие шаги (ровно один активен)
+const SINGBOX_STEP = "singbox";
 
 // protocol_ids() → список валидных протоколов (для enum в ubus-реестре — граница доверия).
 function protocol_ids() {
@@ -52,9 +61,26 @@ function default_protocol() {
 	return DEFAULT_PROTOCOL;
 }
 
-// tunnel_info(protocol) → { step, tunnel_if } активного протокола (неизвестный → дефолт, fail-safe).
+// tunnel_info(protocol) → { step, tunnel_if, conf_key } активного протокола
+// (неизвестный → дефолт, fail-safe).
 function tunnel_info(protocol) {
 	return PROTOCOLS[protocol] ?? PROTOCOLS[DEFAULT_PROTOCOL];
+}
+
+// uses_singbox(protocol) — протокол едет на sing-box (Full-тир)? Спрашиваем про ШАГ, а не
+// сверяем со списком имён: так каждое место, которое ветвится на «Full или ядро» (догрузка
+// бинаря, проба вместо handshake, признак здоровья, гейт замены конфига), автоматически
+// понимает новый протокол на sing-box — без правки в трёх файлах и без риска забыть один.
+function uses_singbox(protocol) {
+	return tunnel_info(protocol).step == SINGBOX_STEP;
+}
+
+// singbox_protocols() → протоколы Full-тира (для UI/гейтов: что предлагать на подходящем железе).
+function singbox_protocols() {
+	let out = [];
+	for (let k in PROTOCOLS)
+		if (PROTOCOLS[k].step == SINGBOX_STEP) push(out, k);
+	return out;
 }
 
 // disabled_tunnels(protocol) → имена туннель-шагов, которые НЕ применяем (все, кроме активного).
@@ -71,6 +97,15 @@ function copy_step(s) {
 	let c = [];
 	for (let i = 0; i < length(s.configs); i++) push(c, s.configs[i]);
 	return { name: s.name, configs: c, rollback: s.rollback, needs: s.needs };
+}
+
+// tunnel_conf(protocol, cfg) → текст конфига активного туннеля из payload (по conf_key).
+// ЧИСТАЯ: run.uc раздаёт её результат туннель-шагу на stdin. Вынесено сюда, чтобы «какой ключ у
+// какого протокола» жило ровно в PROTOCOLS, а не размазывалось по if'ам импурного слоя.
+function tunnel_conf(protocol, cfg) {
+	let key = tunnel_info(protocol).conf_key;
+	let v = (cfg ?? {})[key];
+	return (type(v) == "string") ? v : "";
 }
 
 // all_steps() → копия реестра (в порядке применения).
@@ -166,23 +201,27 @@ function handshake_state(hs) {
 const HANDSHAKE_FRESH_S = 300;
 
 // tunnel_health(protocol, facts) → "up" | "down" — ОДИН признак здоровья туннеля для панели,
-// одинаково отвечающий и для AmneziaWG, и для VLESS+Reality. ЧИСТАЯ (вход — уже собранные факты).
+// одинаково отвечающий для любого протокола. ЧИСТАЯ (вход — уже собранные факты).
 //
-// ЗАЧЕМ: панель раньше судила о туннеле ТОЛЬКО по AWG-рукопожатию, а у Reality интерфейса awg0
-// нет — значит на РАБОТАЮЩЕМ Reality она показывала «VPN не работает» и вела заменять AWG-конфиг
-// (тупик: движок такую замену при активном reality отвергает). Признак обязан зависеть от
-// протокола, а не от одного awg.
+// ЗАЧЕМ: панель раньше судила о туннеле ТОЛЬКО по AWG-рукопожатию, а у sing-box-протоколов
+// интерфейса awg0 нет — значит на РАБОТАЮЩЕМ Reality она показывала «VPN не работает» и вела
+// заменять AWG-конфиг (тупик: движок такую замену при активном reality отвергает). Признак обязан
+// зависеть от протокола, а не от одного awg.
+//
+// Ветвимся по ШАГУ (uses_singbox), а не по имени протокола: Hysteria2 приехал на тот же sing-box
+// и тот же singtun0 — и получил правильную семантику здоровья без правки этой функции. Разная
+// семантика здоровья по протоколам — доказанный источник багов (ADR 0004).
 //
 // facts: { hs_age (сек с последнего рукопожатия | null), sb_running (bool), tun_up (bool) }
-//   awg     — сервер ОТВЕЧАЛ недавно (рукопожатие в окне): сильный признак, «трафик идёт».
-//   reality — туннель ПОДНЯТ (процесс sing-box жив И TUN-устройство up). Слабее: это не
-//             доказательство, что сервер отвечает (TCP-сессии наружу тут не видно). Поэтому
-//             панель для reality и формулирует слабее — «туннель поднят», без «всё работает».
-//             Живая проверка достижимости — connectivity-probe (probe.uc), она дорогая (пин
-//             host-route + fetch) и потому идёт при установке/замене, а не на каждый поллинг.
+//   ядро (awg)  — сервер ОТВЕЧАЛ недавно (рукопожатие в окне): сильный признак, «трафик идёт».
+//   sing-box    — туннель ПОДНЯТ (процесс sing-box жив И TUN-устройство up). Слабее: это не
+//                 доказательство, что сервер отвечает (сессий наружу тут не видно). Поэтому панель
+//                 для них и формулирует слабее — «туннель поднят», без «всё работает». Живая
+//                 проверка достижимости — connectivity-probe (probe.uc), она дорогая (пин
+//                 host-route + fetch) и потому идёт при установке/замене, а не на каждый поллинг.
 function tunnel_health(protocol, facts) {
 	let f = facts ?? {};
-	if ((protocol ?? default_protocol()) == "reality")
+	if (uses_singbox(protocol ?? default_protocol()))
 		return (f.sb_running === true && f.tun_up === true) ? "up" : "down";
 	let age = f.hs_age;
 	return (type(age) == "int" && age >= 0 && age < HANDSHAKE_FRESH_S) ? "up" : "down";
@@ -242,4 +281,7 @@ function route_uses_iface(route_out, iface) {
 	return false;
 }
 
-export { protocol_ids, default_protocol, tunnel_info, disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome, handshake_state, fresh_handshake, tunnel_health, HANDSHAKE_FRESH_S, pick_wan_fallback, route_uses_iface };
+export { protocol_ids, default_protocol, tunnel_info, uses_singbox, singbox_protocols, tunnel_conf,
+         disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
+         handshake_state, fresh_handshake, tunnel_health, HANDSHAKE_FRESH_S,
+         pick_wan_fallback, route_uses_iface };

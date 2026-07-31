@@ -14,11 +14,11 @@ import { stdin, readfile, writefile, unlink, access } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state,
-         pick_wan_fallback, protocol_ids } from "./install.uc";
+         pick_wan_fallback, protocol_ids, uses_singbox, tunnel_conf } from "./install.uc";
 import { parse_wan_route } from "../preflight/parse.uc";
 import { evaluate, soft_failed_ids } from "../preflight/preflight.uc";
 import { config_path as sb_config_path } from "../steps/singbox/singbox.uc";
-import { reality_connectivity } from "./probe.uc";
+import { tunnel_connectivity } from "./probe.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -47,8 +47,10 @@ function step_cmd(name, extra) {
 }
 // stdin для шага по его потребности (install.uc.needs).
 function step_stdin(s, cfg) {
-	if (s.needs == "awg_conf") return cfg.awg_conf ?? "";
-	if (s.needs == "reality")  return cfg.reality_conf ?? ""; // vless://… или JSON sing-box (сырой текст)
+	// tunnel_conf — ОБА туннель-шага: какой именно текст (AWG .conf / vless:// / hysteria2:// /
+	// JSON sing-box), решает conf_key активного протокола. Ветки «если reality…» здесь больше нет —
+	// иначе каждый новый протокол требовал бы правки в этом месте (и её легко забыть).
+	if (s.needs == "tunnel_conf") return tunnel_conf(cfg.protocol ?? default_protocol(), cfg);
 	if (s.needs == "domains")
 		// fw_opts.tunnel_if — интерфейс активного туннеля для NAT-зоны (firewall apply берёт его
 		// из fw_opts; routing его игнорирует). dns-шаг лишний ключ игнорирует — payload общий.
@@ -61,15 +63,16 @@ function step_stdin(s, cfg) {
 	return "{}";
 }
 
-// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). reality (Full): НАСТОЯЩИЙ
-// connectivity-probe через туннель (не «pgrep жив» — процесс жив ≠ туннель везёт), см. probe.uc.
-// awg (Light): по latest-handshakes ТОЛЬКО "up" (рукопожатие было). "none" (awg0 отсутствует) —
-// НЕ готовность: vpn-шаг только что применялся, и пустой вывод значит «netifd не создал интерфейс»
-// (vpn/apply это честно оставляет health-check'у) — считать его успехом значило бы commit мёртвой
-// установки. Если vpn-шаг вообще не применялся (disable), healthcheck туннель не опрашивает.
+// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). Full-тир (любой протокол
+// на sing-box): НАСТОЯЩИЙ connectivity-probe через туннель (не «pgrep жив» — процесс жив ≠ туннель
+// везёт), см. probe.uc. awg (Light): по latest-handshakes ТОЛЬКО "up" (рукопожатие было). "none"
+// (awg0 отсутствует) — НЕ готовность: vpn-шаг только что применялся, и пустой вывод значит «netifd
+// не создал интерфейс» (vpn/apply это честно оставляет health-check'у) — считать его успехом
+// значило бы commit мёртвой установки. Если vpn-шаг вообще не применялся (disable), healthcheck
+// туннель не опрашивает.
 function tunnel_ok(cfg, iface) {
-	if ((cfg.protocol ?? default_protocol()) == "reality")
-		return reality_connectivity(iface);
+	if (uses_singbox(cfg.protocol ?? default_protocol()))
+		return tunnel_connectivity(iface);
 	return handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) == "up";
 }
 
@@ -147,9 +150,10 @@ let raw = trim(stdin.read("all") ?? "");
 let cfg = (substr(raw, 0, 1) == "{") ? json(raw) : {};
 let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
-// Протокол туннеля: awg (Light, дефолт) | reality (Full). Определяет активный туннель-шаг и
-// интерфейс, который туннель презентует (NAT-зона firewall + health-check). tunnel_if кладём в
-// routing_opts: routing его игнорирует, а health-check и (через fw_opts) firewall — используют.
+// Протокол туннеля: awg (Light, дефолт) | reality | hysteria2 (оба Full, на одном sing-box).
+// Определяет активный туннель-шаг, ключ конфига в payload (conf_key) и интерфейс, который туннель
+// презентует (NAT-зона firewall + health-check). tunnel_if кладём в routing_opts: routing его
+// игнорирует, а health-check и (через fw_opts) firewall — используют.
 let protocol = cfg.protocol ?? default_protocol();
 let tinfo = tunnel_info(protocol);
 if (type(cfg.routing_opts) != "object") cfg.routing_opts = {};
@@ -260,13 +264,14 @@ if (dry) {
 }
 
 // --- 1b. Full-тир: догрузка sing-box ДО любых изменений ---
-// sing-box — userspace-бинарь, ставится opt-in (не при bootstrap). Выбран reality, а бинаря нет
-// (первая установка Full из мастера) → качаем его ПЕРВЫМ, до snapshot и шагов: провал apk (нет
-// интернета) = чистый abort, откатывать нечего (роутер не тронут). Идемпотентно: на
-// switch_to_reality / переустановке поверх reality бинарь уже есть → пропуск. install-singbox.sh
-// несёт ретраи (downloads.openwrt.org рвётся из фильтрующих сетей) и код выхода по факту наличия
-// бинаря; run_stdin наследует его stdout в install-лог — мастер видит «Ставлю sing-box…».
-if (protocol == "reality" && length(trim(sh("command -v sing-box 2>/dev/null"))) == 0) {
+// sing-box — userspace-бинарь, ставится opt-in (не при bootstrap). Выбран Full-протокол (reality
+// или hysteria2 — оба на одном бинаре), а его нет (первая установка Full из мастера) → качаем
+// ПЕРВЫМ, до snapshot и шагов: провал apk (нет интернета) = чистый abort, откатывать нечего
+// (роутер не тронут). Идемпотентно: на switch_to_* / переустановке поверх Full бинарь уже есть →
+// пропуск. install-singbox.sh несёт ретраи (downloads.openwrt.org рвётся из фильтрующих сетей) и
+// код выхода по факту наличия бинаря; run_stdin наследует его stdout в install-лог — мастер видит
+// «Ставлю sing-box…».
+if (uses_singbox(protocol) && length(trim(sh("command -v sing-box 2>/dev/null"))) == 0) {
 	set_step("singbox-download");
 	if (run_stdin(sprintf("sh %s/install/install-singbox.sh", ENGINE), "") != 0) {
 		restore_cfg_truth();

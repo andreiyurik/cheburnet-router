@@ -44,28 +44,35 @@ define Package/cheburnet/description
   Образовательный роутер на OpenWrt с настраиваемым split-tunnel: домены из direct-списка идут
   напрямую, остальной трафик — через зашифрованный VPN. Light-тир (дефолт): dnsmasq-nftset +
   nftables + policy routing + AmneziaWG (в ядре, для слабого железа). Full-тир (VLESS+Reality
-  через sing-box) — опциональный пакет cheburnet-full для устойчивости к DPI на мощном железе.
+  и Hysteria2 через sing-box) — опциональный пакет cheburnet-full для мощного железа.
   Логика — движок на ucode; настройка — веб-мастер через ubus RPC.
 endef
 
-# Full-тир (ADR 0004): VLESS+Reality через sing-box. ОТДЕЛЬНЫЙ пакет, а не +sing-box в DEPENDS
-# базового — иначе тяжёлый userspace-туннель (несколько МБ) поехал бы на слабые MIPS-роутеры,
-# которым хватает AmneziaWG. Движок (включая engine/steps/singbox) уже в базовом пакете; этот
-# пакет лишь тянет бинарь sing-box. Ставится туда, где preflight подтвердил Full (AES-arch, RAM).
+# Full-тир (ADR 0004): VLESS+Reality и Hysteria2 через sing-box. ОТДЕЛЬНЫЙ пакет, а не +sing-box в
+# DEPENDS базового — иначе тяжёлый userspace-туннель поехал бы на слабые MIPS-роутеры, которым
+# хватает AmneziaWG. Движок (включая engine/steps/singbox) уже в базовом пакете; этот пакет лишь
+# тянет бинарь. Ставится туда, где preflight подтвердил Full (AES-arch, RAM/флеш).
+#
+# ПОЧЕМУ sing-box-tiny, а не полная сборка: у tiny есть все нужные нам теги (with_quic → Hysteria2,
+# with_utls → Reality), она объявляет PROVIDES:=sing-box и ставит тот же /usr/bin/sing-box, но
+# весит на ~4.5 МБ меньше при скачивании. Отсутствующие в ней теги (with_wireguard, with_acme,
+# with_dhcp, with_tailscale, …) в нашем data-plane не используются: WireGuard-ось у нас в ядре.
+# Тот же порядок предпочтения зашит в install-singbox.sh (кнопка/автодогрузка) — основной путь.
 define Package/cheburnet-full
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=VPN
-  TITLE:=cheburnet Full-тир — VLESS+Reality через sing-box
+  TITLE:=cheburnet Full-тир — VLESS+Reality и Hysteria2 через sing-box
   URL:=https://github.com/
   PKGARCH:=all
-  DEPENDS:=+cheburnet +sing-box
+  DEPENDS:=+cheburnet +sing-box-tiny
 endef
 
 define Package/cheburnet-full/description
-  Метапакет: добавляет к cheburnet поддержку Full-тира (VLESS+Reality через sing-box) для
-  устойчивости к DPI на мощном железе. На слабых роутерах не нужен — ставьте базовый cheburnet
-  (AmneziaWG). Код движка — в пакете cheburnet; здесь только зависимость sing-box.
+  Метапакет: добавляет к cheburnet поддержку Full-тира на мощном железе — VLESS+Reality
+  (проходит там, где трафик режут) и Hysteria2 (держит скорость на канале с потерями).
+  На слабых роутерах не нужен — ставьте базовый cheburnet (AmneziaWG). Код движка — в пакете
+  cheburnet; здесь только зависимость sing-box-tiny.
 endef
 
 # Скрипты — компилировать нечего.

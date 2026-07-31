@@ -222,23 +222,30 @@ function soft_failed_ids(report) {
 	return out;
 }
 
-// FULL-тир (VLESS+Reality через sing-box) — отдельные, более жёсткие требования.
-// Пороги по ADR 0004 — ОРИЕНТИРОВОЧНЫЕ, подтвердить замером throughput/RAM на реальном
-// слабом и сильном роутере (это план, не факт). arch здесь — proxy для AES-ускорения
-// (sing-box+Reality криптотяжелы); точная проверка флагов cpuinfo — gather (router-side).
+// FULL-тир (VLESS+Reality и Hysteria2 через sing-box) — отдельные, более жёсткие требования.
+// arch здесь — proxy для AES-ускорения (Reality криптотяжёл, QUIC в userspace не дешевле); точная
+// проверка флагов cpuinfo — gather (router-side).
 const FULL_REQUIREMENTS = {
 	arch: [ "aarch64", "x86_64" ],  // ARMv8/x86 с AES; mips/armv7 исключены
-	// 56, а не 128: ЗАМЕР на живом OpenWrt (make qemu-reality-v2) — установленный sing-box весит
-	// ~42 МБ. Порог = вес + ~14 МБ запаса под config.json, логи и обновление пакета. Прежние 128
-	// втрое превышали реальную нужду и отсекали 64-МБ-флеш платы, которые Full утянули бы.
+	// 44, а не 56: ЗАМЕР на живом OpenWrt (make qemu-hysteria-v2). Full-тир едет на sing-box-tiny
+	// (11.5 МБ скачивания против 16.0 у полной сборки) — той же функциональности для нас: теги
+	// with_quic (Hysteria2) и with_utls (Reality) в tiny есть, см. ADR 0004. Порог = замеренный
+	// вес + запас под config.json, логи и обновление пакета.
 	// Ниже опускать не стоит: на почти полном флеше OpenWrt перестаёт писать конфиги и логи.
-	min_flash_mb: 56,               // sing-box-бинарь крупнее kmod-amneziawg
+	// Выше — тоже: прежние 128 МБ втрое превышали нужду и отсекали 64-МБ платы, которые Full
+	// утянули бы. Тест сверяет порог с замером в ОБЕ стороны на каждом прогоне.
+	min_flash_mb: 44,
 	// 240, а не «паспортные» 256 — по той же причине, что min_ram_mb Light-тира: сравниваем с
 	// MemTotal, а он меньше планки на kernel-reserve (256-МБ плата отдаёт 240–250 МБ). Порог 256
 	// не пропускал НИ ОДИН 256-МБ роутер: Full молча не предлагался ни в мастере, ни в панели —
 	// на рекомендуемых 512-МБ Cudy это не проявлялось, потому и жило незамеченным.
 	min_ram_mb: 240,                // userspace-туннель + crypto не упадёт под нагрузкой
-	dep: "sing-box",                // должен ставиться из feed под эту arch
+	// Пакеты Full-тира в ПОРЯДКЕ ПРЕДПОЧТЕНИЯ: tiny легче, полный — фолбэк, если tiny не собран
+	// под эту платформу/фид. Взаимозаменяемы по факту: sing-box-tiny объявляет PROVIDES:=sing-box,
+	// ставит тот же /usr/bin/sing-box и тот же init-скрипт (upstream net/sing-box/Makefile).
+	// Гейт проходит, если ставится ЛЮБОЙ из них — иначе отказали бы Full-железу из-за отсутствия
+	// одной конкретной сборки.
+	pkgs: [ "sing-box-tiny", "sing-box" ],
 };
 
 function resolve_full_req(req) {
@@ -290,8 +297,10 @@ function supports_full_hw(arch, ram_mb, flash_mb, req) {
 
 // evaluate_tiers(facts, req) → { light, full, full_installed, full_checks, full_failed }.
 //   light         — проходит ли базовый гейткипер (тот же evaluate; Full на том же базовом стеке).
-//   full          — «железо ПОТЯНЕТ Full» (capable): light И пороги (AES-arch, RAM/флеш, sing-box
-//                   УСТАНОВИМ через apk --simulate). Это сигнал «показать кнопку включения».
+//   full          — «железо ПОТЯНЕТ Full» (capable): light И пороги (AES-arch, RAM/флеш, бинарь
+//                   sing-box УСТАНОВИМ через apk --simulate). Сигнал «показать кнопку включения»
+//                   и «дать выбор Full-протоколов в мастере» — их два (Reality и Hysteria2), но
+//                   гейт железа у них ОДИН: тот же бинарь, тот же TUN, та же цена в userspace.
 //   full_installed — sing-box РЕАЛЬНО стоит (opt-in: ставится кнопкой отдельно, не при bootstrap).
 //                   Это сигнал «можно предлагать Reality» (мастер/панель). capable ≠ installed.
 // ИНФОРМАЦИОННО: Light это НЕ блокирует (fail-safe — слабый роутер остаётся на AmneziaWG).
@@ -315,10 +324,15 @@ function evaluate_tiers(facts, req) {
 		sprintf("свободный флеш ≈ %d МБ", flash),
 		sprintf("Full-тиру нужно ≥ %d МБ", fr.min_flash_mb)));
 
+	// Пакет Full-тира: достаточно ЛЮБОГО из pkgs (они взаимозаменяемы — см. FULL_REQUIREMENTS).
 	let di = facts.deps_installable ?? {};
-	push(checks, check("full_dep", di[fr.dep] === true,
-		di[fr.dep] === true ? sprintf("%s ставится", fr.dep) : sprintf("%s не ставится", fr.dep),
-		sprintf("пакет %s недоступен под эту платформу/feed", fr.dep)));
+	let sb_pkg = null;
+	for (let i = 0; i < length(fr.pkgs); i++)
+		if (sb_pkg == null && di[fr.pkgs[i]] === true) sb_pkg = fr.pkgs[i];
+	push(checks, check("full_dep", sb_pkg != null,
+		sb_pkg != null ? sprintf("%s ставится", sb_pkg)
+		               : sprintf("не ставится ни один из: %s", join(", ", fr.pkgs)),
+		sprintf("пакеты %s недоступны под эту платформу/feed", join(" / ", fr.pkgs))));
 
 	let failed = 0;
 	for (let i = 0; i < length(checks); i++)

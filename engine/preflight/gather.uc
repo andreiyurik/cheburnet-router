@@ -36,15 +36,20 @@ for (let i = 0; i < length(req.deps); i++) {
 	let pkg = req.deps[i];
 	deps_installable[pkg] = cmd_rc(sprintf("apk add --simulate %s", pkg));
 }
-// Full-тир (VLESS+Reality): установимость sing-box — тем же apk --simulate (для evaluate_tiers).
-// Нет под arch/feed → Full недоступен (Light не задет: слабое железо остаётся на AmneziaWG).
+// Full-тир (VLESS+Reality и Hysteria2): установимость бинаря sing-box — тем же apk --simulate.
+// Проверяем ВСЕ варианты сборки (tiny — предпочтительный, полный — фолбэк): гейт пройдёт, если
+// ставится любой. Ни один не ставится → Full недоступен (Light не задет: слабое железо остаётся
+// на AmneziaWG).
 let fr = full_requirements();
-deps_installable[fr.dep] = cmd_rc(sprintf("apk add --simulate %s", fr.dep));
+for (let i = 0; i < length(fr.pkgs); i++)
+	deps_installable[fr.pkgs[i]] = cmd_rc(sprintf("apk add --simulate %s", fr.pkgs[i]));
 
-// Full-тир — opt-in: sing-box ставится ОТДЕЛЬНО (кнопка в панели → apk add sing-box), не при
-// bootstrap. Поэтому «установлен ли» (бинарь есть) ≠ «устанавливаем ли» (--simulate выше).
-// evaluate_tiers по этому факту различает: показать кнопку «включить» vs предложить Reality.
-let sing_box_installed = cmd_rc(sprintf("command -v %s", fr.dep));
+// Full-тир — opt-in: бинарь ставится ОТДЕЛЬНО (кнопка в панели / автодогрузка при выборе
+// Full-протокола), не при bootstrap. Поэтому «установлен ли» ≠ «устанавливаем ли» (--simulate
+// выше). evaluate_tiers по этому факту различает: показать кнопку «включить» vs предложить
+// переключение. Проверяем именно БИНАРЬ, а не имя пакета: у tiny и полной сборки он один и тот же
+// (/usr/bin/sing-box), поэтому признак не зависит от того, какая сборка встала.
+let sing_box_installed = cmd_rc("command -v sing-box");
 
 let facts = {
 	arch: parse_arch(sh("uname -m")),

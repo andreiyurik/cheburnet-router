@@ -1,5 +1,5 @@
 // harness.uc — sandbox + фейковые системные команды для host-тестов ИМПУРНОГО слоя движка
-// (run.uc / replace_vpn.uc / replace_reality.uc / reset.uc / probe.uc). Не тест — библиотека.
+// (run.uc / replace_vpn.uc / replace_singbox.uc / reset.uc / probe.uc). Не тест — библиотека.
 //
 // Приём — тот же, что tests/install-singbox-test.sh («изоляция через фейки»): реальные .uc
 // гоняются как subprocess, PATH подменяет системные команды стабами, а пути состояния уходят

@@ -44,12 +44,13 @@ const REGISTRY = [
 	] },
 	{ name: "install_progress", access: "read", auth: "anon", token: false, args: [] },
 	{ name: "install",   access: "write", auth: "anon",  token: true, args: [
-		// Туннель: protocol выбирает awg (Light, дефолт) | reality (Full). awg_conf нужен для awg,
-		// reality_conf — для reality; оба НЕОБЯЗАТЕЛЬНЫ на этой границе — активный туннель-шаг
+		// Туннель: protocol выбирает awg (Light, дефолт) | reality | hysteria2 (Full). Конфиг
+		// каждого — в своём поле; ВСЕ они НЕОБЯЗАТЕЛЬНЫ на этой границе — активный туннель-шаг
 		// (vpn/singbox) валидирует свой вход и падает fail-safe при отсутствии (см. ADR 0004).
-		{ name: "protocol",      type: "string", enum: PROTOCOL_IDS },
-		{ name: "awg_conf",      type: "string" }, // AmneziaWG .conf (protocol=awg)
-		{ name: "reality_conf",  type: "string" }, // vless://… или JSON sing-box (protocol=reality), секрет → payload 600
+		{ name: "protocol",       type: "string", enum: PROTOCOL_IDS },
+		{ name: "awg_conf",       type: "string" }, // AmneziaWG .conf (protocol=awg)
+		{ name: "reality_conf",   type: "string" }, // vless://… или JSON sing-box (protocol=reality), секрет → payload 600
+		{ name: "hysteria2_conf", type: "string" }, // hysteria2://… или JSON sing-box (protocol=hysteria2), секрет → payload 600
 		{ name: "root_password", type: "string", required: true, minlen: 8 }, // секрет → payload 600, не install.json
 		// Wi-Fi необязателен: wired-only роутеры (x86/мини-ПК) ставятся без него. UI просит поля
 		// только при наличии радио (status.wireless_present); шаг wifi делает no-op без них.
@@ -84,15 +85,22 @@ const REGISTRY = [
 	{ name: "set_dns_provider", access: "write", auth: "admin", token: false, args: [
 		{ name: "provider", type: "string", required: true, enum: PROVIDER_IDS },
 	] },
-	// Full-тир (VLESS+Reality) — opt-in: догрузить sing-box по кнопке (apk add sing-box), НЕ при
-	// bootstrap. Дефолт остаётся лёгким AWG; слабое железо sing-box вообще не качает.
+	// Full-тир — opt-in: догрузить бинарь sing-box по кнопке, НЕ при bootstrap. Дефолт остаётся
+	// лёгким AWG; слабое железо тяжёлый бинарь вообще не качает. Один бинарь на оба Full-протокола.
 	{ name: "install_full_tier", access: "write", auth: "admin", token: false, args: [] },
-	// In-place смена активного туннеля AWG→Reality без прохода мастера: приносим только ссылку,
-	// домены/DNS/режим берём из сохранённой конфигурации. Требует уже установленного sing-box.
+	// In-place смена активного туннеля без прохода мастера: приносим только конфиг нового туннеля,
+	// домены/DNS/режим берём из сохранённой конфигурации. Три метода вместо одного
+	// switch_tunnel(protocol, conf) — осознанно: имя аргумента = имя формата (vless:// ≠ .conf ≠
+	// hysteria2://), и ACL/валидация на границе остаются буквальными. Импурные пути под ними —
+	// ОДИН общий (switch_tunnel в rpcd-cheburnet), копий логики нет.
+	// Переход на Full-протокол требует уже установленного бинаря sing-box.
 	{ name: "switch_to_reality", access: "write", auth: "admin", token: false, args: [
 		{ name: "reality_conf", type: "string", required: true },
 	] },
-	// Обратная смена Reality→AmneziaWG (зеркало switch_to_reality): приносим только AWG-конфиг,
+	{ name: "switch_to_hysteria2", access: "write", auth: "admin", token: false, args: [
+		{ name: "hysteria2_conf", type: "string", required: true },
+	] },
+	// Обратная смена на AmneziaWG (зеркало переходов выше): приносим только AWG-конфиг,
 	// домены/DNS/режим — из сохранённой конфигурации. sing-box остаётся установленным (не удаляем).
 	{ name: "switch_to_awg", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
@@ -100,10 +108,13 @@ const REGISTRY = [
 	{ name: "replace_awg_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
 	] },
-	// Смена Reality-сервера без переустановки (Full-тир). Аналог replace_awg_conf: снапшот →
-	// применить → connectivity-probe → commit/restore. reality_conf — vless://… или JSON sing-box.
+	// Смена сервера БЕЗ переустановки для Full-протоколов. Аналог replace_awg_conf: снапшот →
+	// применить → connectivity-probe → commit/restore (общий replace_singbox.uc).
 	{ name: "replace_reality_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "reality_conf", type: "string", required: true },
+	] },
+	{ name: "replace_hysteria2_conf", access: "write", auth: "admin", token: false, args: [
+		{ name: "hysteria2_conf", type: "string", required: true },
 	] },
 	{ name: "factory_reset", access: "write", auth: "admin", token: false, args: [
 		// защитное слово; значение ("RESET") сверяет импурный слой — здесь лишь обязательность

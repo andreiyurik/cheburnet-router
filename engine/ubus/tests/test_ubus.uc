@@ -17,7 +17,7 @@ test("list_descriptor: все методы реестра присутствую
 	ok(exists(d, "install"), "install в дескрипторе");
 	ok(exists(d, "set_mode"), "set_mode в дескрипторе");
 	// install объявляет свои аргументы; типы — образцы (string→"", array→[], object→{})
-	deep_eq(d.install, { protocol: "", awg_conf: "", reality_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, accept_risk: false, token: "" }, "сигнатура install");
+	deep_eq(d.install, { protocol: "", awg_conf: "", reality_conf: "", hysteria2_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, accept_risk: false, token: "" }, "сигнатура install");
 	deep_eq(d.set_mode, { mode: "" }, "сигнатура set_mode");
 	deep_eq(d.preflight, {}, "preflight без аргументов");
 });
@@ -165,6 +165,15 @@ test("validate: switch_to_reality — admin, reality_conf обязателен, 
 	eq(requires_token("switch_to_reality"), false, "admin-метод — токен не нужен");
 });
 
+test("validate: switch_to_hysteria2 — admin, hysteria2_conf обязателен, без токена", () => {
+	eq(validate_request("switch_to_hysteria2", { hysteria2_conf: "hysteria2://pw@h:443" }).ok, true);
+	eq(validate_request("switch_to_hysteria2", {}).ok, false, "hysteria2_conf обязателен");
+	// Имя аргумента = имя формата: reality_conf в hysteria2-метод не подсунуть (и наоборот).
+	eq(validate_request("switch_to_hysteria2", { reality_conf: "vless://x" }).ok, false,
+		"чужое поле не подменяет обязательное");
+	eq(requires_token("switch_to_hysteria2"), false, "admin-метод — токен не нужен");
+});
+
 test("validate: switch_to_awg — admin, awg_conf обязателен, без токена (обратный свитч)", () => {
 	eq(validate_request("switch_to_awg", { awg_conf: "[Interface]\n" }).ok, true);
 	eq(validate_request("switch_to_awg", {}).ok, false, "awg_conf обязателен");
@@ -190,6 +199,8 @@ test("validate: replace_awg_conf/replace_reality_conf и factory_reset — об�
 	eq(validate_request("replace_awg_conf", {}).ok, false, "awg_conf обязателен");
 	eq(validate_request("replace_reality_conf", { reality_conf: "vless://…" }).ok, true);
 	eq(validate_request("replace_reality_conf", {}).ok, false, "reality_conf обязателен");
+	eq(validate_request("replace_hysteria2_conf", { hysteria2_conf: "hy2://pw@h:443" }).ok, true);
+	eq(validate_request("replace_hysteria2_conf", {}).ok, false, "hysteria2_conf обязателен");
 	eq(validate_request("factory_reset", { confirm: "RESET" }).ok, true);
 	eq(validate_request("factory_reset", {}).ok, false, "confirm обязателен");
 });
