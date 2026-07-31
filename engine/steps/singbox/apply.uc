@@ -17,7 +17,7 @@ let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
 let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
 // config.json: env-override пути для host-тестов в sandbox — тот же env читают run.uc и
-// replace_reality.uc (все слои пишут/бэкапят ОДИН файл и в тесте, и в бою). Без env — дефолт плана.
+// replace_singbox.uc (все слои пишут/бэкапят ОДИН файл и в тесте, и в бою). Без env — дефолт плана.
 const SB_OPTS = getenv("SB_CONFIG") ? { config_path: getenv("SB_CONFIG") } : {};
 
 // writefile(path, text) — атомарная запись через tmp+rename (config.json не должен читаться
@@ -76,7 +76,29 @@ if (dry) {
 	exit(0);
 }
 
-writefile(plan.config_path, config_text);
+// Конфиг проверяем САМИМ sing-box ДО того, как он станет живым. Зачем: структурно наш план
+// корректен (юниты это держат), но семантику знает только бинарь — неподдерживаемое поле или
+// конфликт опций (например server_port вместе с server_ports у hysteria2) раньше молча поднимали
+// МЁРТВЫЙ демон, и человек узнавал об этом из 30-секундной пробы и отката «туннель не поднялся»
+// без причины. Теперь шаг падает сразу, а объяснение от sing-box уезжает в install-лог.
+//
+// Порядок «во временный файл → check → на место» существен: битый конфиг НЕ становится живым
+// даже на миг. Гейт по наличию бинаря: в dry-run/host-тестах sing-box может отсутствовать — тогда
+// проверять нечем, и это не повод валить шаг (сервис ниже всё равно не поднимется, и это поймает
+// health-check).
+let staged = plan.config_path + ".check";
+writefile(staged, config_text);
+if (trim(sh("command -v sing-box 2>/dev/null")) != "") {
+	let chk = sh(sprintf("sing-box check -c '%s' 2>&1; echo __rc=$?", staged));
+	let m = match(chk, /__rc=([0-9]+)/);
+	if (!m || m[1] != "0") {
+		sh(sprintf("rm -f '%s'", staged));
+		warn("singbox: sing-box отверг сгенерированный конфиг — шаг не применён, туннель не тронут\n");
+		warn(trim(replace(chk, /__rc=[0-9]+\s*$/, "")) + "\n");
+		exit(1);
+	}
+}
+sh(sprintf("mv '%s' '%s'", staged, plan.config_path));
 
 // teardown по одному с глушением (отсутствие секции — норма), затем setup атомарно.
 for (let i = 0; i < length(plan.uci_teardown); i++) {

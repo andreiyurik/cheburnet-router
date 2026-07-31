@@ -1,13 +1,19 @@
-// singbox.uc — Full-тир: разбор VLESS+Reality и генерация конфига sing-box.
+// singbox.uc — Full-тир: разбор ссылок VLESS+Reality / Hysteria2 и генерация конфига sing-box.
 //
-// Пользователь приносит подключение от своего Reality-сервера — обычно ссылкой `vless://…`
-// (её отдают панели 3x-ui / Hiddify и т.п.) или сырым JSON-конфигом sing-box (advanced).
-// Шаг разбирает вход, валидирует (граница доверия — вход пользователя) и генерирует
+// Пользователь приносит подключение от своего сервера — ссылкой `vless://…` (панели 3x-ui /
+// Hiddify), ссылкой `hysteria2://…` (она же `hy2://…`) или сырым JSON-конфигом sing-box
+// (advanced). Шаг разбирает вход, валидирует (граница доверия — вход пользователя) и генерирует
 // /etc/sing-box/config.json + включает сервис. См. [[0004-multi-protocol-tiers]].
 //
-// ЧИСТОЕ ЯДРО: parse_vless_link (vless:// → поля) + build_singbox_config (поля → конфиг-объект)
-// + build_singbox_plan (вход → артефакты: config + uci-операции). Применение (запись файла,
-// uci, рестарт) — в apply.uc (импурно, проверяется в QEMU).
+// ЧИСТОЕ ЯДРО: parse_vless_link / parse_hysteria2_link (ссылка → поля) +
+// build_singbox_config / build_hysteria2_config (поля → конфиг-объект) + build_singbox_plan
+// (вход → артефакты: config + uci-операции). Применение (запись файла, uci, рестарт) — в
+// apply.uc (импурно, проверяется в QEMU).
+//
+// ДВА ПРОТОКОЛА — ОДИН ШАГ: специфичны ровно разбор ссылки и объект outbound. TUN-инбаунд,
+// netifd-секции, half-routes, сервис и teardown — ОБЩИЕ (см. ADR 0004, «единый контракт
+// транспорта»): туннель остаётся один (singtun0), значит firewall/policy-routing не знают, какой
+// протокол активен, и health/проба у обоих одни.
 //
 // ИНВАРИАНТ (тот же, что route_allowed_ips='0' у AWG): auto_route=false — маршрутизацией
 // управляет ЯДРО (наш policy-routing / [[policy-routing]]), а НЕ sing-box. sing-box лишь
@@ -25,6 +31,10 @@ const SINGBOX_DEFAULTS = {
 	fingerprint: "chrome",            // uTLS-отпечаток ClientHello по умолчанию
 	log_level:   "warn",
 };
+
+// Порт по умолчанию для hysteria2-ссылки: спецификация hy2-URI разрешает опустить порт и
+// говорит, что тогда он равен 443 (в vless-ссылке порт обязателен — там мы его требуем).
+const HY2_DEFAULT_PORT = "443";
 
 function resolve_opts(opts) {
 	let o = {};
@@ -211,9 +221,39 @@ function parse_vless_link(s) {
 	};
 }
 
+// wrap_outbound(o, outbound) → полный конфиг sing-box вокруг ГОТОВОГО туннельного outbound.
+// ОБЩАЯ часть обоих Full-протоколов: TUN-инбаунд + direct + route. Протокол-специфичен только
+// сам outbound — поэтому новый протокол не может случайно потерять инвариант auto_route=false
+// или уехать на другой TUN (см. ADR 0004, «единый контракт транспорта»).
+function wrap_outbound(o, outbound) {
+	return {
+		log: { level: o.log_level, timestamp: true },
+		inbounds: [ {
+			type: "tun",
+			tag: "tun-in",
+			interface_name: o.tun,
+			address: [ o.tun_address ],
+			mtu: int(o.mtu),
+			// ИНВАРИАНТ: маршрутизацией управляет ядро (наш policy-routing), не sing-box.
+			auto_route: false,
+			strict_route: false,
+			stack: "system",
+		} ],
+		outbounds: [ outbound, {
+			type: "direct",
+			tag: "direct",
+		} ],
+		route: {
+			// серверное соединение sing-box уходит в реальный WAN, не зацикливаясь в TUN
+			auto_detect_interface: true,
+			final: outbound.tag,
+		},
+	};
+}
+
 // build_singbox_config(fields, opts) → { ok, errors, config }. fields — из parse_vless_link.
 // Валидация (граница доверия): Reality требует uuid/host/port/pbk/sni; security, если задан,
-// обязан быть "reality" (Full-тир = только Reality, см. ADR 0004). sid/fp/flow — с дефолтами.
+// обязан быть "reality" (у VLESS без Reality ценности нет, см. ADR 0004). sid/fp/flow — с дефолтами.
 function build_singbox_config(fields, opts) {
 	let o = resolve_opts(opts);
 	let f = fields ?? {};
@@ -236,49 +276,253 @@ function build_singbox_config(fields, opts) {
 	let reality = { enabled: true, public_key: f.pbk };
 	if (length(f.sid ?? "") > 0) reality.short_id = f.sid;
 
-	let config = {
-		log: { level: o.log_level, timestamp: true },
-		inbounds: [ {
-			type: "tun",
-			tag: "tun-in",
-			interface_name: o.tun,
-			address: [ o.tun_address ],
-			mtu: int(o.mtu),
-			// ИНВАРИАНТ: маршрутизацией управляет ядро (наш policy-routing), не sing-box.
-			auto_route: false,
-			strict_route: false,
-			stack: "system",
-		} ],
-		outbounds: [ {
-			type: "vless",
-			tag: "reality-out",
-			server: f.host,
-			server_port: int(f.port),
-			uuid: f.uuid,
-			flow: flow,
-			tls: {
-				enabled: true,
-				server_name: f.sni,
-				utls: { enabled: true, fingerprint: fp },
-				reality: reality,
-			},
-		}, {
-			type: "direct",
-			tag: "direct",
-		} ],
-		route: {
-			// серверное соединение sing-box уходит в реальный WAN, не зацикливаясь в TUN
-			auto_detect_interface: true,
-			final: "reality-out",
+	return { ok: true, errors: [], config: wrap_outbound(o, {
+		type: "vless",
+		tag: "reality-out",
+		server: f.host,
+		server_port: int(f.port),
+		uuid: f.uuid,
+		flow: flow,
+		tls: {
+			enabled: true,
+			server_name: f.sni,
+			utls: { enabled: true, fingerprint: fp },
+			reality: reality,
+		},
+	}) };
+}
+
+// --- Hysteria2 (Full-тир, ось «плохой канал»): ссылка → поля → outbound ---
+//
+// Формат (официальная спецификация hy2-URI):
+//   hysteria2://[auth@]host[:портовая-часть][/]?[params]#label      (схема-алиас: hy2://)
+// params: sni, insecure, obfs, obfs-password, pinSHA256, ech (+ наши локальные up/down, ниже).
+// Порт можно опустить (→ 443), а в портовой части разрешён «multi-port» для port hopping.
+
+// parse_port_ranges(spec) → массив диапазонов в СИНТАКСИСЕ SING-BOX ("5000:6000") или null,
+// если спека битая. Вход — портовая часть ссылки или значение mport: "443", "443,5000-6000",
+// уже-двоеточный "5000:6000". Одиночный порт нормализуем в "N:N" — sing-box принимает range-форму,
+// и так вызывающему не нужно различать формы при сборке server_ports.
+// null (а не «пропустить мусор») осознанно: битый диапазон = порт-хоппинг молча не работает,
+// а узнать об этом человек смог бы только по мёртвому туннелю.
+function parse_port_ranges(spec) {
+	let s = trim(spec ?? "");
+	if (length(s) == 0) return null;
+	let out = [], toks = split(s, ",");
+	for (let i = 0; i < length(toks); i++) {
+		let t = trim(toks[i]);
+		if (length(t) == 0) return null;
+		let m = match(t, /^([0-9]+)[-:]([0-9]+)$/);
+		let lo = m ? int(m[1]) : (match(t, /^[0-9]+$/) ? int(t) : -1);
+		let hi = m ? int(m[2]) : lo;
+		if (lo < 1 || lo > 65535 || hi < 1 || hi > 65535 || hi < lo) return null;
+		push(out, sprintf("%d:%d", lo, hi));
+	}
+	return out;
+}
+
+// split_hy2_hostport(s) → { host, port_spec } или null. Два отличия от split_hostport (vless):
+// порт НЕОБЯЗАТЕЛЕН (спецификация: нет порта = 443) и может быть «multi-port» (запятые/дефисы),
+// поэтому валидирует портовую часть parse_port_ranges, а не valid_port.
+//
+// Режем по ПЕРВОМУ ':' (у vless — по последнему): в портовой части могут быть свои двоеточия
+// (диапазон "5000:6000"), и резать по последнему значило бы разорвать сам диапазон.
+// Голый IPv6 без скобок при этом отваливается сам: "fe80::1" даёт port_spec ":1", а он не
+// проходит проверку ниже. Требование скобок — то же, что у vless-парсера, и честный отказ
+// лучше мусорных host/port, которые убили бы туннель уже после установки.
+function split_hy2_hostport(s) {
+	let t = trim(s ?? "");
+	if (length(t) == 0) return null;
+	if (substr(t, 0, 1) == "[") {
+		let close = index(t, "]");
+		if (close < 2) return null;
+		let host = substr(t, 1, close - 1), tail = substr(t, close + 1);
+		if (length(tail) == 0) return { host: host, port_spec: "" };
+		if (substr(tail, 0, 1) != ":") return null;
+		tail = substr(tail, 1);
+		return match(tail, /^[0-9][0-9,:-]*$/) ? { host: host, port_spec: tail } : null;
+	}
+	let idx = index(t, ":");
+	if (idx < 0)
+		return { host: t, port_spec: "" };
+	let host = substr(t, 0, idx), spec = substr(t, idx + 1);
+	if (length(host) == 0 || !match(spec, /^[0-9][0-9,:-]*$/))
+		return null;
+	return { host: host, port_spec: spec };
+}
+
+// parse_hysteria2_link(s) → { ok, errors, fields }.
+// fields: { auth, host, port, ports[], sni, insecure, obfs, obfs_password, pin, ech, up, down, label }.
+//   port  — одиночный порт строкой (обычный случай, идёт в server_port);
+//   ports — диапазоны для port hopping в sing-box-синтаксисе (идут в server_ports).
+// Заполнен ровно один из двух: схема sing-box объявляет server_port и server_ports конфликтующими.
+function parse_hysteria2_link(s) {
+	let raw = trim(s ?? "");
+	let rest = null;
+	if (substr(raw, 0, 12) == "hysteria2://") rest = substr(raw, 12);
+	else if (substr(raw, 0, 6) == "hy2://") rest = substr(raw, 6);
+	if (rest == null)
+		return { ok: false, errors: [ "ссылка не начинается с hysteria2:// или hy2://" ], fields: {} };
+
+	// fragment (#label) → query (?…) — как в vless-парсере, порядок важен: '?' может быть в label.
+	let label = "";
+	let hash = index(rest, "#");
+	if (hash >= 0) { label = urldecode(substr(rest, hash + 1)); rest = substr(rest, 0, hash); }
+
+	let query = "";
+	let qm = index(rest, "?");
+	if (qm >= 0) { query = substr(rest, qm + 1); rest = substr(rest, 0, qm); }
+
+	// Путь в hy2-ссылке пустой ("/" перед '?') — отрезаем, иначе он уехал бы в host.
+	rest = replace(rest, /\/+$/, "");
+
+	// userinfo@host: auth percent-энкодится (спецификация), поэтому '@' в нём быть не может —
+	// но режем по ПОСЛЕДНЕМУ '@' на случай ссылки от панели, которая энкодинг забыла.
+	let auth = "", at = -1;
+	for (let i = 0; i < length(rest); i++)
+		if (substr(rest, i, 1) == "@") at = i;
+	if (at >= 0) { auth = urldecode(substr(rest, 0, at)); rest = substr(rest, at + 1); }
+
+	let hp = split_hy2_hostport(rest);
+	if (!hp)
+		return { ok: false, errors: [ "не разобран host[:порт] (IPv6 — только в квадратных скобках)" ], fields: {} };
+
+	let p = parse_query(query);
+
+	// Порт-хоппинг: стандарт кладёт диапазоны в порт-компонент (host:443,5000-6000), но часть
+	// панелей отдаёт их параметром mport — принимаем оба. Порт-компонент приоритетнее: он ближе
+	// к серверу правды (сам адрес), mport — расширение.
+	let port = "", ports = [];
+	let spec = hp.port_spec;
+	if (length(spec) == 0)
+		spec = trim(p.mport ?? "");
+	if (length(spec) == 0) {
+		port = HY2_DEFAULT_PORT;
+	} else {
+		let ranges = parse_port_ranges(spec);
+		if (!ranges)
+			return { ok: false, errors: [ sprintf("не разобран диапазон портов '%s' (ожидается 443 или 5000-6000,7000)", spec) ], fields: {} };
+		// Одиночный порт — обычный server_port, без машинерии port hopping.
+		if (match(spec, /^[0-9]+$/))
+			port = "" + int(spec);
+		else
+			ports = ranges;
+	}
+
+	return {
+		ok: true, errors: [],
+		fields: {
+			auth: auth, host: hp.host, port: port, ports: ports,
+			sni: p.sni ?? "", insecure: p.insecure ?? "",
+			obfs: p.obfs ?? "", obfs_password: p["obfs-password"] ?? "",
+			pin: p.pinSHA256 ?? "", ech: p.ech ?? "",
+			// up/down — НАШИ локальные параметры, не часть стандарта: спецификация hy2-URI прямо
+			// требует не класть полосу в ссылку (она индивидуальна и «не для слепого применения»).
+			// Их добавляет наш UI по решению владельца — см. ADR 0004, раздел про Brutal.
+			up: p.up ?? "", down: p.down ?? "",
+			label: label,
 		},
 	};
-	return { ok: true, errors: [], config: config };
+}
+
+// truthy_flag(v) — значение булева параметра ссылки. Спецификация задаёт "1"/"0"; "true"
+// принимаем как распространённое отклонение панелей.
+function truthy_flag(v) {
+	let t = lc(trim(v ?? ""));
+	return t == "1" || t == "true";
+}
+
+// mbps(v) → целое Мбит/с или null. Терпим хвост вида "50 mbps" (панели пишут по-разному),
+// но НЕ выдумываем значение: не разобрали — значит его нет, и Brutal не включится (BBR).
+function mbps(v) {
+	let m = match(trim(v ?? ""), /^([0-9]+)/);
+	if (!m) return null;
+	let n = int(m[1]);
+	return (n > 0 && n <= 100000) ? n : null;
+}
+
+// looks_like_ip(h) — литеральный адрес (IPv4 или IPv6), а не имя. Нужно для server_name: SNI с
+// IP-адресом часть серверов отвергает, поэтому при отсутствии sni подставляем host ТОЛЬКО если
+// это имя.
+function looks_like_ip(h) {
+	return match(h ?? "", /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) != null || index(h ?? "", ":") >= 0;
+}
+
+// build_hysteria2_config(fields, opts) → { ok, errors, config }. fields — из parse_hysteria2_link.
+//
+// ГРАНИЦА ДОВЕРИЯ. Часть параметров hy2-URI sing-box не умеет, и молчаливое игнорирование здесь
+// было бы худшим из вариантов: человек узнал бы о проблеме из 30-секундной пробы и отката без
+// причины. Поэтому отвергаем с НАЗВАННОЙ причиной (см. ADR 0004, «границы поддержки hy2-URI»):
+//   • pinSHA256 без insecure=1 — пиннинг сертификата sing-box для hysteria2 не поддерживает,
+//     а подставить insecure самим значило бы тихо снять проверку сертификата;
+//   • ech — в сборке sing-box-tiny ECH нет;
+//   • obfs=gecko — Hysteria умеет, sing-box только salamander.
+//
+// Полоса (up_mbps/down_mbps) НЕ имеет дефолта осознанно: пустые значения = BBR (документировано в
+// схеме outbound hysteria2), а выдуманная цифра включила бы Brutal, который берёт объявленную
+// скорость силой — завышение раздувает очередь и делает хуже БЕЗ ошибок в логах.
+function build_hysteria2_config(fields, opts) {
+	let o = resolve_opts(opts);
+	let f = fields ?? {};
+
+	let errors = [];
+	if (length(f.host ?? "") == 0) push(errors, "нет host");
+	if (length(f.auth ?? "") == 0)
+		push(errors, "нет пароля (часть ссылки до '@')");
+	let has_port  = match(f.port ?? "", /^[0-9]+$/) != null;
+	let has_ports = type(f.ports) == "array" && length(f.ports) > 0;
+	if (!has_port && !has_ports) push(errors, "нет/битый порт");
+
+	if (length(f.obfs ?? "") > 0) {
+		if (lc(f.obfs) != "salamander")
+			push(errors, sprintf("obfs=%s — sing-box поддерживает только salamander", f.obfs));
+		else if (length(f.obfs_password ?? "") == 0)
+			push(errors, "obfs=salamander без obfs-password — сервер такой трафик не примет");
+	}
+	let insecure = truthy_flag(f.insecure);
+	if (length(f.pin ?? "") > 0 && !insecure)
+		push(errors, "параметр pinSHA256 не поддерживается — попросите ссылку с обычным TLS-сертификатом (или с insecure=1)");
+	if (length(f.ech ?? "") > 0)
+		push(errors, "параметр ech не поддерживается этой сборкой sing-box");
+
+	let up = mbps(f.up), down = mbps(f.down);
+	if ((up == null) != (down == null))
+		push(errors, "скорость канала указывается парой: и приём, и отдача (иначе congestion control непредсказуем)");
+
+	if (length(errors) > 0)
+		return { ok: false, errors: errors, config: null };
+
+	let out = {
+		type: "hysteria2",
+		tag: "hysteria2-out",
+		server: f.host,
+		password: f.auth,
+	};
+	// server_port и server_ports конфликтуют по схеме → пишем ровно одно.
+	if (has_ports) out.server_ports = f.ports;
+	else out.server_port = int(f.port);
+	if (up != null) { out.up_mbps = up; out.down_mbps = down; }
+	if (length(f.obfs ?? "") > 0)
+		out.obfs = { type: "salamander", password: f.obfs_password };
+
+	// tls обязателен по схеме hysteria2-outbound. server_name: sni из ссылки, иначе имя хоста
+	// (но не IP-литерал — такой SNI часть серверов отвергает).
+	let tls = { enabled: true };
+	let sni = (length(f.sni ?? "") > 0) ? f.sni : (looks_like_ip(f.host) ? "" : f.host);
+	if (length(sni) > 0) tls.server_name = sni;
+	if (insecure) tls.insecure = true;
+	out.tls = tls;
+
+	return { ok: true, errors: [], config: wrap_outbound(o, out) };
 }
 
 // parse_input(text) → { ok, errors, config, source }. Диспетч входа:
-//   • "vless://…"  → разобрать ссылку и сгенерировать конфиг (основной путь).
-//   • "{…}"        → сырой JSON sing-box (advanced): должен содержать массив outbounds.
-//                    Доверяем структуре пользователя, но проверяем минимум (граница доверия).
+//   • "vless://…"                 → Reality: разобрать ссылку и сгенерировать конфиг.
+//   • "hysteria2://…" / "hy2://…" → Hysteria2: то же самое своей парой функций.
+//   • "{…}"                       → сырой JSON sing-box (advanced): должен содержать массив
+//                                   outbounds. Доверяем структуре пользователя, но проверяем
+//                                   минимум (граница доверия).
+// source различает ветки для UI/логов: "link" (vless), "hy2", "json".
 function parse_input(text, opts) {
 	let raw = trim(text ?? "");
 	if (length(raw) == 0)
@@ -291,6 +535,13 @@ function parse_input(text, opts) {
 		return { ok: built.ok, errors: built.errors, config: built.config, source: "link" };
 	}
 
+	if (substr(raw, 0, 12) == "hysteria2://" || substr(raw, 0, 6) == "hy2://") {
+		let link = parse_hysteria2_link(raw);
+		if (!link.ok) return { ok: false, errors: link.errors, config: null, source: "hy2" };
+		let built = build_hysteria2_config(link.fields, opts);
+		return { ok: built.ok, errors: built.errors, config: built.config, source: "hy2" };
+	}
+
 	if (substr(raw, 0, 1) == "{") {
 		let obj = json(raw);   // битый JSON → ucode кинет исключение; ловит вызывающий/тест
 		if (type(obj) != "object" || type(obj.outbounds) != "array" || length(obj.outbounds) == 0)
@@ -298,7 +549,8 @@ function parse_input(text, opts) {
 		return { ok: true, errors: [], config: obj, source: "json" };
 	}
 
-	return { ok: false, errors: [ "вход не vless:// и не JSON-объект" ], config: null, source: "?" };
+	return { ok: false, errors: [ "вход не vless://, не hysteria2:// и не JSON-объект" ],
+		config: null, source: "?" };
 }
 
 // build_singbox_plan(text, opts) → { ok, errors, source, config, config_path, uci_setup,
@@ -342,4 +594,7 @@ function build_singbox_plan(text, opts) {
 	};
 }
 
-export { tun_interface, config_path, service_name, network_sections, build_net_plan, parse_vless_link, build_singbox_config, parse_input, build_singbox_plan };
+export { tun_interface, config_path, service_name, network_sections, build_net_plan,
+         parse_vless_link, build_singbox_config,
+         parse_hysteria2_link, build_hysteria2_config, parse_port_ranges,
+         parse_input, build_singbox_plan };
