@@ -246,24 +246,6 @@ function fresh_handshake(hs, started) {
 	return false;
 }
 
-// pick_wan_fallback(route_text, tunnel_ifs) → { wan_if, wan_gw|null } или null. ЧИСТАЯ: разбор
-// `ip route show default`, когда netifd не знает WAN (нестандартное имя логики) — первый
-// default-маршрут МИМО туннельных интерфейсов. Выбор туннеля как «WAN» здесь = kill-switch,
-// ключёванный на сам туннель (тихо мёртвый data-plane) — потомок инцидента «wan_if не вычислялся».
-function pick_wan_fallback(route_text, tunnel_ifs) {
-	let skip = {};
-	for (let i = 0; i < length(tunnel_ifs ?? []); i++) skip[tunnel_ifs[i]] = true;
-	let defs = split(trim(route_text ?? ""), "\n");
-	for (let i = 0; i < length(defs); i++) {
-		let dev = match(defs[i], /dev ([^ ]+)/);
-		if (!dev || skip[dev[1]])
-			continue;
-		let gw = match(defs[i], /via ([0-9.]+)/);
-		return { wan_if: dev[1], wan_gw: gw ? gw[1] : null };
-	}
-	return null;
-}
-
 // route_uses_iface(route_out, iface) — идёт ли маршрут через iface по выводу `ip route get <ip>`.
 // ЧИСТАЯ (вход — строка вывода ip): connectivity-probe reality (run.uc/replace_reality, импурно)
 // форсирует host-route на probe-IP через туннель и этой функцией подтверждает, что маршрут реально
@@ -284,4 +266,4 @@ function route_uses_iface(route_out, iface) {
 export { protocol_ids, default_protocol, tunnel_info, uses_singbox, singbox_protocols, tunnel_conf,
          disabled_tunnels, all_steps, enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          handshake_state, fresh_handshake, tunnel_health, HANDSHAKE_FRESH_S,
-         pick_wan_fallback, route_uses_iface };
+         route_uses_iface };

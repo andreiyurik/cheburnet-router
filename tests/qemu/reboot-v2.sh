@@ -75,6 +75,12 @@ vm_ssh "echo '{\"domains\":[\"example.com\"],\"dns_provider\":\"adguard\"}' | uc
     || { echo "  ✗ dns-шаг упал"; exit 1; }
 vm_ssh "echo '{\"dns_provider\":\"adguard\"}' | ucode -R $ENGINE/steps/doh/apply.uc" \
     || { echo "  ✗ doh-шаг упал"; exit 1; }
+# install.json — то, из чего система восстанавливает себя после загрузки (его пишет оркестратор на
+# commit). Без него hotplug-хук честно ничего не делает, и «переживает ребут» проверялось бы на
+# системе, которая с точки зрения движка не настроена.
+vm_ssh "echo '{\"protocol\":\"awg\",\"domains\":[\"example.com\"],\"routing_opts\":{\"wan_if\":\"eth0\",\"tunnel_if\":\"awg0\"}}' > /etc/cheburnet/install.json" \
+    || { echo "✗ не записал install.json"; exit 1; }
+
 vm_ssh "echo '{\"domains\":[\"example.com\"],\"routing_opts\":{\"wan_if\":\"eth0\"},\"fw_opts\":{\"tunnel_if\":\"awg0\"}}' | ucode -R $ENGINE/steps/firewall/apply.uc" \
     || { echo "  ✗ firewall-шаг упал"; exit 1; }
 vm_ssh "/etc/init.d/dnsmasq restart >/dev/null 2>&1; sleep 3"
@@ -203,7 +209,25 @@ else
     echo "  ⊘ пропущено: без резолва наполнить набор нечем (см. проверку 5)"
 fi
 
-echo "→ ПРОВЕРКА 7: файл правил на диске, а не только в памяти"
+echo "→ ПРОВЕРКА 7: policy-routing вернулся в ЯДРО (направление direct-трафика)"
+# СЛЕПАЯ ЗОНА, стоившая живого прогона (2026-08-01): nft-часть переживала ребут файлом в
+# /etc/nftables.d/, а ip-часть (`ip rule fwmark → table` + default этой таблицы через WAN) — нет.
+# Проверка 6 при этом ЗЕЛЕНЕЛА: адрес в наборе есть, метка ставится — а направлять помеченный
+# трафик нечем, и он уходил в туннель. То есть split-tunnel, главная функция продукта, тихо
+# выключался после каждой перезагрузки. Возвращает правила hotplug-хук (install/reapply.uc).
+vm_ssh "ip rule show | grep -q fwmark" \
+    || { echo "  ✗ правила policy-routing нет — direct-домены пойдут В ТУННЕЛЬ (split мёртв)";
+         vm_ssh "ip rule show; ls -l /etc/hotplug.d/iface/ 2>/dev/null" || true; exit 1; }
+echo "  ✓ ip rule fwmark на месте"
+vm_ssh "ip route show table 100 2>/dev/null | grep -q default" \
+    || { echo "  ✗ в таблице direct нет маршрута по умолчанию — помеченный трафик никуда не поедет";
+         vm_ssh "ip route show table 100; cat /etc/hotplug.d/iface/99-cheburnet 2>/dev/null" || true; exit 1; }
+echo "  ✓ default-маршрут таблицы direct через WAN на месте"
+vm_ssh '[ -x /etc/hotplug.d/iface/99-cheburnet ]' \
+    || { echo "  ✗ hotplug-хук отсутствует — после следующего ребута правил снова не будет"; exit 1; }
+echo "  ✓ hotplug-хук восстановления на месте (исполняемый)"
+
+echo "→ ПРОВЕРКА 8: файл правил на диске, а не только в памяти"
 # Обратная сторона проверки 1: правила в ядре могли оказаться там случайно (например, кто-то
 # применил шаг заново). Файл включения — то, из чего fw4 их берёт при КАЖДОМ старте.
 vm_ssh '[ -f /etc/nftables.d/10-cheburnet.nft ]' \
@@ -213,5 +237,7 @@ echo "  ✓ /etc/nftables.d/10-cheburnet.nft на месте"
 echo
 echo "✓ T3h-v2 pass — конфигурация переживает перезагрузку роутера:"
 echo "  kill-switch и наборы возвращаются в ядро сами (правила в /etc/nftables.d, не в памяти),"
-echo "  dnsmasq и https-dns-proxy стартуют по procd, мост «домен→IP→набор» работает после загрузки."
+echo "  dnsmasq и https-dns-proxy стартуют по procd, мост «домен→IP→набор» работает после загрузки,"
+echo "  а policy-routing (ip rule + таблица direct) восстанавливает hotplug-хук — без него split"
+echo "  молча выключался после каждой перезагрузки при полностью зелёной панели."
 echo "  Подъём самого туннеля после ребута требует живого сервера — qemu-live-vps."

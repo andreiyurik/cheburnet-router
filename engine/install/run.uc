@@ -14,7 +14,8 @@ import { stdin, readfile, writefile, unlink, access } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state,
-         pick_wan_fallback, protocol_ids, uses_singbox, tunnel_conf } from "./install.uc";
+         protocol_ids, uses_singbox, tunnel_conf } from "./install.uc";
+import { pick_wan_fallback } from "../lib/route.uc";
 import { parse_wan_route } from "../preflight/parse.uc";
 import { evaluate, soft_failed_ids } from "../preflight/preflight.uc";
 import { config_path as sb_config_path } from "../steps/singbox/singbox.uc";
@@ -134,14 +135,11 @@ function rollback_all(steps, cfg) {
 // пере-установке/смене протокола оставляло восстановленный туннель БЕЗ NAT/policy-routing:
 // LAN без интернета при «installed=true». Признак «была рабочая система» = install.json
 // восстановлен из .prev (restore_cfg_truth); переприменяем firewall из него — как set_mode.
+// Реализация ОДНА — install/reapply.uc: её же зовёт hotplug-хук при подъёме WAN (после
+// перезагрузки роутера). Две копии означали бы «после ребута состояние иначе, чем после отката»,
+// а такое расхождение глазами не ловится.
 function reapply_data_plane() {
-	let raw = readfile(ETC_CHEBURNET + "/install.json");
-	let saved = (raw && substr(trim(raw), 0, 1) == "{") ? json(raw) : null;
-	if (!saved || type(saved.routing_opts) != "object" || !saved.routing_opts.wan_if)
-		return; // не была установлена (или WAN неизвестен — firewall-план честно откажет)
-	let payload = sprintf("%J", { domains: saved.domains ?? [], routing_opts: saved.routing_opts,
-		fw_opts: { tunnel_if: saved.routing_opts.tunnel_if } });
-	if (run_stdin(step_cmd("firewall", null), payload) != 0)
+	if (int(trim(sh(sprintf("ucode -R %s/install/reapply.uc >/dev/null 2>&1; echo $?", ENGINE)))) != 0)
 		warn("install: не удалось вернуть firewall прежней системы — примените режим заново в панели\n");
 }
 
@@ -170,7 +168,7 @@ if (type(cfg.routing_opts.wan_if) != "string" || length(cfg.routing_opts.wan_if)
 	let wr = parse_wan_route(sh("ubus call network.interface.wan status 2>/dev/null"));
 	if (!wr) {
 		// Фолбэк (нестандартное имя WAN-логики в netifd): дефолт-маршрут, минуя туннели.
-		// Разбор — чистая pick_wan_fallback (install.uc, под юнит-тестами).
+		// Разбор — чистая pick_wan_fallback (lib/route.uc, под юнит-тестами).
 		let tunnels = [];
 		for (let p in protocol_ids())
 			push(tunnels, tunnel_info(p).tunnel_if);

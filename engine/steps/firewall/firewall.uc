@@ -18,6 +18,9 @@
 import { render_iprules } from "../../routing/routing.uc";
 
 const NFT_PATH = "/etc/nftables.d/10-cheburnet.nft";
+// hotplug-хук: восстанавливает ip-часть data-plane при подъёме WAN (загрузка роутера, реконнект).
+// Почему hotplug, а не init-скрипт: он же покрывает смену шлюза у провайдера, а не только ребут.
+const HOTPLUG_PATH = "/etc/hotplug.d/iface/99-cheburnet";
 
 // Свои hooked-цепочки в inet fw4 (объявляются в nftables.d-файле). Сеты — тоже в файле: fw4
 // пересоздаёт их пустыми при reload, dnsmasq пере-наполняет на резолве (адреса эфемерны).
@@ -120,6 +123,44 @@ function render_nft_file(routing_plan, o) {
 	return { content: join("\n", L) + "\n", killswitch: ks };
 }
 
+// render_hotplug() → текст hotplug-хука (POSIX sh, busybox-ash).
+//
+// ЗАЧЕМ (оплачено живым прогоном 2026-08-01): nft-часть переживает перезагрузку файлом в
+// /etc/nftables.d/, а ip-часть (`ip rule fwmark → table`, default этой таблицы через WAN) живёт
+// ТОЛЬКО в ядре и после ребута исчезает. Симптом самый неприятный из возможных: панель зелёная,
+// туннель поднят, наборы direct наполняются — а direct-домены идут в туннель, потому что
+// направлять их стало нечем. Тихо отключается главная функция продукта.
+//
+// Хук намеренно тонкий: вся логика (какой WAN, какие домены, какой туннель) — в reapply.uc, чтобы
+// после ребута применялось РОВНО то же, что после откатa.
+//
+// Реагируем на ifup ЛЮБОГО интерфейса, а не только «wan»: имя WAN-логики в netifd бывает другим
+// (wwan, wan_4, нестандартные сборки), и фильтр по имени тихо не срабатывал бы именно там, где
+// помочь и надо. Порядок подъёма интерфейсов при загрузке тоже не гарантирован.
+//
+// ГЕЙТ ПРОВЕРЯЕТ ОБА АРТЕФАКТА — правило И маршрут в таблице direct (замер на живом роутере,
+// 2026-08-01): при первом ifup (lan, ~20-я секунда после загрузки) WAN ещё не готов, маршрут
+// добавиться не может, и остаётся ПОЛОВИНА — правило есть, таблица пуста. Гейт «есть правило» тогда
+// закрывал путь к починке навсегда: следующий ifup (уже с готовым WAN) выходил сразу. Пока
+// направлять некуда, split не работает, поэтому ждём именно оба артефакта.
+//
+// Номер таблицы подставляется из плана, а не зашит: его знает движок, а хук — генерируемый файл.
+function render_hotplug(table) {
+	return join("\n", [
+		"#!/bin/sh",
+		"# cheburnet: вернуть ip-часть data-plane (policy-routing) — она живёт только в ядре.",
+		"# Файл создаёт шаг firewall; правки перезапишутся при следующем применении.",
+		'[ "$ACTION" = "ifup" ] || exit 0',
+		"# Оба артефакта на месте — выходим сразу (дешёвый путь на каждый ifup).",
+		sprintf("if ip rule show 2>/dev/null | grep -q fwmark && \\"),
+		sprintf("   ip route show table %d 2>/dev/null | grep -q default; then", table),
+		"\texit 0",
+		"fi",
+		"ucode -R /usr/share/cheburnet/engine/install/reapply.uc >/dev/null 2>&1",
+		"exit 0",
+	]) + "\n";
+}
+
 // build_firewall_plan(routing_plan, opts) → структурный план.
 // wan_if берётся из routing_plan.opts (его кладёт gather/preflight) и НЕ хардкодится — это
 // прямой урок v1: хардкод LAN/WAN = тихо-дырявый kill-switch на нестандартной подсети.
@@ -168,6 +209,8 @@ function build_firewall_plan(routing_plan, opts) {
 		uci_setup: nat.setup,
 		nft_path: NFT_PATH,
 		nft_file: nft.content,
+		hotplug_path: HOTPLUG_PATH,
+		hotplug_file: render_hotplug(ro.table),
 		nft_teardown: nft_teardown,
 		ip_teardown: ip_teardown,
 		ip_setup: ip_setup,
@@ -175,4 +218,4 @@ function build_firewall_plan(routing_plan, opts) {
 	};
 }
 
-export { NFT_PATH, build_nat_ops, render_nft_file, build_firewall_plan };
+export { NFT_PATH, HOTPLUG_PATH, build_nat_ops, render_nft_file, render_hotplug, build_firewall_plan };

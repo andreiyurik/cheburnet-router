@@ -9,6 +9,10 @@
 // прогона: ручная `nft add`-инъекция терялась при hotplug/reload → kill-switch тихо умирал).
 // NAT-зона — uci firewall (чистый откат через snapshot). ip rule/route — iproute2.
 //
+// ip-часть (rule + таблица direct) живёт только в ядре и НЕ переживает перезагрузку, поэтому шаг
+// кладёт ещё и hotplug-хук: при подъёме WAN он зовёт install/reapply.uc, и правила возвращаются.
+// Без хука после ребута получалась зелёная панель с неработающим split-tunnel (живой прогон).
+//
 // wan_if обязателен в routing_opts (его даёт gather). Нет → план.ok=false → отказ без изменений.
 
 import { stdin, writefile, unlink } from "fs";
@@ -31,10 +35,16 @@ let teardown_only = (arg == "--teardown"); // снять наши правила
 let routing_plan = build_plan(req.domains ?? [], req.routing_opts);
 let plan = build_firewall_plan(routing_plan, req.fw_opts);
 
+// Пути артефактов: env-override ТОЛЬКО для host-тестов в sandbox (тот же приём, что SB_CONFIG у
+// Full-тира). Модуль плана остаётся чистым — подмена живёт на импурной границе, здесь.
+if (getenv("CHEB_NFT_PATH"))     plan.nft_path = getenv("CHEB_NFT_PATH");
+if (getenv("CHEB_HOTPLUG_PATH")) plan.hotplug_path = getenv("CHEB_HOTPLUG_PATH");
+
 // teardown-only: убрать nftables.d-файл (+reload вычистит цепочки), ip-правила и NAT-зону,
 // ничего не ставя. Код uci_batch НЕ проверяем: teardown толерантен (отсутствие секций — норма).
 if (teardown_only) {
 	unlink(plan.nft_path); // отсутствие файла — норма (unlink вернёт false, игнорим)
+	unlink(plan.hotplug_path); // хук снимаем вместе с правилами: иначе он вернёт их после ребута
 	for (let i = 0; i < length(plan.ip_teardown); i++)
 		run(plan.ip_teardown[i]);
 	for (let i = 0; i < length(plan.uci_teardown); i++)
@@ -68,6 +78,12 @@ if (dry) {
 // сразу включил их в fw4 — не остаётся окна без kill-switch.
 if (!writefile(plan.nft_path, plan.nft_file))
 	die(sprintf("firewall/apply: не смог записать %s", plan.nft_path));
+
+// 1b) hotplug-хук восстановления ip-части. Пишем ДО применения: если роутер перезагрузится в
+// середине установки, вернуться должно уже полное состояние. Права 0755 — его запускает hotplug.
+if (!writefile(plan.hotplug_path, plan.hotplug_file))
+	die(sprintf("firewall/apply: не смог записать %s", plan.hotplug_path));
+run(sprintf("chmod 0755 '%s'", plan.hotplug_path));
 
 // 2) NAT-зона (uci firewall) + commit + reload. Reload пересобирает fw4 И подхватывает наш
 // файл из nftables.d — одним действием и зона, и наши цепочки. Код batch ОБЯЗАТЕЛЬНО проверяем:

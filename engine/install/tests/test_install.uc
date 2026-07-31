@@ -2,7 +2,8 @@
 //   ucode -R engine/install/tests/test_install.uc
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
-import { route_uses_iface, fresh_handshake, pick_wan_fallback,
+import { pick_wan_fallback } from "../../lib/route.uc";
+import { route_uses_iface, fresh_handshake,
          all_steps, enabled_steps, snapshot_scope, dirty_steps,
          decide_outcome, protocol_ids, default_protocol, tunnel_info,
          uses_singbox, singbox_protocols, tunnel_conf,

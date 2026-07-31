@@ -12,7 +12,7 @@ Control-plane на [ucode](https://ucode.mediatek.org/): настраивает 
 | `routing/` | генерация конфигов split-routing (dnsmasq-nftset + nft + ip rule) | ✅ есть |
 | `preflight/` | гейткипер железа/версии/зависимостей (чистая оценка + парсеры + router-side gather) | ✅ есть |
 | `rollback/` | snapshot/restore UCI там, где откат чистый (политика clean/dirty + router-side snapshot) | ✅ есть |
-| `lib/` | общие хелперы (`assert.uc`, `uci.uc` list-reconcile, `proc.uc` shell/процессы) | ✅ есть |
+| `lib/` | общие хелперы (`assert.uc`, `uci.uc` list-reconcile, `proc.uc` shell/процессы, `route.uc` разбор `ip route`, `redact.uc` вырезание секретов) | ✅ есть |
 | `steps/` | идемпотентные шаги по компонентам | 🟢 `vpn/`, `dns/`, `doh/`, `wifi/`, `firewall/`, `rootpass/` есть; `singbox/` (Full-тир, не в мастере) |
 | `list/` | импорт и обновление community-списка доменов (чистая сборка + router-side fetch) | ✅ есть |
 | `install/` | оркестратор: preflight→snapshot→шаги→health→commit/rollback (политика + router-side run) | ✅ есть |
