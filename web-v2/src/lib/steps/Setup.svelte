@@ -1,17 +1,23 @@
 <script>
-  // onSubmit(args) — args для метода install: { awg_conf, root_password, [ssid, wifi_key], domains, token }.
-  // onBack — вернуться на preflight. wirelessPresent — есть ли радио (из status): false → скрыть
-  // Wi-Fi; true → обязателен; null (статус не ответил) → показать как необязательный.
+  // onSubmit(args) — args для метода install: { protocol, <conf_key>, root_password, [ssid,
+  // wifi_key], domains, token }. onBack — вернуться на preflight.
+  // wirelessPresent — есть ли радио (из status): false → скрыть Wi-Fi; true → обязателен;
+  // null (статус не ответил) → показать как необязательный.
   // initial — ранее собранные args («Назад» с экрана подтверждения не теряет введённое).
   // dnsProviders — каталог фильтрующих DNS (из status); dnsProviderDefault — дефолтный id.
-  // fullAvailable — ТЯНЕТ ли железо Full-тир (из preflight.tiers.full): true → VLESS+Reality
-  // доступен для выбора (sing-box догрузится автоматически при установке); false → строка Reality
-  // показана НЕактивной с пояснением про требования (образовательно), выбрать нельзя. Дефолт — AWG.
+  // fullAvailable — ТЯНЕТ ли железо Full-тир (из preflight.tiers.full): true → доступны
+  // VLESS+Reality и Hysteria2 (компонент догрузится автоматически при установке); false →
+  // их строки показаны НЕактивными с пояснением про требования (образовательно), выбрать нельзя.
   // acceptRisk — пользователь прошёл экран проверки с непройденными soft-требованиями («всё равно
   // установить»): напоминаем об этом и несём флаг в аргументы install (движок проверит ещё раз).
-  // fullReasons — ПОЧЕМУ Reality недоступен (из preflight.tiers.full_checks): человек должен видеть
-  // «не хватает RAM», а не безликое «недоступно» — иначе кажется, что мы что-то от него скрываем.
-  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup } from '../logic.js';
+  // fullReasons — ПОЧЕМУ Full-протоколы недоступны (из preflight.tiers.full_checks): человек
+  // должен видеть «не хватает RAM», а не безликое «недоступно».
+  //
+  // ГЛАВНОЕ В ЭТОМ ЭКРАНЕ: выбор туннеля идёт ОТ СИМПТОМА, а не от названий протоколов. Человек
+  // не знает, что такое DPI и QUIC, но точно знает, что у него не работает. Тексты — в каталоге
+  // PROTOCOLS (logic.js), здесь только разметка.
+  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup,
+           protocolList, protocolInfo, defaultProtocol, SPEED_DEFAULTS } from '../logic.js';
 
   let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, fullReasons = [], acceptRisk = false, urlToken = '', initial = null } = $props();
 
@@ -19,15 +25,27 @@
   const showWifi = $derived(wirelessPresent !== false);
   const wifiRequired = $derived(wirelessPresent === true);
 
+  const protocols = protocolList();
+
   // Посев из initial намеренно одноразовый: «Назад» с подтверждения пересоздаёт компонент,
   // и поля должны вернуть ранее введённое, а не следить за пропом.
-  // Туннель: протокол (awg=Light по умолчанию | reality=Full) + конфиги под каждый.
+  // Дефолт: на Full-железе — VLESS+Reality (закрывает самую частую поломку «VPN не поднимается»),
+  // на слабом — AmneziaWG без выбора. См. defaultProtocol и ADR 0004.
   // svelte-ignore state_referenced_locally
-  let protocol = $state(initial?.protocol ?? 'awg');
+  let protocol = $state(initial?.protocol ?? defaultProtocol(fullAvailable));
+  // Конфиги хранятся ПО ПРОТОКОЛАМ: переключение радио не теряет уже вставленное (человек может
+  // сравнить два варианта, не набирая заново).
   // svelte-ignore state_referenced_locally
-  let awgConf = $state(initial?.awg_conf ?? '');
-  // svelte-ignore state_referenced_locally
-  let realityConf = $state(initial?.reality_conf ?? '');
+  let confs = $state({
+    awg: initial?.awg_conf ?? '',
+    reality: initial?.reality_conf ?? '',
+    hysteria2: initial?.hysteria2_conf ?? '',
+  });
+  // Brutal (Hysteria2): по умолчанию скорость НЕ объявляем — sing-box тогда использует BBR и
+  // подстраивается сам. Ручной режим включается осознанно, см. предупреждение в разметке.
+  let declareSpeed = $state(false);
+  let speedDown = $state(SPEED_DEFAULTS.down);
+  let speedUp = $state(SPEED_DEFAULTS.up);
   // svelte-ignore state_referenced_locally
   let rootPass = $state(initial?.root_password ?? '');
   // svelte-ignore state_referenced_locally
@@ -53,19 +71,23 @@
   let dnsProvider = $state(initial?.dns_provider ?? dnsProviderDefault ?? '');
   let error = $state('');
 
-  // Загрузка AWG-конфига файлом (вставить нормису тяжело — даём три пути: файл/вставка/—).
+  const active = $derived(protocolInfo(protocol));
+
+  // Загрузка конфига файлом (вставить нормису тяжело — даём три пути: файл/вставка/—).
+  // Только для .conf: ссылку файлом не приносят.
   async function onFile(e) {
     const f = e.target.files?.[0];
     if (!f) return;
-    awgConf = await f.text();
+    confs.awg = await f.text();
   }
 
   // Валидация и сборка аргументов install — чистая validateSetup (logic.js, под vitest).
   function submit() {
     error = '';
     const r = validateSetup({
-      protocol, fullAvailable, awgConf, realityConf, rootPass, rootPass2,
-      showWifi, wifiRequired, ssid, wifiKey, dnsProvider, domainsText, token, acceptRisk,
+      protocol, fullAvailable, confs, declareSpeed, speedDown, speedUp,
+      rootPass, rootPass2, showWifi, wifiRequired, ssid, wifiKey,
+      dnsProvider, domainsText, token, acceptRisk,
     });
     if (r.error) {
       error = r.error;
@@ -83,50 +105,73 @@
       Стабильность не гарантируем; при сбое изменения откатятся автоматически.</p>
   {/if}
 
-  <h3>Протокол туннеля</h3>
-  <label class="radio">
-    <input type="radio" bind:group={protocol} value="awg" />
-    <span><strong>AmneziaWG</strong> — рекомендуем, начните с него. Лёгкий и быстрый, работает в ядре
-      роутера: меньше нагрузка, идёт даже на слабом железе.</span>
-  </label>
-  <label class="radio" class:disabled={!fullAvailable}>
-    <input type="radio" bind:group={protocol} value="reality" disabled={!fullAvailable} />
-    <span><strong>VLESS + Reality</strong> — запасной вариант, если AmneziaWG в вашей сети не
-      поднимается (бывает, что режут UDP): маскируется под обычный HTTPS. Тяжелее для роутера —
-      считается не в ядре, а в обычной программе, поэтому нужен 64-битный процессор с AES,
-      от 256 МБ RAM и ~42 МБ свободного места под компонент <code>sing-box</code> (догрузится сам,
-      скачать ~15 МБ).
-      {#if !fullAvailable}<br /><em class="req">На этом роутере недоступно{#if fullReasons.length > 0}:
-        {fullReasons.join('; ')}{/if} — будет использован AmneziaWG.</em>{/if}</span>
-  </label>
-  <p class="muted small">Выбирать сейчас не обязательно: если AmneziaWG не заработает, VLESS+Reality
-    можно добавить потом из панели одной кнопкой — переустанавливать роутер не придётся.</p>
+  <h3>Каким туннелем пользоваться</h3>
+  <p class="muted small">Выберите по тому, что для вас важнее или что не работает сейчас. Ошибиться
+    не страшно: туннель меняется потом из панели одной кнопкой, переустанавливать роутер не нужно.</p>
 
-  {#if protocol === 'reality' && fullAvailable}
-    <label>
-      <span>VLESS+Reality — ссылка или конфиг</span>
-      <textarea
-        bind:value={realityConf}
-        rows="6"
-        placeholder="vless://uuid@host:443?security=reality&pbk=…&sni=…&sid=…&flow=xtls-rprx-vision#name&#10;…или JSON-конфиг sing-box"
-      ></textarea>
-      <small class="muted">Возьмите ссылку из панели своего Reality-сервера (3x-ui / Hiddify и т.п.).
-        Компонент <code>sing-box</code> скачается автоматически во время установки.</small>
+  {#each protocols as p}
+    {@const locked = p.full && !fullAvailable}
+    <label class="radio" class:disabled={locked}>
+      <input type="radio" bind:group={protocol} value={p.id} disabled={locked} />
+      <span><strong>{p.symptom}</strong> — {p.why}
+        <br /><small class="muted">Протокол: {p.name}</small>
+        {#if locked}<br /><em class="req">На этом роутере недоступно{#if fullReasons.length > 0}:
+          {fullReasons.join('; ')}{/if}.</em>{/if}</span>
     </label>
-  {:else}
-    <label>
-      <span>VPN-конфиг (AmneziaWG, файл <code>.conf</code>)</span>
-      <textarea
-        bind:value={awgConf}
-        rows="8"
-        placeholder="[Interface]&#10;PrivateKey = …&#10;Address = …&#10;[Peer]&#10;PublicKey = …&#10;Endpoint = host:port"
-      ></textarea>
-      <small class="muted">Его выдаёт ваш VPN-провайдер (конфиг «для роутеров») или ваш собственный сервер.</small>
-    </label>
+  {/each}
+
+  {#if fullAvailable}
+    <p class="muted small">VLESS+Reality и Hysteria2 требуют компонент <code>sing-box</code> — он
+      скачается сам во время установки (~11 МБ, в памяти роутера займёт ~30 МБ). Если интернета на
+      роутере нет, установка честно остановится и ничего не изменит.</p>
+  {/if}
+
+  <label>
+    <span>{active.confLabel}</span>
+    <textarea
+      bind:value={confs[active.id]}
+      rows={active.file ? 8 : 6}
+      placeholder={active.placeholder}
+    ></textarea>
+    <small class="muted">{active.confHint}</small>
+  </label>
+  {#if active.file}
     <label class="file">
       <span>…или загрузить файлом</span>
       <input type="file" accept=".conf,text/plain" onchange={onFile} />
     </label>
+  {/if}
+
+  <!-- Brutal только у Hysteria2. Голое поле «Мбит/с» здесь было бы вредным: завышенное значение
+       раздувает очередь и делает связь ХУЖЕ, причём молча — ошибок в логах не будет. Поэтому
+       по умолчанию режим автоматический, а ручной снабжён прямым предупреждением. -->
+  {#if protocol === 'hysteria2'}
+    <h3>Скорость канала</h3>
+    <label class="radio">
+      <input type="radio" bind:group={declareSpeed} value={false} />
+      <span><strong>Подбирать автоматически</strong> — рекомендуем. Туннель сам определяет,
+        сколько может взять, и подстраивается под канал.</span>
+    </label>
+    <label class="radio">
+      <input type="radio" bind:group={declareSpeed} value={true} />
+      <span><strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями,
+        но только если цифры честные.</span>
+    </label>
+    {#if declareSpeed}
+      <p class="warn">Указывайте скорость, которую ваш интернет <strong>реально держит</strong>, и
+        лучше немного меньше. Если написать больше, чем есть, связь станет <strong>хуже</strong>:
+        вырастут задержки и начнутся обрывы — и никакой ошибки при этом не появится. Не знаете
+        точных цифр — выберите «автоматически».</p>
+      <label>
+        <span>Скорость приёма (Мбит/с)</span>
+        <input type="number" min="1" max="10000" bind:value={speedDown} />
+      </label>
+      <label>
+        <span>Скорость отдачи (Мбит/с)</span>
+        <input type="number" min="1" max="10000" bind:value={speedUp} />
+        <small class="muted">У домашнего интернета отдача обычно в несколько раз меньше приёма.</small>
+      </label>
+    {/if}
   {/if}
 
   <label>

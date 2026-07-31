@@ -49,6 +49,8 @@ let calls = [];
 // Аргументы последнего install — сценарий проверяет, что accept_risk реально доехал до движка
 // (без него preflight в run.uc откажет второй раз, и «красная кнопка» была бы обманом).
 let lastInstall = null;
+// Аргументы последней фоновой операции панели — ассерт «объявленная скорость доехала до движка».
+let lastBg = null;
 // Железо роутера для preflight: 'ok' | 'weak' (провалены только soft — флеш/RAM, пропуск
 // разрешён) | 'unsupported' (hard-провал arch — пропуск невозможен).
 let hw = 'ok';
@@ -60,8 +62,8 @@ let fullMissing = null;
 
 const ADMIN_METHODS = new Set([
   'set_mode', 'update_list', 'service_restart', 'set_dns_provider',
-  'replace_awg_conf', 'replace_reality_conf', 'install_full_tier',
-  'switch_to_reality', 'switch_to_awg', 'factory_reset',
+  'replace_awg_conf', 'replace_reality_conf', 'replace_hysteria2_conf', 'install_full_tier',
+  'switch_to_reality', 'switch_to_hysteria2', 'switch_to_awg', 'factory_reset',
 ]);
 
 const PROVIDERS = [
@@ -96,18 +98,21 @@ function ubusReply(method, args, session) {
           // handshake=12 и при protocol=reality — врал в пользу зелёного и скрыл реальный баг
           // (панель судила о Reality по AWG-рукопожатию и показывала «VPN не работает»).
           tunnel_health: vpnDown ? 'down' : 'up',
-          // У Reality рукопожатия НЕТ — поле обязано быть null, как на живом роутере.
-          awg_handshake_age: protocol === 'reality' ? null : (vpnDown ? null : 12),
+          // У Full-протоколов рукопожатия НЕТ — поле обязано быть null, как на живом роутере.
+          awg_handshake_age: protocol === 'awg' ? (vpnDown ? null : 12) : null,
           dns_up: true, doh_up: true, ssid: 'TestWifi',
         }),
       }];
     // Фоновые операции панели: старт → done за 2 поллинга, исход по bgResult.
     case 'install_full_tier':
     case 'switch_to_reality':
+    case 'switch_to_hysteria2':
     case 'switch_to_awg':
     case 'replace_reality_conf':
+    case 'replace_hysteria2_conf':
     case 'replace_awg_conf':
-      bg = { polls: 0, method };
+      bg = { polls: 0, method, args };
+      lastBg = { method, args };
       return [0, { status: 'started', pid: 111 }];
     case 'check_lan_conflict':
       return [0, { conflict: false }];
@@ -134,6 +139,7 @@ function ubusReply(method, args, session) {
           ],
           tiers: { light: false, full: false },
         }];
+      // hw='full' — железо ТЯНЕТ Full-тир: мастер даёт выбор протокола (и предвыбирает Reality).
       return [0, {
         passed: true, total: 6, failed: 0, hard_failed: 0, soft_failed: 0, overridable: false,
         checks: [
@@ -141,7 +147,14 @@ function ubusReply(method, args, session) {
           { id: 'ram', ok: true, severity: 'soft', detail: 'RAM ≈ 485 МБ' },
           { id: 'deps', ok: true, severity: 'hard', detail: 'зависимости устанавливаются' },
         ],
-        tiers: { light: true, full: false },
+        tiers: hw === 'full'
+          ? { light: true, full: true, full_checks: [] }
+          : {
+              light: true, full: false,
+              full_checks: [
+                { id: 'full_ram', ok: false, detail: 'RAM ≈ 120 МБ', fix: 'Full-тиру нужно ≥ 240 МБ' },
+              ],
+            },
       }];
     case 'install':
       if (args.token !== TOKEN) return [0, { error: 'неверный install-токен' }];
@@ -158,8 +171,10 @@ function ubusReply(method, args, session) {
         const op = bg; bg = null;
         if (bgResult === 'ok') {
           if (op.method === 'install_full_tier') fullInstalled = true;
-          if (op.method === 'switch_to_reality') protocol = 'reality';
-          if (op.method === 'switch_to_awg') protocol = 'awg';
+          // switch_to_<id> → активным становится <id>: так мок не приходится править на каждый
+          // новый протокол (и он не может «забыть» один из них).
+          const sw = op.method.match(/^switch_to_(.+)$/);
+          if (sw) protocol = sw[1];
           return [0, { done: true, result: 'ok', step: 'готово', log: `${op.method}: ok` }];
         }
         return [0, { done: true, result: 'fail', reason: bgReason, step: op.method,
@@ -198,6 +213,7 @@ createServer(async (req, res) => {
     adminLocked = false;
     calls = [];
     lastInstall = null;
+    lastBg = null;
     hw = 'ok';
     forced = [];
     fullMissing = null;
@@ -229,6 +245,11 @@ createServer(async (req, res) => {
     return;
   }
   // Аргументы последнего install — ассерт «accept_risk доехал до движка».
+  if (req.method === 'GET' && req.url === '/__last-bg') {
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(lastBg));
+    return;
+  }
   if (req.method === 'GET' && req.url === '/__last-install') {
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify(lastInstall));

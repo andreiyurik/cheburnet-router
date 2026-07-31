@@ -3,12 +3,12 @@
   import { softRisks, canOverride, fullReasons } from '../logic.js';
 
   // onReady(fullCapable, acceptRisk, fullWhyNot) — вызвать, когда можно идти дальше. fullCapable = tiers.full
-  // (железо ПОТЯНЕТ Full: AES-arch + RAM/флеш + sing-box ставится по apk --simulate), НЕ
-  // full_installed: мастер предлагает выбор AmneziaWG / VLESS+Reality уже на подходящем железе, а
-  // sing-box догружается автоматически при выборе Reality (ADR 0004). Не тянет → только AmneziaWG.
+  // (железо ПОТЯНЕТ Full: AES-arch + RAM/флеш + бинарь sing-box ставится по apk --simulate), НЕ
+  // full_installed: мастер предлагает выбор из трёх туннелей уже на подходящем железе, а бинарь
+  // догружается автоматически при выборе Full-протокола (ADR 0004). Не тянет → только AmneziaWG.
   // acceptRisk=true — пользователь осознанно идёт дальше с непройденными soft-проверками железа
   // (мало флеша/RAM); Setup донесёт это до install как accept_risk. fullWhyNot — причины, по которым
-  // Reality недоступен: мастер показывает их вместо безликого «недоступно».
+  // Full-протоколы недоступны: мастер показывает причины вместо безликого «недоступно».
   let { onReady } = $props();
 
   let report = $state(null);

@@ -1,11 +1,12 @@
-// reality-panel.spec.js — e2e: Full-тир (VLESS+Reality) как ЗАПАСНОЙ путь в панели.
+// full-tier-panel.spec.js — e2e: запасные туннели (Full-тир) в панели.
 //
-// Продуктовая рамка: основной туннель — AmneziaWG; если он не поднимается (сеть режет UDP),
-// человек доустанавливает VLESS+Reality и вставляет ссылку своего сервера. Проверяем именно это:
-//   • на РАБОТАЮЩЕМ Reality панель не кричит «VPN не работает» (регресс: судила по AWG-рукопожатию,
-//     которого у VLESS нет, и вела заменять AWG-конфиг — движок такую замену даже не принимает);
-//   • когда AWG мёртв, панель ведёт к запасному пути ровно в этот момент (доустановить/переключить);
-//   • мёртвый Reality ведёт к своей починке (ссылка vless://), а не к AWG-конфигу;
+// Продуктовая рамка: у человека сломано что-то конкретное, и панель обязана вести к тому туннелю,
+// который ЭТУ поломку лечит (ADR 0004, три оси покрытия). Проверяем именно это:
+//   • на РАБОТАЮЩЕМ Full-туннеле панель не кричит «не работает» (регресс: судила по AWG-рукопожатию,
+//     которого у VLESS/Hysteria2 нет, и вела заменять AWG-конфиг — движок такую замену не принимает);
+//   • когда активный туннель мёртв, панель ведёт к запасному пути ровно в этот момент;
+//   • с AmneziaWG подсказка НЕ предлагает Hysteria2: он тоже UDP и упал бы вместе с AWG;
+//   • мёртвый Full-туннель ведёт к своей починке (своя ссылка), а не к AWG-конфигу;
 //   • слабое железо получает честное объяснение, почему кнопки нет;
 //   • провал догрузки различает «нет места» и «нет интернета».
 
@@ -22,59 +23,75 @@ async function openPanel(page, request, state) {
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible();
 }
 
-test('рабочий Reality: панель не врёт про «VPN не работает»', async ({ page, request }) => {
+test('рабочий Reality: панель не врёт про «туннель не работает»', async ({ page, request }) => {
   await openPanel(page, request, { installed: true, protocol: 'reality', fullCapable: true, fullInstalled: true });
 
-  await expect(page.getByText('VPN не работает')).toHaveCount(0);
+  await expect(page.getByText('Туннель не работает')).toHaveCount(0);
   await expect(page.getByText('VLESS+Reality активен')).toBeVisible();
   // Строка сводки говорит про туннель, а не про молчащий AWG-сервер.
   await expect(page.getByText('поднят (VLESS+Reality)')).toBeVisible();
   await expect(page.getByText('нет ответа от сервера')).toHaveCount(0);
   // Починка предлагается правильная — замена Reality-ссылки, не AWG-конфига.
-  await expect(page.getByRole('heading', { name: 'Замена Reality-сервера' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Замена VPN-конфига' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Замена сервера (VLESS+Reality)' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Замена сервера (AmneziaWG)' })).toHaveCount(0);
 });
 
-test('мёртвый AWG на подходящем железе: панель ведёт доустановить Reality', async ({ page, request }) => {
+// Тот же регресс для второго Full-протокола: у Hysteria2 рукопожатия тоже нет.
+test('рабочий Hysteria2: свой зелёный статус и своя починка', async ({ page, request }) => {
+  await openPanel(page, request, { installed: true, protocol: 'hysteria2', fullCapable: true, fullInstalled: true });
+
+  await expect(page.getByText('Hysteria2 активен')).toBeVisible();
+  await expect(page.getByText('поднят (Hysteria2)')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Замена сервера (Hysteria2)' })).toBeVisible();
+  await expect(page.getByLabel('Ссылка hysteria2:// или конфиг sing-box')).toBeVisible();
+});
+
+test('мёртвый AWG на подходящем железе: панель ведёт доустановить компонент', async ({ page, request }) => {
   await request.post('/__vpn-down');
   await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: true, fullInstalled: false });
 
-  await expect(page.getByText('VPN не работает')).toBeVisible();
+  await expect(page.getByText('Туннель не работает (AmneziaWG)')).toBeVisible();
   // Главный сценарий Full-тира: подсказка про UDP + ссылка на блок догрузки.
-  const hint = page.getByText('режет сам протокол AmneziaWG', { exact: false });
+  const hint = page.getByText('не пропускает сам протокол AmneziaWG', { exact: false });
   await expect(hint).toBeVisible();
   await expect(hint.getByRole('link', { name: 'добавить VLESS+Reality' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /VLESS \+ Reality — запасной туннель/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Запасные туннели/ })).toBeVisible();
 });
 
-test('мёртвый AWG, sing-box уже стоит: ведёт переключиться, а не ставить заново', async ({ page, request }) => {
+test('мёртвый AWG, компонент уже стоит: ведёт переключиться, а не ставить заново', async ({ page, request }) => {
   await request.post('/__vpn-down');
   await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: true, fullInstalled: true });
 
-  const hint = page.getByText('уже установлен', { exact: false });
+  const hint = page.getByText('Компонент уже установлен', { exact: false });
   await expect(hint).toBeVisible();
-  await expect(hint.getByRole('link', { name: 'переключитесь на VLESS+Reality' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Переключиться на VLESS+Reality' })).toBeVisible();
+  await expect(hint.getByRole('link', { name: 'VLESS+Reality' })).toBeVisible();
+  // КЛЮЧЕВОЕ: Hysteria2 в подсказке «не открывается» быть НЕ должно — он работает по UDP, как и
+  // AmneziaWG, значит сеть, которая режет UDP, ломает их вместе. Предлагать его тут = гонять по кругу.
+  await expect(hint.getByRole('link', { name: 'Hysteria2' })).toHaveCount(0);
+  // Но в общем блоке «Сменить туннель» он доступен — как осознанный выбор, а не как лечение.
+  await expect(page.getByRole('heading', { name: /^Hysteria2 —/ })).toBeVisible();
 });
 
-test('мёртвый Reality: починка — свежая ссылка или возврат на AmneziaWG', async ({ page, request }) => {
+test('мёртвый Reality: починка — свежая ссылка, есть куда уйти', async ({ page, request }) => {
   await request.post('/__vpn-down');
   await openPanel(page, request, { installed: true, protocol: 'reality', fullCapable: true, fullInstalled: true });
 
   // Ищем сам абзац-баннер (getByText поймал бы <strong> внутри него, и ссылок в нём нет).
-  const banner = page.locator('p.banner', { hasText: 'Туннель VLESS+Reality не поднят' });
+  const banner = page.locator('p.banner', { hasText: 'Туннель не работает (VLESS+Reality)' });
   await expect(banner).toBeVisible();
-  await expect(banner.getByRole('link', { name: /свежую ссылку/ })).toBeVisible();
-  await expect(banner.getByRole('link', { name: /вернитесь на AmneziaWG/ })).toBeVisible();
-  await expect(page.getByText('VPN не работает')).toHaveCount(0);
+  await expect(banner.getByRole('link', { name: /свежий конфиг/ })).toBeVisible();
+  // С Full-туннеля предлагаем и второй Full, и возврат на лёгкий AmneziaWG.
+  const hint = page.locator('p.note', { hasText: 'дело, скорее всего, не' });
+  await expect(hint.getByRole('link', { name: 'Hysteria2' })).toBeVisible();
+  await expect(hint.getByRole('link', { name: 'AmneziaWG' })).toBeVisible();
 });
 
-test('мало RAM: честно объясняем, почему Reality недоступен', async ({ page, request }) => {
+test('мало RAM: честно объясняем, почему запасных туннелей нет', async ({ page, request }) => {
   await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: false, fullInstalled: false });
 
-  await expect(page.getByText('На этом роутере он недоступен', { exact: false })).toBeVisible();
+  await expect(page.getByText('На этом роутере они недоступны', { exact: false })).toBeVisible();
   await expect(page.getByText('от 256 МБ оперативной памяти', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Включить VLESS+Reality' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Установить компонент' })).toHaveCount(0);
 });
 
 // Флеш — единственная причина, которую человек может устранить сам, поэтому подсказка адресная:
@@ -87,7 +104,7 @@ test('мало флеша: причина названа и сказано, ка
 
   await expect(page.getByText('не хватает свободного места', { exact: false })).toBeVisible();
   await expect(page.getByText('extroot', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Включить VLESS+Reality' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Установить компонент' })).toHaveCount(0);
 });
 
 test('догрузка не влезла на флеш: советуем освободить место, а не проверять интернет', async ({ page, request }) => {
@@ -96,9 +113,9 @@ test('догрузка не влезла на флеш: советуем осв�
     bgResult: 'fail', bgReason: 'no-space',
   });
 
-  await page.getByRole('button', { name: 'Включить VLESS+Reality' }).click();
+  await page.getByRole('button', { name: 'Установить компонент' }).click();
   await expect(page.getByText('Не хватило места на роутере', { exact: false })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('AmneziaWG не затронут', { exact: false })).toBeVisible();
+  await expect(page.getByText('Текущий туннель не затронут', { exact: false })).toBeVisible();
 });
 
 test('догрузка не скачалась: прежний совет про интернет остаётся', async ({ page, request }) => {
@@ -107,6 +124,6 @@ test('догрузка не скачалась: прежний совет про
     bgResult: 'fail', bgReason: 'download',
   });
 
-  await page.getByRole('button', { name: 'Включить VLESS+Reality' }).click();
-  await expect(page.getByText('Не удалось скачать sing-box', { exact: false })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Установить компонент' }).click();
+  await expect(page.getByText('Не удалось скачать компонент', { exact: false })).toBeVisible({ timeout: 15_000 });
 });

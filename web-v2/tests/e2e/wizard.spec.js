@@ -69,6 +69,55 @@ test('мастер: полный проход от проверки до пан�
   await expect(page.getByText('Дома — выбранные сайты напрямую').first()).toBeVisible();
 });
 
+// Full-железо: мастер даёт выбор туннеля ПО СИМПТОМУ и предвыбирает VLESS+Reality — самая частая
+// поломка в фильтрующей сети — «VPN вообще не поднимается». Здесь же проверяем весь путь Hysteria2,
+// включая осознанный опт-ин объявленной скорости (Brutal).
+test('мастер на Full-железе: выбор по симптому, дефолт Reality, установка Hysteria2 со скоростью', async ({ page, request }) => {
+  await request.post('/__set', { data: { hw: 'full' } });
+  await page.goto('/cheburnet/?token=TESTTOKEN');
+  await page.getByRole('button', { name: 'Продолжить' }).click();
+
+  // Варианты названы через поломку, а не через протокол; название протокола — подписью.
+  await expect(page.getByText('Интернет через VPN вообще не открывается')).toBeVisible();
+  await expect(page.getByText('Интернет открывается, но тормозит и рвётся')).toBeVisible();
+  await expect(page.getByText('Роутер слабый или хочется максимально быстро')).toBeVisible();
+  // Дефолт на подходящем железе — Reality (и поле просит именно vless://).
+  await expect(page.getByRole('radio', { name: /Интернет через VPN вообще не открывается/ })).toBeChecked();
+  await expect(page.getByLabel('Ссылка vless:// или конфиг sing-box')).toBeVisible();
+
+  // Выбираем «тормозит и рвётся» → поле меняется на hysteria2://.
+  await page.getByRole('radio', { name: /Интернет открывается, но тормозит/ }).check();
+  await page.getByLabel('Ссылка hysteria2:// или конфиг sing-box')
+    .fill('hysteria2://pw@hy2.example.com:443,5000-6000?sni=example.com');
+
+  // Скорость: по умолчанию автоматически; включаем ручной режим — обязано появиться
+  // предупреждение, что завышение делает ХУЖЕ (иначе поле вредит молча).
+  await expect(page.getByRole('radio', { name: /Подбирать автоматически/ })).toBeChecked();
+  await page.getByRole('radio', { name: /Указать вручную/ }).check();
+  await expect(page.getByText('связь станет', { exact: false })).toBeVisible();
+  await page.getByLabel('Скорость приёма (Мбит/с)').fill('80');
+  await page.getByLabel('Скорость отдачи (Мбит/с)').fill('20');
+
+  await page.getByLabel('Пароль администратора (root)').fill('secret-pass-1');
+  await page.getByLabel('Повторите пароль').fill('secret-pass-1');
+  await page.getByLabel('Имя сети (SSID)').fill('TestWifi');
+  await page.getByLabel('Пароль Wi-Fi').fill('wifi-pass-1');
+  await page.getByRole('button', { name: 'Установить' }).click();
+
+  // Сводка: протокол и адрес сервера — БЕЗ пароля (он в hy2-ссылке стоит до '@').
+  await expect(page.getByText('Hysteria2 → hy2.example.com:443,5000-6000')).toBeVisible();
+  await expect(page.getByText('pw@')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Установить' }).click();
+  await expect(page.getByText('Готово! Роутер настроен')).toBeVisible({ timeout: 15_000 });
+
+  // Аргументы доехали до движка: правильный протокол, правильное поле, объявленная скорость.
+  const args = await (await request.get('/__last-install')).json();
+  expect(args.protocol).toBe('hysteria2');
+  expect(args.hysteria2_conf).toContain('down=80');
+  expect(args.hysteria2_conf).toContain('up=20');
+  expect('reality_conf' in args).toBe(false);
+});
+
 test('мастер: health-check не прошёл → адресная диагностика «VPN-сервер не ответил»', async ({ page, request }) => {
   // Мок переключается в режим «движок откатился по health» — UI должен сказать про VPN-сервер
   // и подписку, а не безликое «установка не удалась» (главная находка UX-ревью).
@@ -89,16 +138,17 @@ test('мастер: health-check не прошёл → адресная диаг
   await expect(page.getByRole('button', { name: 'Скачать журнал' })).toBeVisible();
 });
 
-test('панель: VPN-сервер молчит → hero-баннер «VPN не работает» + путь к замене конфига', async ({ page, request }) => {
+test('панель: VPN-сервер молчит → hero-баннер про мёртвый туннель + путь к замене конфига', async ({ page, request }) => {
   // Установлено, но handshake=null (сервер мёртв/заблокирован) — панель должна с одного взгляда
   // сказать, что не так и что делать, а не прятать проблему в строке таблицы.
   await request.post('/__vpn-down');
   await page.goto('/cheburnet/');
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible();
-  await expect(page.getByText('VPN не работает', { exact: false })).toBeVisible();
-  // Ссылка «загрузить свежий конфиг» ведёт к разделу замены.
-  await expect(page.getByRole('link', { name: 'загрузите свежий конфиг' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Замена VPN-конфига' })).toBeVisible();
+  // Баннер называет и поломку, и протокол — иначе на трёх туннелях непонятно, что именно мертво.
+  await expect(page.getByText('Туннель не работает (AmneziaWG)', { exact: false })).toBeVisible();
+  // Ссылка «вставьте свежий конфиг» ведёт к разделу замены.
+  await expect(page.getByRole('link', { name: 'вставьте свежий конфиг' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Замена сервера (AmneziaWG)' })).toBeVisible();
 });
 
 test('мастер: неверный токен установки → доменная ошибка движка на экране', async ({ page }) => {
