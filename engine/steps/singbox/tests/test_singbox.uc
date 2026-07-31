@@ -83,6 +83,12 @@ test("build_singbox_config: КРИТИЧНЫЙ инвариант auto_route=fal
 	eq(c.inbounds[0].auto_route, false, "маршрутизацией управляет policy-routing, не sing-box");
 	eq(c.route.auto_detect_interface, true, "серверное соединение уходит в WAN без петли");
 	eq(c.route.final, "reality-out");
+	// gvisor — ЧАСТЬ того же инварианта, а не настройка производительности: stack="system" ждёт,
+	// что перенаправления расставит сам sing-box (это делает auto_route), а мы его выключили.
+	// На роутере с запущенным firewall (то есть у всех) TCP через туннель тогда не идёт вовсе:
+	// input у fw4 — policy drop, TUN не в зоне, SYN до локального слушателя sing-box не доходит.
+	// UDP при этом ходит, и картина обманчива: DNS работает, сайты не открываются.
+	eq(c.inbounds[0].stack, "gvisor", "TCP в userspace: туннель не зависит от правил firewall");
 });
 
 test("build_singbox_config: дефолты flow/fp при отсутствии в ссылке", () => {

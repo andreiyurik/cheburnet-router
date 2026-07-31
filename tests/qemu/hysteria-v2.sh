@@ -31,6 +31,10 @@ vm_lib_init
 vm_prepare_image
 vm_start
 vm_boot_and_setup
+# fw4 ОБЯЗАТЕЛЬНО запущен: на роутере он работает всегда, а с остановленным (как оставляет
+# vm_boot_and_setup) этот тест показывал «зелено» при неработающем TCP через туннель —
+# см. WHY у vm_start_firewall.
+vm_start_firewall
 
 echo "→ Проверяю интернет в VM"
 vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \

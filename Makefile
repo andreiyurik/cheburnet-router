@@ -20,8 +20,9 @@
 #                            (~6-10мин, интернет). Печатает цифры, релиз не гейтит.
 #   make qemu-live-vps    — T4a: трафик НАСКВОЗЬ через настоящий сервер Full-тира. Нужен
 #                            поднятый стенд (tests/vps/) — не для CI.
+#   make qemu-live-install— T4b: успешная установка целиком + ребут поверх неё (стенд tests/vps/).
 
-.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-rollback-v2 qemu-reboot-v2 qemu-reality-v2 qemu-hysteria-v2 qemu-netem-v2 qemu-live-vps
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-v2 qemu-webui-v2 qemu-install-v2 qemu-rollback-v2 qemu-reboot-v2 qemu-reality-v2 qemu-hysteria-v2 qemu-netem-v2 qemu-live-vps qemu-live-install
 
 lint:
 	@bash tests/lint.sh
@@ -111,3 +112,10 @@ qemu-netem-v2:
 # арендованного сервера, см. tests/vps/README.md.
 qemu-live-vps:
 	@./tests/qemu/live-vps.sh
+
+# T4b — УСПЕШНАЯ установка целиком через ubus против живого сервера + ПЕРЕЗАГРУЗКА поверх неё:
+# commit-ветка оркестратора (install.json записан, одноразовый токен снят, панель честна), трафик
+# выходит через сервер ДО и ПОСЛЕ ребута, туннель поднимается сам. T3g покрывает обратную ветку
+# (провал+откат), а эту без рабочего сервера проверить нечем. Нужен стенд tests/vps/. Не для CI.
+qemu-live-install:
+	@./tests/qemu/live-install-v2.sh
