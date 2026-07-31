@@ -27,12 +27,25 @@ raw="$(ssh "${SSH_ARGS[@]}" "$HOST" 'cat /root/cheburnet-lab/links.txt' 2>/dev/n
 # («command not found» посреди ссылки). Значения — uuid/hex/base64 без одинарных кавычек внутри,
 # поэтому такого квотирования достаточно.
 printf '%s\n' "$raw" \
-    | grep -E '^(VLESS_REALITY|HYSTERIA2|HYSTERIA2_PORT_HOPPING)=' \
+    | grep -E '^(VLESS_REALITY|HYSTERIA2|HYSTERIA2_PORT_HOPPING|AWG_CONF_REMOTE)=' \
     | sed "s/^\([A-Z0-9_]*\)=['\"]*\(.*\)['\"]*$/\1='\2'/" > "$OUT"
 chmod 600 "$OUT"
 
 n="$(wc -l < "$OUT")"
 [ "$n" -ge 2 ] || { echo "✗ в links.txt нашлось всего $n ссылок — стенд поднялся не полностью"; exit 1; }
-echo "  ✓ $n ссылок → $OUT (режим 600, не коммитится)"
+echo "  ✓ $n значений → $OUT (режим 600, не коммитится)"
+
+# AmneziaWG приходит .conf-файлом, а не ссылкой: мастер принимает именно файл, и вставлять его
+# содержимое в links.env бессмысленно (многострочный конфиг сломал бы `. links.env`).
+AWG_LOCAL="$(dirname "$OUT")/awg-client.conf"
+if ssh "${SSH_ARGS[@]}" "$HOST" 'cat /root/cheburnet-lab/awg/client.conf' > "$AWG_LOCAL" 2>/dev/null \
+   && [ -s "$AWG_LOCAL" ]; then
+    chmod 600 "$AWG_LOCAL"
+    echo "  ✓ клиентский конфиг AmneziaWG → $AWG_LOCAL (режим 600, не коммитится)"
+else
+    rm -f "$AWG_LOCAL"
+    echo "  ⚠ AmneziaWG на стенде не найден — стенд поднят прежней версией provision-lab.sh"
+fi
+
 echo ""
-echo "Дальше: make qemu-live-vps"
+echo "Дальше: make qemu-live-vps (Full-тир) или tests/router/RUNBOOK.md (живой роутер)"

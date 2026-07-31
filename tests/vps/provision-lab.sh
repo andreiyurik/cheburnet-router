@@ -47,6 +47,15 @@ HY2_HOP_TO="${HY2_HOP_TO:-20100}"
 # него во время рукопожатия (поле handshake в схеме — server only и обязательное), поэтому цель
 # обязана быть достижима с VPS.
 REALITY_SNI="${REALITY_SNI:-www.cloudflare.com}"
+# AmneziaWG (Light-тир) на том же стенде. Объявляем ЗДЕСЬ, а не в своём блоке: AWG_NET нужен
+# nft-таблице выше по файлу, и из локального блока он бы туда не дошёл (override молча терялся).
+# Параметры обфускации обязаны СОВПАДАТЬ с клиентскими — это часть формата пакета, не тюнинг.
+AWG_PORT="${AWG_PORT:-51820}"
+AWG_NET="${AWG_NET:-10.13.13}"
+AWG_JC="${AWG_JC:-4}";     AWG_JMIN="${AWG_JMIN:-40}"; AWG_JMAX="${AWG_JMAX:-70}"
+AWG_S1="${AWG_S1:-78}";    AWG_S2="${AWG_S2:-22}"
+AWG_H1="${AWG_H1:-1234567}"; AWG_H2="${AWG_H2:-2345678}"
+AWG_H3="${AWG_H3:-3456789}"; AWG_H4="${AWG_H4:-4567890}"
 
 msg()  { printf '\n\033[1m→ %s\033[0m\n' "$1"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
@@ -58,11 +67,14 @@ die()  { printf '  \033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 if [ "${1:-}" = "--teardown" ]; then
     msg "Снимаю тестовый стенд"
     systemctl disable --now cheburnet-lab.service 2>/dev/null || true
-    rm -f /etc/systemd/system/cheburnet-lab.service
+    systemctl disable --now cheburnet-lab-awg.service 2>/dev/null || true
+    rm -f /etc/systemd/system/cheburnet-lab.service /etc/systemd/system/cheburnet-lab-awg.service
+    ip link del awg0 2>/dev/null || true
+    rm -f /etc/sysctl.d/99-cheburnet-lab.conf
     systemctl daemon-reload 2>/dev/null || true
     nft delete table inet cheburnet_lab 2>/dev/null || true
     rm -rf "$LAB_DIR"
-    ok "сервис, правила и ключи удалены (сам бинарь sing-box оставлен)"
+    ok "сервисы (sing-box + AWG), правила, sysctl и ключи удалены (бинари оставлены)"
     exit 0
 fi
 
@@ -193,9 +205,152 @@ table inet cheburnet_lab {
         type nat hook prerouting priority dstnat; policy accept;
         udp dport $HY2_HOP_FROM-$HY2_HOP_TO redirect to :$HY2_PORT
     }
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        ip saddr $AWG_NET.0/24 masquerade
+    }
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+        # MSS clamping для TCP внутри AWG: без него крупные страницы «висят» на путях с меньшим
+        # MTU — классический симптом, который легко списать на протокол.
+        tcp flags syn tcp option maxseg size set rt mtu
+    }
 }
 EOF
-ok "диапазон заворачивается"
+ok "диапазон заворачивается, NAT для подсети AWG включён"
+
+# ─── AmneziaWG (Light-тир) на том же VPS ──────────────────────────────────────
+# ЗАЧЕМ здесь, а не отдельным сервером: три протокола с ОДНОГО стенда сравнимы между собой —
+# разница в результатах будет разницей ПРОТОКОЛОВ, а не двух машин. Порты не конфликтуют
+# (AWG UDP/51820, Reality TCP/443, Hysteria2 UDP/8443 + диапазон).
+#
+# Реализация — amneziawg-go (userspace), а НЕ модуль ядра: сборка модуля требует заголовков
+# ядра провайдера и ломается на любом их обновлении. Для стенда важна совместимость протокола,
+# а не скорость: клиент на роутере всё равно работает в ядре.
+#
+# КРИТИЧНО: параметры обфускации (Jc/Jmin/Jmax/S1/S2/H1..H4) обязаны СОВПАДАТЬ на клиенте и
+# сервере — это не «настройки производительности», а часть формата пакета. Расхождение = туннель
+# не поднимается без внятной ошибки, и это самая частая причина «AWG не работает».
+
+msg "Ставлю AmneziaWG (userspace amneziawg-go + awg-tools)"
+apt-get install -y -qq git golang-go make >/dev/null 2>&1 || die "не удалось поставить go/make"
+
+if [ ! -x /usr/local/bin/amneziawg-go ]; then
+    rm -rf /tmp/awg-src && mkdir -p /tmp/awg-src
+    git clone -q --depth 1 https://github.com/amnezia-vpn/amneziawg-go /tmp/awg-src/go \
+        || die "не склонировался amneziawg-go"
+    ( cd /tmp/awg-src/go && make >/dev/null 2>&1 && install -m 755 amneziawg-go /usr/local/bin/ ) \
+        || die "amneziawg-go не собрался"
+fi
+if [ ! -x /usr/local/bin/awg ]; then
+    rm -rf /tmp/awg-tools && mkdir -p /tmp/awg-tools
+    git clone -q --depth 1 https://github.com/amnezia-vpn/amneziawg-tools /tmp/awg-tools/t \
+        || die "не склонировался amneziawg-tools"
+    ( cd /tmp/awg-tools/t/src && make >/dev/null 2>&1 && install -m 755 wg /usr/local/bin/awg ) \
+        || die "amneziawg-tools не собрались"
+fi
+ok "amneziawg-go и awg на месте"
+
+msg "Генерирую ключи AmneziaWG (сервер + клиент)"
+AWG_SRV_PRIV="$(/usr/local/bin/awg genkey)"
+AWG_SRV_PUB="$(printf '%s' "$AWG_SRV_PRIV" | /usr/local/bin/awg pubkey)"
+AWG_CLI_PRIV="$(/usr/local/bin/awg genkey)"
+AWG_CLI_PUB="$(printf '%s' "$AWG_CLI_PRIV" | /usr/local/bin/awg pubkey)"
+ok "пары ключей сгенерированы (приватные не печатаем)"
+
+mkdir -p "$LAB_DIR/awg"
+cat > "$LAB_DIR/awg/awg0.conf" <<EOF
+[Interface]
+PrivateKey = $AWG_SRV_PRIV
+ListenPort = $AWG_PORT
+Address = $AWG_NET.1/24
+Jc = $AWG_JC
+Jmin = $AWG_JMIN
+Jmax = $AWG_JMAX
+S1 = $AWG_S1
+S2 = $AWG_S2
+H1 = $AWG_H1
+H2 = $AWG_H2
+H3 = $AWG_H3
+H4 = $AWG_H4
+
+[Peer]
+PublicKey = $AWG_CLI_PUB
+AllowedIPs = $AWG_NET.2/32
+EOF
+chmod 600 "$LAB_DIR/awg/awg0.conf"
+
+# Клиентский .conf — в том виде, в каком его принимает наш веб-мастер (шаг vpn).
+cat > "$LAB_DIR/awg/client.conf" <<EOF
+[Interface]
+PrivateKey = $AWG_CLI_PRIV
+Address = $AWG_NET.2/32
+DNS = 1.1.1.1
+Jc = $AWG_JC
+Jmin = $AWG_JMIN
+Jmax = $AWG_JMAX
+S1 = $AWG_S1
+S2 = $AWG_S2
+H1 = $AWG_H1
+H2 = $AWG_H2
+H3 = $AWG_H3
+H4 = $AWG_H4
+
+[Peer]
+PublicKey = $AWG_SRV_PUB
+AllowedIPs = 0.0.0.0/0
+Endpoint = $PUBIP:$AWG_PORT
+PersistentKeepalive = 25
+EOF
+chmod 600 "$LAB_DIR/awg/client.conf"
+ok "конфиги сервера и клиента записаны"
+
+# Форвардинг и NAT для подсети AWG: без них туннель поднимется, а интернета в нём не будет —
+# ровно тот случай, когда «handshake есть, а сайты не открываются».
+msg "Включаю форвардинг и NAT для $AWG_NET.0/24"
+sysctl -qw net.ipv4.ip_forward=1
+printf 'net.ipv4.ip_forward=1\n' > /etc/sysctl.d/99-cheburnet-lab.conf
+WAN_IF="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") {print $(i+1); exit}}')"
+[ -n "$WAN_IF" ] || die "не определился внешний интерфейс для NAT"
+ok "внешний интерфейс: $WAN_IF"
+
+# Скрипт подъёма: amneziawg-go создаёт TUN, awg setconf применяет конфиг, адрес и маршрут — вручную
+# (awg-quick тянет за собой bash+resolvconf, а нам нужен предсказуемый минимум).
+cat > "$LAB_DIR/awg/up.sh" <<EOF
+#!/bin/sh
+set -e
+/usr/local/bin/amneziawg-go awg0
+/usr/local/bin/awg setconf awg0 $LAB_DIR/awg/awg0.conf
+ip address add $AWG_NET.1/24 dev awg0 2>/dev/null || true
+ip link set awg0 up
+EOF
+chmod 755 "$LAB_DIR/awg/up.sh"
+
+cat > /etc/systemd/system/cheburnet-lab-awg.service <<EOF
+[Unit]
+Description=cheburnet test lab (AmneziaWG, userspace)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=WG_PROCESS_FOREGROUND=0
+ExecStart=$LAB_DIR/awg/up.sh
+ExecStop=/usr/bin/env ip link del awg0
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now cheburnet-lab-awg.service >/dev/null 2>&1 || true
+sleep 2
+if ip link show awg0 >/dev/null 2>&1; then
+    ok "awg0 поднят на сервере (порт $AWG_PORT)"
+else
+    journalctl -u cheburnet-lab-awg.service -n 15 --no-pager || true
+    die "интерфейс awg0 не поднялся"
+fi
 
 # ─── сервис ───────────────────────────────────────────────────────────────────
 msg "Ставлю systemd-сервис"
@@ -234,6 +389,9 @@ HY2_HOP_LINK="hysteria2://${HY2_PASS}@${PUBIP}:${HY2_PORT},${HY2_HOP_FROM}-${HY2
     echo "VLESS_REALITY='$VLESS_LINK'"
     echo "HYSTERIA2='$HY2_LINK'"
     echo "HYSTERIA2_PORT_HOPPING='$HY2_HOP_LINK'"
+    # AmneziaWG передаётся не ссылкой, а .conf-файлом (так его и принимает мастер), поэтому в
+    # links.env кладём ПУТЬ, а сам конфиг забирает fetch-links.sh отдельным файлом.
+    echo "AWG_CONF_REMOTE='$LAB_DIR/awg/client.conf'"
 } > "$LAB_DIR/links.txt"
 chmod 600 "$LAB_DIR/links.txt"
 
