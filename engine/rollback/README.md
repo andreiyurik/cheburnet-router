@@ -1,7 +1,7 @@
 # engine/rollback — точечный откат (кирпич 3 надёжности)
 
 Транзакция вокруг рискованного шага: **snapshot UCI → применить → health-check →
-commit / restore** ([reliability](../../docs/v2/architecture/reliability.md)). Если шаг
+commit / restore** ([reliability](../../docs/kb/architecture/reliability.md)). Если шаг
 сломал доступ (например, network/firewall), health-check падает → возвращаем прежний UCI.
 
 ## Честная граница: clean vs dirty

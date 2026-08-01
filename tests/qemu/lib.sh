@@ -29,7 +29,7 @@
 #   1. взять хеш из upstream-файла sha256sums рядом с образом (а не «что скачалось»);
 #   2. убедиться, что у awg-openwrt есть релиз vX.Y.Z под эту версию — иначе install-тест
 #      упадёт на AWG (это и есть смысл проверки, а не повод её ослабить);
-#   3. прогнать qemu-v2, qemu-install-v2 и qemu-reality-v2 локально;
+#   3. прогнать qemu-smoke, qemu-install и qemu-reality локально;
 #   4. только потом менять цифры здесь, одним коммитом с результатом прогона.
 : "${OPENWRT_VERSION:=25.12.5}"
 : "${IMG_URL:=https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/x86/64/openwrt-$OPENWRT_VERSION-x86-64-generic-ext4-combined.img.gz}"

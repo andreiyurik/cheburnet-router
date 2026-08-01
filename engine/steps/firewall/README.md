@@ -6,10 +6,10 @@ Production-применение split-routing для форвард-трафик
    `lan→vpn`. Без неё трафик LAN-клиентов уходит в туннель без SNAT/forwarding и не
    возвращается — роутер «зелёный, но не везёт».
 2. **Пометка** — наша prerouting-цепочка метит пакеты с `daddr ∈ direct`
-   ([policy-routing](../../../docs/v2/concepts/policy-routing.md)).
+   ([policy-routing](../../../docs/kb/concepts/policy-routing.md)).
 3. **Policy routing** — `ip rule`/`ip route` разводят помеченное в WAN, остальное в туннель.
 4. **Kill-switch** — роняет непрямой трафик, утекающий в WAN мимо туннеля
-   ([kill-switch](../../../docs/v2/concepts/kill-switch.md)).
+   ([kill-switch](../../../docs/kb/concepts/kill-switch.md)).
 5. **Hotplug-хук восстановления** — `/etc/hotplug.d/iface/99-cheburnet`: при подъёме WAN зовёт
    `install/reapply.uc`.
 
@@ -66,7 +66,7 @@ delete-before-set): откатывается **чисто** snapshot'ом уст
 состояние то же. Свои hooked-цепочки (`cheburnet_mark`, `cheburnet_ks`) удаляются целиком, не
 задевая правил fw4; **сеты не удаляем** — в них живут адреса от dnsmasq (удаление = транзиентная
 потеря direct-маршрутов). Это прямая реализация «грязный откат не маскируем под транзакцию»
-([reliability](../../../docs/v2/architecture/reliability.md)). `--teardown` (standalone-откат
+([reliability](../../../docs/kb/architecture/reliability.md)). `--teardown` (standalone-откат
 оркестратором) снимает и nft/ip, и NAT-зону.
 
 **Forwarding по имени зоны (`lan→vpn`), не по CIDR** — LAN-подсеть в правилах не фигурирует

@@ -1,7 +1,7 @@
 # CLAUDE.md — гид для AI-ассистентов и контрибьюторов
 
 Ориентир для AI-моделей (Claude, GPT, Cursor) и инженеров. Обычным пользователям — [README.md](./README.md).
-Целевая архитектура — [docs/architecture-v2.md](docs/architecture-v2.md).
+Целевая архитектура — [docs/architecture.md](docs/architecture.md).
 
 Принцип файла: здесь только то, что **нельзя получить из кода / `git log` / `ls`**. Структуру папок,
 историю, дерево файлов — AI узнаёт сам через tool'ы. Карт файлов и changelog'ов здесь нет намеренно.
@@ -21,7 +21,7 @@
 
 **Образовательность — не приписка, а критерий проектирования.** Из неё следует:
 
-- **Никаких чёрных ящиков.** Поэтому в v2 мы ушли от sing-box к примитивам ядра
+- **Никаких чёрных ящиков.** Поэтому мы ушли от sing-box к примитивам ядра
   (dnsmasq-nftset + nftables + policy routing): ученик **видит каждый шаг** маршрутизации, а не
   доверяет магии. Это одновременно и легче для слабого железа, и понятнее для обучения.
 - **Стандартные технологии.** AmneziaWG, dnsmasq, nftables, ucode — знание переносимо на любой
@@ -52,21 +52,20 @@
 
 ---
 
-## 🔭 Статус: миграция v1 → v2 завершена
+## 🔭 Статус
 
-Проект прошёл переход со старой архитектуры (podkop/sing-box, 11 setup-скриптов, manifest) на
-текущую — лёгкую и образовательную. Миграция шла по стратегии **strangler-fig** (v1 жил и
-работал, пока куски переезжали по одному); после релиза v2, живой проверки на роутере и
-обкатки без критичных регрессий v1 удалён по чек-листу
-[«Sunset v1»](docs/v2/meta/sunset-v1.md) — он сохранён как исторический документ решения.
+Единственная архитектура в репозитории — описанная ниже (ucode + Svelte). Предыдущая, на bash с
+монолитным веб-интерфейсом, удалена целиком; её описание не поддерживается нигде, кроме
+исторического документа решения [«Sunset v1»](docs/kb/meta/sunset-v1.md). Поэтому суффикса «v2»
+в именах файлов и целей больше нет — отличать не от чего.
 
-- **Архитектура и план фаз:** [docs/architecture-v2.md](docs/architecture-v2.md)
+- **Архитектура:** [docs/architecture.md](docs/architecture.md)
 
 ---
 
 ## 🏗 Архитектура (кратко)
 
-Подробно — [docs/architecture-v2.md](docs/architecture-v2.md). В двух словах:
+Подробно — [docs/architecture.md](docs/architecture.md). В двух словах:
 
 | Слой | Технология | Почему |
 |---|---|---|
@@ -76,9 +75,9 @@
 | Data-plane (Full-тир) | **+ sing-box-tiny** (VLESS+Reality, Hysteria2) опционально | проходимость и работа на плохом канале; гейтится preflight'ом по железу |
 | Шифрованный DNS | https-dns-proxy | лёгкая замена DoH из sing-box |
 | Веб-мастер | **Svelte** → Vite в статику | малый бандл, мало кода, поддержка соло |
-| Дистрибуция | GitHub Releases + `apk add --allow-untrusted` | arch-независимый пакет (`PKGARCH:=all`), без хостинга своего feed'а — см. [docs/v2/architecture/bootstrap.md](docs/v2/architecture/bootstrap.md) |
+| Дистрибуция | GitHub Releases + `apk add --allow-untrusted` | arch-независимый пакет (`PKGARCH:=all`), без хостинга своего feed'а — см. [docs/kb/architecture/bootstrap.md](docs/kb/architecture/bootstrap.md) |
 
-**Многопротокольность по тирам** — [docs/v2/decisions/0004-multi-protocol-tiers.md](docs/v2/decisions/0004-multi-protocol-tiers.md):
+**Многопротокольность по тирам** — [docs/kb/decisions/0004-multi-protocol-tiers.md](docs/kb/decisions/0004-multi-protocol-tiers.md):
 не «меню протоколов», а **три оси покрытия по ПОЛОМКЕ** пользователя. Light (AmneziaWG, ядро) —
 слабое железо, дефолт и рекомендация. Full (sing-box-tiny) — два протокола под разные беды:
 **VLESS+Reality** = трафик вообще не проходит (DPI/зондирование/блок UDP), **Hysteria2** = трафик
@@ -177,10 +176,10 @@ busybox/ucode-quirks и причину каждого `|| true`.
 | 🔴 QEMU | живой OpenWrt: split реально работает, preflight корректно отказывает, data-plane против реальных сервисов | минуты |
 
 CI (GitHub Actions): lint + unit (ucode) → сборка пакета через **OpenWrt SDK** (матрица arch,
-ручная/по тегу) → boot в **QEMU** (`qemu-v2-smoke`/`qemu-install-v2`) → при теге `v*`:
+ручная/по тегу) → boot в **QEMU** (`qemu-smoke`/`qemu-install`) → при теге `v*`:
 публикация ассета в **GitHub Release**. **Тестируем архитектуры и версии, а не модели
-роутеров.** Меняешь data-plane или `engine/steps/`— прогоняй `make qemu-v2` /
-`make qemu-install-v2`.
+роутеров.** Меняешь data-plane или `engine/steps/`— прогоняй `make qemu-smoke` /
+`make qemu-install`.
 
 ---
 
@@ -193,7 +192,7 @@ CI (GitHub Actions): lint + unit (ucode) → сборка пакета чере�
 
 ---
 
-## ⚓ Уроки предыдущей архитектуры (уже внутри v2, не потерять при рефакторе)
+## ⚓ Уроки предыдущей архитектуры (уже применены, не потерять при рефакторе)
 
 Эти уроки оплачены инцидентами в проде на v1 — они уже применены в текущей реализации, но их
 смысл легко потерять при рефакторе, если не знать «почему»:

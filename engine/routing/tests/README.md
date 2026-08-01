@@ -40,11 +40,11 @@ export PATH="$PREFIX/bin:$PATH"   # ucode -R -e 'print("ok\n")'
 
 Сборка ucode с `UCI_SUPPORT`/`UBUS_SUPPORT` для host-тестов **не нужна** (тесты — чистая
 логика). Когда движок начнёт звать нативные `uci`/`ubus`, такие тесты переедут на mock-слой
-или в QEMU (см. пирамиду тестов в [reliability](../../../docs/v2/architecture/reliability.md)).
+или в QEMU (см. пирамиду тестов в [reliability](../../../docs/kb/architecture/reliability.md)).
 
 ## Статус в CI
 
 Юнит-тесты движка пока **не подключены** к `.github/workflows` — это часть фазы
-«пакет + feed + CI» ([architecture-v2.md](../../../docs/architecture-v2.md#-план-миграции-strangler-fig-без-big-bang-rewrite),
+«пакет + feed + CI» ([architecture.md](../../../docs/architecture.md#-план-миграции-strangler-fig-без-big-bang-rewrite),
 фаза 2/6), где появится сборка через OpenWrt SDK и матрица QEMU. До тех пор тесты
 запускаются локально через `make test-engine`. Это осознанная граница, а не пропуск.

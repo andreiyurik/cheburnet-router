@@ -3,7 +3,7 @@
 # Собирается OpenWrt SDK (apk-based ветка, см. .github/workflows). Чистые скрипты — компилировать
 # нечего: Build/Compile пуст, install копирует файлы из репозитория. PKGARCH:=all — пакет
 # arch-независим (ucode интерпретируется), а arch-зависимые зависимости (kmod-amneziawg и т.п.)
-# apk подбирает сам. Реальная сборка/установка проверяется в QEMU (qemu-install-v2, см. Makefile).
+# apk подбирает сам. Реальная сборка/установка проверяется в QEMU (qemu-install, см. Makefile).
 
 include $(TOPDIR)/rules.mk
 
@@ -96,7 +96,7 @@ define Package/cheburnet/install
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(CHEBURNET_REPO)/engine/ubus/rpcd-acl.json $(1)/usr/share/rpcd/acl.d/cheburnet.json
 
-	# Веб-мастер: SPA на Svelte, бандл собран Vite из web-v2/ и закоммичен в files/web/.
+	# Веб-мастер: SPA на Svelte, бандл собран Vite из web/ и закоммичен в files/web/.
 	$(INSTALL_DIR) $(1)/www/cheburnet
 	$(CP) ./files/web/. $(1)/www/cheburnet/
 endef

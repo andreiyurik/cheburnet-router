@@ -1,8 +1,8 @@
 #!/bin/sh
-# bootstrap.sh — тонкий установщик cheburnet (v2): kmod-amneziawg → пакет cheburnet → токен → URL.
+# bootstrap.sh — тонкий установщик cheburnet: kmod-amneziawg → пакет cheburnet → токен → URL.
 #
 # Запуск на роутере (OpenWrt 25.12+, apk-based), одной командой по SSH или `sh bootstrap.sh`.
-# Намеренно тонкий: вся хрупкая логика — в движке на ucode (см. docs/v2/architecture/bootstrap.md),
+# Намеренно тонкий: вся хрупкая логика — в движке на ucode (см. docs/kb/architecture/bootstrap.md),
 # здесь только доставить два пакета и напечатать ссылку мастера. POSIX/busybox-ash, shellcheck-clean.
 #
 # Почему два источника пакетов, а не один feed:
@@ -69,7 +69,7 @@ WORK="$(mktemp -d)" || die "не создать временную папку"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
-# --- 0. Среда: v2 требует apk (OpenWrt 25.12+) ---------------------------------------------------
+# --- 0. Среда: нужен apk (OpenWrt 25.12+) ---------------------------------------------------
 command -v apk >/dev/null 2>&1 \
     || die "нужен OpenWrt 25.12+ (пакетный менеджер apk). На более старых — установщик v1."
 

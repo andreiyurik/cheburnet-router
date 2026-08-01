@@ -86,7 +86,7 @@ done
 vm_ssh "command -v sing-box >/dev/null" || { echo "✗ бинарь sing-box не появился"; exit 1; }
 vm_ssh "/etc/init.d/sing-box stop >/dev/null 2>&1; /etc/init.d/sing-box disable >/dev/null 2>&1 || true"
 
-echo "→ Раскладываю движок v2 (как пакет)"
+echo "→ Раскладываю движок (как пакет)"
 vm_ssh "mkdir -p /usr/share/cheburnet /etc/cheburnet /tmp/cheburnet"
 tar -C "$REPO_ROOT" --exclude='engine/*/tests' --exclude='engine/*/*/tests' \
     --exclude='*README.md' -cf - engine \

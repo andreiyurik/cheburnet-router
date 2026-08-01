@@ -113,7 +113,7 @@ function build_doh_plan(current, opts) {
 		push(dops, sprintf("add_list dhcp.%s.server='%s'", sect, rec.add[i]));
 
 	// Снимаем СЛУЖЕБНЫЕ ключи пакета в секции dnsmasq — иначе шифрованный DNS отключался сам
-	// после первой же перезагрузки, молча (поймано qemu-reboot-v2, 2026-07-31).
+	// после первой же перезагрузки, молча (поймано qemu-reboot, 2026-07-31).
 	//
 	// Механика: при установке пакет сам правит dnsmasq и запоминает «как было» в
 	// doh_backup_noresolv (или '-1', если ключа не было) и doh_backup_server, а свои

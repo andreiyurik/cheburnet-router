@@ -77,7 +77,7 @@ const REGISTRY = [
 		{ name: "url", type: "string" },
 	] },
 	{ name: "service_restart", access: "write", auth: "admin", token: false, args: [
-		// v2-сервисы data-plane (без podkop/sing-box; adblock убран — фильтрация через DNS)
+		// сервисы data-plane (без podkop/sing-box; adblock убран — фильтрация через DNS)
 		{ name: "service", type: "string", required: true, enum: [ "vpn", "dns", "doh" ] },
 	] },
 	// Выбор DNS-провайдера = выбор уровня фильтрации (реклама/семейный/без). Заменяет

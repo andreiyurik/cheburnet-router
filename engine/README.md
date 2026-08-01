@@ -1,11 +1,11 @@
-# engine/ — движок управления v2 (ucode)
+# engine/ — движок управления (ucode)
 
 Control-plane на [ucode](https://ucode.mediatek.org/): настраивает систему и завершается —
 **в пути трафика его нет** (трафик идёт только через ядро, см.
-[data-plane](../docs/v2/architecture/data-plane.md)). Поэтому логика движка — **чистые
+[data-plane](../docs/kb/architecture/data-plane.md)). Поэтому логика движка — **чистые
 функции**, юнит-тестируемые без роутера за секунды.
 
-Целевая раскладка по модулям — [architecture-v2.md](../docs/architecture-v2.md#-структура-репозитория-v2).
+Целевая раскладка по модулям — [architecture.md](../docs/architecture.md#-структура-репозитория-v2).
 
 | Модуль | Роль | Статус |
 |---|---|---|

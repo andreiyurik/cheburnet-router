@@ -2,7 +2,7 @@ name: release
 
 # Публикация пакета cheburnet в GitHub Releases по git-тегу `v*`.
 #
-# Дистрибуция v2 (см. docs/v2/architecture/bootstrap.md + bootstrap/bootstrap.sh):
+# Дистрибуция (см. docs/kb/architecture/bootstrap.md + bootstrap/bootstrap.sh):
 #   - cheburnet — PKGARCH=all (ucode+shell+web), поэтому ОДИН arch-независимый .apk на всех.
 #     Собираем один раз, кладём ассетом в Release. bootstrap качает его напрямую
 #     (releases/latest/download/…) — нам не нужен хостинг feed-индекса.

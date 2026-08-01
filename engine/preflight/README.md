@@ -2,8 +2,8 @@
 
 Перед **любыми** изменениями движок проверяет, потянет ли железо стек, и честно отказывает
 с понятным сообщением — вместо «списка поддерживаемых моделей» проверяем **свойства**
-([reliability](../../docs/v2/architecture/reliability.md),
-[hardware-requirements](../../docs/v2/reference/hardware-requirements.md)).
+([reliability](../../docs/kb/architecture/reliability.md),
+[hardware-requirements](../../docs/kb/reference/hardware-requirements.md)).
 
 ## Что проверяется
 
@@ -32,7 +32,7 @@
   soft → отчёт несёт `overridable: true`, и владелец вправе установить как есть:
   `check.uc --allow-soft` (гейт по `hard_failed == 0`), в RPC — `install.accept_risk`.
   След решения остаётся: `«!»` в отчёте, предупреждение в `install.log`, список `forced` в
-  `install.json` → постоянная плашка в панели. Подробно — [hardware-requirements](../../docs/v2/reference/hardware-requirements.md).
+  `install.json` → постоянная плашка в панели. Подробно — [hardware-requirements](../../docs/kb/reference/hardware-requirements.md).
 
 ## Разделение: оценка (чистая) vs сбор фактов (router-side)
 

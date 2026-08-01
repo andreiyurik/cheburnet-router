@@ -11,7 +11,7 @@ ubus-обработчик, ACL, веб-мастер), компилировать
 | `engine/` (без `tests/`, `README.md`, `run-tests.sh`) | `/usr/share/cheburnet/engine/` | движок на ucode |
 | `package/cheburnet/files/rpcd-cheburnet.sh` | `/usr/libexec/rpcd/cheburnet` | shim, запускающий обработчик |
 | `engine/ubus/rpcd-acl.json` | `/usr/share/rpcd/acl.d/cheburnet.json` | ACL (выведена из реестра) |
-| `package/cheburnet/files/web/` | `/www/cheburnet/` | веб-мастер (SPA на Svelte, собранный бандл из `web-v2/`) |
+| `package/cheburnet/files/web/` | `/www/cheburnet/` | веб-мастер (SPA на Svelte, собранный бандл из `web/`) |
 
 **Почему shim, а не обработчик напрямую.** rpcd сканирует только `/usr/libexec/rpcd/`, но
 ubus-обработчик (`engine/ubus/rpcd-cheburnet`) опирается на относительные `import` (`./ubus.uc`)
@@ -30,7 +30,7 @@ shim `exec ucode -R …` мостит rpcd к нему, сохраняя отн�
 make package/cheburnet/compile V=s
 ```
 
-> Реальная сборка и установка проверены в `make qemu-install-v2` (живой apk/rpcd/uhttpd) и
+> Реальная сборка и установка проверены в `make qemu-install` (живой apk/rpcd/uhttpd) и
 > вживую на роутере (GL-MT3000). Локально дополнительно проверяемы юнит-тесты движка
 > (`make test-engine`) и lint.
 

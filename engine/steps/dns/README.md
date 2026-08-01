@@ -1,10 +1,10 @@
 # engine/steps/dns — идемпотентный DNS-шаг
 
 Приводит секцию dnsmasq к желаемому состоянию: синхронизирует список `nftset` с планом
-маршрутизации (мост [домен → IP → set](../../../docs/v2/concepts/dnsmasq-nftset.md)) и
+маршрутизации (мост [домен → IP → set](../../../docs/kb/concepts/dnsmasq-nftset.md)) и
 выставляет `noresolv` (upstream — только наш DoH, без утечки в `/etc/resolv.conf`).
 
-Это первый из **идемпотентных шагов** ([reliability](../../../docs/v2/architecture/reliability.md),
+Это первый из **идемпотентных шагов** ([reliability](../../../docs/kb/architecture/reliability.md),
 кирпич 2): каждый шаг можно запустить дважды без вреда — повторный запуск **чинит**, а не
 плодит дубликаты.
 

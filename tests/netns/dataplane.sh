@@ -209,7 +209,7 @@ scenario_membership() {
 	# отличить не может.
 	if [ "${NETNS_ROOTLESS:-0}" = "1" ]; then
 		note "[membership] пропуск: нужен настоящий root (rootless netns запрещает setgroups,"
-		note "             dnsmasq не стартует). Покрытие: CI под sudo + qemu-install-v2."
+		note "             dnsmasq не стартует). Покрытие: CI под sudo + qemu-install."
 		return
 	fi
 

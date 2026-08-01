@@ -1,7 +1,7 @@
 // preflight.uc — гейткипер железа/версии/зависимостей (чистая логика, без роутера).
 //
 // Перед ЛЮБЫМИ изменениями движок проверяет, потянет ли железо стек, и честно отказывает
-// с понятным сообщением (см. docs/v2/architecture/reliability.md, hardware-requirements.md).
+// с понятным сообщением (см. docs/kb/architecture/reliability.md, hardware-requirements.md).
 //
 // Разделение ради тестируемости:
 //   • evaluate(facts, req) — ЧИСТАЯ оценка: на вход факты о системе → структурный отчёт.
@@ -18,7 +18,7 @@
 //     Порог 128 отказывал ЛЮБОМУ 128-МБ роутеру (поймано на живом Keenetic, 120 МБ, 2026-07-29).
 //     112 = «плата на 128 МБ, как бы щедро ядро себе ни отрезало».
 //   • min_flash_mb: свободный overlay, нужный под пакеты + конфиги. 16 МБ — цифра из
-//     docs/v2/reference/hardware-requirements.md (Light-тир); прежние 32 были строже собственной
+//     docs/kb/reference/hardware-requirements.md (Light-тир); прежние 32 были строже собственной
 //     документации вдвое и отсекали 32-МБ платы, где свободно ~21 МБ (норма для squashfs+overlay).
 const REQUIREMENTS = {
 	arch: [ "arm", "aarch64", "mips", "mipsel", "x86_64" ],
@@ -227,7 +227,7 @@ function soft_failed_ids(report) {
 // проверка флагов cpuinfo — gather (router-side).
 const FULL_REQUIREMENTS = {
 	arch: [ "aarch64", "x86_64" ],  // ARMv8/x86 с AES; mips/armv7 исключены
-	// 44, а не 56: ЗАМЕР на живом OpenWrt (make qemu-hysteria-v2). Full-тир едет на sing-box-tiny
+	// 44, а не 56: ЗАМЕР на живом OpenWrt (make qemu-hysteria). Full-тир едет на sing-box-tiny
 	// (11.5 МБ скачивания против 16.0 у полной сборки) — той же функциональности для нас: теги
 	// with_quic (Hysteria2) и with_utls (Reality) в tiny есть, см. ADR 0004. Порог = замеренный
 	// вес + запас под config.json, логи и обновление пакета.

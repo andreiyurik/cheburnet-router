@@ -193,7 +193,7 @@ function build_firewall_plan(routing_plan, opts) {
 	let nat = o.nat ? build_nat_ops(o) : { teardown: [], setup: [] };
 
 	// fw4 reload вычищает ПРАВИЛА, но чужие цепочки/сеты в inet fw4 не удаляет (поймано
-	// smoke-v2): после unlink nftables.d-файла остаются пустые hooked-цепочки. Снимаем явно.
+	// smoke): после unlink nftables.d-файла остаются пустые hooked-цепочки. Снимаем явно.
 	// Всегда все четыре имени, независимо от текущих opts: прошлая установка могла их создать.
 	let nft_teardown = [
 		sprintf("delete chain inet fw4 %s", o.mark_chain),

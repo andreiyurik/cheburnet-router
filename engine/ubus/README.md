@@ -1,6 +1,6 @@
 # engine/ubus — RPC-фасад движка для веб-мастера
 
-Тонкий слой между [веб-мастером](../../docs/v2/architecture/web-wizard.md) и движком: мастер
+Тонкий слой между [веб-мастером](../../docs/kb/architecture/web-wizard.md) и движком: мастер
 зовёт методы по **ubus RPC**, фасад валидирует вход и переадресует работу существующим кирпичам
 ([preflight](../preflight/), [install/run.uc](../install/), [list](../list/),
 [steps](../steps/)) — **не дублируя их логику**.
@@ -35,7 +35,7 @@
 | `install_cancel` | write | anon + **токен** | прервать установку: kill process-group → дождаться смерти → маркер `cancelled` → откат через `run.uc --rollback` |
 | `set_mode` | write | admin | переключить HOME/TRAVEL — переприменить mode-зависимые шаги (dns+firewall) |
 | `update_list` | write | admin | `list/fetch.uc` свежий community-список → переприменить dns |
-| `service_restart` | write | admin | перезапуск v2-сервиса: `vpn` (ifdown/ifup awg0) / `dns` / `doh` |
+| `service_restart` | write | admin | перезапуск сервиса: `vpn` (ifdown/ifup awg0) / `dns` / `doh` |
 | `set_dns_provider` | write | admin | сменить DNS-провайдера (= уровень фильтрации) — переприменить `steps/doh` |
 | `replace_awg_conf` | write | admin | замена AWG-конфига: sync-валидация → фон `install/replace_vpn.uc` (авто-rollback) |
 | `factory_reset` | write | admin | `confirm:"RESET"` → фон `install/reset.uc` (teardown cheburnet-конфигурации, НЕ firstboot) |

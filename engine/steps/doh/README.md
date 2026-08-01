@@ -1,17 +1,17 @@
 # engine/steps/doh — шифрованный DNS (DoH) + выбор провайдера/фильтрации
 
 Шифрует upstream-резолв лёгким `https-dns-proxy` перед dnsmasq — замена DoH, который в v1
-нёс sing-box ([encrypted-dns](../../../docs/v2/concepts/encrypted-dns.md)).
+нёс sing-box ([encrypted-dns](../../../docs/kb/concepts/encrypted-dns.md)).
 
 **Резолвер = уровень фильтрации.** В v2 блокировка рекламы/взрослого контента делается не
 локальным списком, а **выбором фильтрующего DoH-провайдера** ([providers.uc](providers.uc),
-[ADR 0005](../../../docs/v2/decisions/0005-dns-filtering-not-local-adblock.md)). Дефолт —
+[ADR 0005](../../../docs/kb/decisions/0005-dns-filtering-not-local-adblock.md)). Дефолт —
 **AdGuard** (реклама+трекеры); «семейный режим» = выбрать семейного провайдера. Одна секция
 `cheburnet_doh` (фикс. имя) → смена провайдера = чистая идемпотентная замена.
 
 ## Почему DoH на роутере, а не на клиенте
 
-Централизованный DNS на роутере сохраняет [пометку адресов](../../../docs/v2/concepts/dnsmasq-nftset.md)
+Централизованный DNS на роутере сохраняет [пометку адресов](../../../docs/kb/concepts/dnsmasq-nftset.md)
 для split-routing. Клиентский DoH (Chrome, смарт-ТВ) её ломает — роутер не видит резолв.
 Цепочка одна: dnsmasq (nftset) → https-dns-proxy (:5053) → зашифрованно к фильтрующему провайдеру.
 

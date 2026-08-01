@@ -21,13 +21,13 @@ tests/
 │   └── verify.sh                 #      проверка активного туннеля насквозь (панель/exit-IP/PMTU/split)
 └── qemu/                         # T3 — живой OpenWrt в qemu/KVM
     ├── lib.sh                    # общая инфра (образ snapshot'а, serial-консоль)
-    ├── smoke-v2.sh                # T3a: hermetic smoke движка (rpcd, ubus, fw4)
-    ├── install-v2.sh              # T3c: DEPENDS + data-plane через реальный apk-feed
-    ├── rollback-v2.sh             # T3g: полная установка через ubus + откат при мёртвом сервере
+    ├── smoke.sh                # T3a: hermetic smoke движка (rpcd, ubus, fw4)
+    ├── install.sh              # T3c: DEPENDS + data-plane через реальный apk-feed
+    ├── rollback.sh             # T3g: полная установка через ubus + откат при мёртвом сервере
     ├── live-vps.sh                # T4a: трафик насквозь через настоящий сервер (нужен стенд vps/)
-    ├── live-install-v2.sh         # T4b: успешная установка целиком + ребут поверх неё
-    ├── reboot-v2.sh               # T3h: конфигурация переживает перезагрузку роутера
-    └── webui-v2.sh                # T3b: HTTP-слой веб-мастера (uhttpd, ACL, сессии)
+    ├── live-install.sh         # T4b: успешная установка целиком + ребут поверх неё
+    ├── reboot.sh               # T3h: конфигурация переживает перезагрузку роутера
+    └── webui.sh                # T3b: HTTP-слой веб-мастера (uhttpd, ACL, сессии)
 ```
 
 Юнит-тесты движка (чистая логика на ucode) живут рядом с кодом в `engine/` — см.
@@ -71,14 +71,14 @@ network namespace — проверяет, что сгенерированные 
 ## T3 — QEMU (живой OpenWrt)
 
 ```bash
-make qemu-v2           # T3a: hermetic smoke, без интернета, ~2 мин
-make qemu-webui-v2     # T3b: + HTTP/ubus через uhttpd, нужен интернет, ~3 мин
-make qemu-install-v2   # T3c: DEPENDS + data-plane на реальном apk-feed, ~5-8 мин
-make qemu-rollback-v2  # T3g: полная установка через ubus + ОТКАТ, ~5-8 мин
-make qemu-reboot-v2    # T3h: конфигурация переживает ПЕРЕЗАГРУЗКУ, ~6-9 мин
-make qemu-reality-v2   # T3d: обвязка VLESS+Reality на живом netifd, ~4-6 мин
-make qemu-hysteria-v2  # T3e: обвязка Hysteria2 + замер веса Full-тира, ~4-6 мин
-make qemu-netem-v2     # T3f: ЗАМЕР goodput/CPU при потерях (QUIC vs TCP), ~6-10 мин
+make qemu-smoke           # T3a: hermetic smoke, без интернета, ~2 мин
+make qemu-webui     # T3b: + HTTP/ubus через uhttpd, нужен интернет, ~3 мин
+make qemu-install   # T3c: DEPENDS + data-plane на реальном apk-feed, ~5-8 мин
+make qemu-rollback  # T3g: полная установка через ubus + ОТКАТ, ~5-8 мин
+make qemu-reboot    # T3h: конфигурация переживает ПЕРЕЗАГРУЗКУ, ~6-9 мин
+make qemu-reality   # T3d: обвязка VLESS+Reality на живом netifd, ~4-6 мин
+make qemu-hysteria  # T3e: обвязка Hysteria2 + замер веса Full-тира, ~4-6 мин
+make qemu-netem     # T3f: ЗАМЕР goodput/CPU при потерях (QUIC vs TCP), ~6-10 мин
 ```
 
 **T3g** закрывает дыру, которая была самой дорогой: до него успешная последовательность
@@ -107,8 +107,8 @@ T3f — не гейт, а **измеритель**: он печатает циф
 
 Поднимают релизный образ OpenWrt x86-64 в qemu/KVM и гоняют движок на **реальном** busybox-окружении
 (не host-bash/gawk, на которых работают T1/T2). Детали и что именно каждый уровень покрывает —
-[tests/qemu/README.md](qemu/README.md). Гейтят CI: `qemu-v2-smoke` на каждый push/PR,
-`qemu-install-v2` — release-gate (нужен интернет, не гоняется на PR).
+[tests/qemu/README.md](qemu/README.md). Гейтят CI: `qemu-smoke` на каждый push/PR,
+`qemu-install` — release-gate (нужен интернет, не гоняется на PR).
 
 ## T5 — одноразовый стенд на арендованном VPS
 
@@ -153,5 +153,5 @@ TLS-инспекция переписывает ClientHello), **PMTU на реа
 архитектуре (QEMU — только x86_64), сутки и физическая перезагрузка. Первый полный прогон
 (2026-08-01, GL-MT3000) нашёл два дефекта, невидимых на всех прежних уровнях: Full-тир не мог
 соединиться с сервером после снятия Light-тира и split-tunnel выключался после перезагрузки —
-разбор в [ADR 0004](../docs/v2/decisions/0004-multi-protocol-tiers.md). Чек-лист релиза —
-[docs/v2/meta/release-checklist.md](../docs/v2/meta/release-checklist.md).
+разбор в [ADR 0004](../docs/kb/decisions/0004-multi-protocol-tiers.md). Чек-лист релиза —
+[docs/kb/meta/release-checklist.md](../docs/kb/meta/release-checklist.md).

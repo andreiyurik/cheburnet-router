@@ -1,6 +1,6 @@
 # engine/install — установочный оркестратор
 
-Связывает кирпичи надёжности в один поток ([reliability](../../docs/v2/architecture/reliability.md)):
+Связывает кирпичи надёжности в один поток ([reliability](../../docs/kb/architecture/reliability.md)):
 
 ```
 preflight → snapshot UCI → шаги по порядку → health-check → commit / rollback

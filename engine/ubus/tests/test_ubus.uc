@@ -145,7 +145,7 @@ test("validate: update_list — url необязателен", () => {
 
 // --- валидация: admin-методы Фазы B ---
 
-test("validate: service_restart — только v2-сервисы (без podkop/adblock)", () => {
+test("validate: service_restart — только сервисы (без podkop/adblock)", () => {
 	eq(validate_request("service_restart", { service: "vpn" }).ok, true, "vpn ок");
 	eq(validate_request("service_restart", { service: "doh" }).ok, true, "doh ок");
 	eq(validate_request("service_restart", { service: "podkop" }).ok, false, "podkop вырезан в v2");

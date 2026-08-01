@@ -1,7 +1,7 @@
 # engine/steps/singbox — Full-тир: VLESS+Reality и Hysteria2 через sing-box
 
 Тяжёлый тир для мощного железа (см.
-[0004-multi-protocol-tiers](../../../docs/v2/decisions/0004-multi-protocol-tiers.md)). Два
+[0004-multi-protocol-tiers](../../../docs/kb/decisions/0004-multi-protocol-tiers.md)). Два
 протокола, **разные поломки**: `vless://…` (VLESS+Reality) — когда трафик вообще не проходит;
 `hysteria2://…` / `hy2://…` — когда проходит, но теряет пакеты. Плюс сырой JSON-конфиг sing-box
 (advanced). Шаг разбирает вход, генерирует `/etc/sing-box/config.json` и включает сервис.
@@ -17,7 +17,7 @@
 ## Инвариант (у AWG тот же смысл несёт `route_allowed_ips='1'`)
 
 > **`auto_route: false`** — маршрутизацией управляет **ядро**
-> ([policy-routing](../../../docs/v2/concepts/policy-routing.md)), а **не** sing-box. sing-box
+> ([policy-routing](../../../docs/kb/concepts/policy-routing.md)), а **не** sing-box. sing-box
 > лишь презентует TUN-интерфейс `singtun0`; помеченный трафик в него направляет тот же
 > firewall/routing-слой, что и для `awg0`. Так туннель становится **взаимозаменяемым**
 > (Light ↔ Full) без переписывания data-plane.
@@ -98,7 +98,7 @@ ucode -R engine/steps/singbox/apply.uc --teardown                   # снять
 `server_ports` без `server_port`), **инвариант `auto_route=false`** и общий `singtun0`, опт-ин
 полосы, диспетч ссылка/ссылка/JSON/мусор, план (uci enable + conffile, teardown).
 
-Живьём (`make qemu-hysteria-v2`): сборка sing-box РЕАЛЬНО принимает наш hysteria2-конфиг, битый
+Живьём (`make qemu-hysteria`): сборка sing-box РЕАЛЬНО принимает наш hysteria2-конфиг, битый
 конфиг отвергается ДО подмены рабочего, TUN и маршруты встают, teardown чистит.
 
 ## Не здесь (отдельные фазы)
@@ -114,4 +114,4 @@ ucode -R engine/steps/singbox/apply.uc --teardown                   # снять
 - **Замена сервера** без переустановки — `engine/install/replace_singbox.uc` (один на оба протокола).
 - **Автофолбэк** AWG→Reality (runtime-детект обрыва) — будущая фаза. Ведёт только на TCP-ось:
   Hysteria2 живёт на той же UDP-оси, что AWG, и упал бы вместе с ним.
-- **Замер goodput/CPU под потерями** — `make qemu-netem-v2`; живой сервер провайдера — вне лабы.
+- **Замер goodput/CPU под потерями** — `make qemu-netem`; живой сервер провайдера — вне лабы.

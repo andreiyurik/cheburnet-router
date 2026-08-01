@@ -1,5 +1,5 @@
 #!/usr/bin/ucode -R
-// rpcd-cheburnet — ubus-RPC обработчик движка v2 для веб-мастера (ИМПУРНЫЙ слой, наследник
+// rpcd-cheburnet — ubus-RPC обработчик движка для веб-мастера (ИМПУРНЫЙ слой, наследник
 // v1 web/rpcd-cheburnet). Ставится в /usr/libexec/rpcd/cheburnet, rpcd подхватывает сам.
 //
 // Протокол rpcd: вызывается как `list` (печатает дескриптор методов) или `call <method>`
@@ -239,7 +239,7 @@ function m_status() {
 		// $2 внутри одинарных кавычек awk НЕ экранировать: busybox awk прощал '\$2', а GNU и
 		// другие awk на нём падают → mram пуст → full_capable ложно false (поймано тестом на хосте).
 		"echo \"mram=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null)\"; " +
-		// Свободный флеш (МБ) для гейта кнопки Full-тира: sing-box ~42 МБ (замер qemu-reality-v2),
+		// Свободный флеш (МБ) для гейта кнопки Full-тира: sing-box ~42 МБ (замер qemu-reality),
 		// и раньше кнопка флеш ИГНОРИРОВАЛА — обещала то, что валилось на apk.
 		// Available = ТРЕТЬЕ целое поле строки данных, счётчик НЕ сбрасываем по строкам: так же,
 		// как parse_df, это переживает busybox-перенос длинного имени ФС на отдельную строку.
@@ -566,7 +566,7 @@ function m_service_restart(v) {
 	// установки/replace валит её пробу — инвариант «PID-файл = взаимное исключение».
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
-	// v2-сервисы data-plane (без podkop — вырезан). Перезапуск — I/O, движковой логики нет.
+	// сервисы data-plane (без podkop — вырезан). Перезапуск — I/O, движковой логики нет.
 	if (v.service == "vpn")
 		sh("ifdown awg0 2>/dev/null; sleep 1; ifup awg0 2>/dev/null");
 	else if (v.service == "dns")

@@ -113,7 +113,7 @@ test("evaluate: кастомные пороги через req", () => {
 test("default_requirements: пороги калиброваны по фактам (RAM 112, флеш 16)", () => {
 	let r = default_requirements();
 	eq(r.min_ram_mb, 112, "128 отказывал ЛЮБОЙ 128-МБ плате: MemTotal там 118–124");
-	eq(r.min_flash_mb, 16, "16 МБ — цифра docs/v2/reference/hardware-requirements.md для Light");
+	eq(r.min_flash_mb, 16, "16 МБ — цифра docs/kb/reference/hardware-requirements.md для Light");
 });
 
 test("evaluate: реальный роутер со 128 МБ RAM и 32-МБ флешем проходит", () => {
@@ -351,7 +351,7 @@ test("supports_full_hw: mram строкой и мусором (приходит 
 	ok(!supports_full_hw("", 512, 200, null), "пустая arch → false");
 });
 
-// Флеш в гейте КНОПКИ панели: бинарь Full-тира весит десятки МБ (замер qemu-hysteria-v2), а
+// Флеш в гейте КНОПКИ панели: бинарь Full-тира весит десятки МБ (замер qemu-hysteria), а
 // раньше кнопка флеш не смотрела и обещала то, что валилось на apk «No space left».
 test("full_hw_missing: не хватает флеша → 'flash' в причинах, кнопка не обещает лишнего", () => {
 	deep_eq(full_hw_missing("aarch64", 512, 20, null), [ "flash" ]);
@@ -387,7 +387,7 @@ test("evaluate_tiers: кастомные пороги Full через req.full",
 test("full_requirements: дефолты Full-тира", () => {
 	let r = full_requirements();
 	eq(r.min_ram_mb, 240, "240 = плата на 256 МБ по MemTotal, а не паспортные 256");
-	eq(r.min_flash_mb, 44, "44 = замер веса sing-box-tiny + запас (qemu-hysteria-v2 сверяет)");
+	eq(r.min_flash_mb, 44, "44 = замер веса sing-box-tiny + запас (qemu-hysteria сверяет)");
 	deep_eq(r.pkgs, [ "sing-box-tiny", "sing-box" ], "tiny первым — она легче на 4.5 МБ скачивания");
 	ok(index(r.arch, "aarch64") >= 0);
 	ok(index(r.arch, "mipsel") < 0, "mips исключён из Full");
