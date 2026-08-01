@@ -316,3 +316,24 @@ vm_start_firewall() {
     vm_ssh true || { echo "  ✗ ssh потерян после старта fw4"; exit 1; }
     echo "  ✓ fw4 работает, ssh жив"
 }
+
+# vm_check_dns() — nslookup в VM или exit 1. Без интернета apk update/add бессмысленны.
+vm_check_dns() {
+    echo "→ Проверяю интернет в VM"
+    vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
+        || { echo "✗ DNS не работает в VM — apk update не пройдёт"; exit 1; }
+    echo "  ✓ DNS работает"
+}
+
+# apk_try CMD — до 10 попыток по 10с, тихо; код возврата честный.
+# 10×10с (было 5×3с): фильтрующая сеть рвёт отдельные файлы посреди передачи с высокой частотой,
+# и пакет с несколькими новыми deps перемножает вероятность — 5 коротких попыток дважды красили
+# тест на живом зеркале.
+apk_try() {
+    local cmd="$1"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
+        sleep 10
+    done
+    return 1
+}

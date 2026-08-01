@@ -47,18 +47,7 @@ vm_prepare_image
 vm_start
 vm_boot_and_setup
 
-echo "→ Проверяю интернет в VM"
-vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
-    || { echo "✗ DNS не работает в VM — apk update не пройдёт"; exit 1; }
-
-apk_try() {
-    local cmd="$1"
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-        if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
-        sleep 10
-    done
-    return 1
-}
+vm_check_dns
 
 echo "→ apk update"
 apk_try "apk update" || { echo "✗ apk update упал"; exit 1; }

@@ -30,27 +30,11 @@ vm_prepare_image
 vm_start
 vm_boot_and_setup
 
-# ─── интернет ────────────────────────────────────────────────────────────────
-echo "→ Проверяю интернет в VM"
-vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
-    || { echo "✗ DNS не работает в VM — apk update не пройдёт"; exit 1; }
-echo "  ✓ DNS работает"
+vm_check_dns
 
 # downloads.openwrt.org из фильтрующих сетей рвётся посреди передачи (EPERM/EOF) —
 # один флап зеркала не должен красить тест (тот же урок, что apk_retry в webui.sh
 # и retry в bootstrap.sh). if, не `[ … ] && …` — ловушка set -e (CLAUDE.md).
-apk_try() { # apk_try 'apk add <pkg>' — до 10 попыток, тихо; код возврата честный.
-    # 10×10с (было 5×3с): фильтрующая сеть рвёт отдельные файлы посреди передачи с высокой
-    # частотой, и пакет с несколькими новыми deps (https-dns-proxy → libcares, resolveip…)
-    # перемножает вероятность — 5 коротких попыток дважды красили тест на живом зеркале.
-    local cmd="$1"
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-        if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
-        sleep 10
-    done
-    return 1
-}
-
 echo "→ apk update"
 apk_try "apk update" || { echo "✗ apk update упал"; vm_ssh "apk update 2>&1 | tail -10"; exit 1; }
 
@@ -230,22 +214,9 @@ echo "  ✓ https-dns-proxy принял конфиг и работает"
 # теряла правила при ЛЮБОМ fw4 reload (hotplug awg0 при install, правка LuCI, ребут) —
 # kill-switch тихо умирал. Фикс: правила в /etc/nftables.d/, fw4 включает их при каждом
 # reload. Этот ассерт ловит регресс: применяем firewall, дёргаем reload, правила на месте.
-echo "→ подготовка: возвращаю fw4 (vm_boot_and_setup его стопил) + ssh-правило"
-# Как в smoke: шаг добавляет цепочки в СУЩЕСТВУЮЩУЮ таблицу inet fw4 — на
-# остановленном firewall её нет. Старый fw4 прощал reload из stopped-состояния
-# (создавал таблицу), новые сборки — нет: apply падал именно здесь. ssh-доступ
-# страхуем постоянным uci-правилом (переживает reload'ы, в отличие от nft-инъекции).
-vm_ssh 'uci add firewall rule >/dev/null
-        uci set firewall.@rule[-1].name="qemu-ssh"
-        uci set firewall.@rule[-1].src="*"
-        uci set firewall.@rule[-1].proto="tcp"
-        uci set firewall.@rule[-1].dest_port="22"
-        uci set firewall.@rule[-1].target="ACCEPT"
-        uci commit firewall
-        /etc/init.d/firewall start >/dev/null 2>&1; sleep 2
-        nft list table inet fw4 >/dev/null' \
-    || { echo "  ✗ fw4 не поднялся"; vm_ssh 'logread | tail -15'; exit 1; }
-vm_ssh true || { echo "  ✗ ssh потерян после старта fw4"; exit 1; }
+# Шаг добавляет цепочки в СУЩЕСТВУЮЩУЮ таблицу inet fw4 — на остановленном (vm_boot_and_setup
+# его стопил) apply падал бы именно здесь.
+vm_start_firewall
 
 echo "→ firewall-шаг: правила в nftables.d переживают fw4 reload"
 vm_ssh 'echo "{\"domains\":[\"example.com\"],\"routing_opts\":{\"wan_if\":\"eth0\"},\"fw_opts\":{\"tunnel_if\":\"awg0\"}}" | ucode -R /usr/share/cheburnet/engine/steps/firewall/apply.uc' \

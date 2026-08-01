@@ -45,18 +45,8 @@ vm_boot_and_setup
 ok()  { echo "  ✓ $1"; }
 bad() { echo "  ✗ $1"; }
 
-echo "→ Проверяю интернет в VM"
-vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
-    || { echo "✗ DNS не работает в VM"; exit 1; }
+vm_check_dns
 
-apk_try() {
-    local cmd="$1"
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-        if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
-        sleep 10
-    done
-    return 1
-}
 echo "→ apk update"
 apk_try "apk update" || { echo "✗ apk update упал"; exit 1; }
 
@@ -90,21 +80,7 @@ vm_scp "$REPO_ROOT/engine/ubus/rpcd-acl.json"                 "/usr/share/rpcd/a
 vm_ssh "chmod +x /usr/libexec/rpcd/cheburnet && /etc/init.d/rpcd restart >/dev/null 2>&1; sleep 3"
 vm_ssh "ubus list | grep -q '^cheburnet$'" || { echo "  ✗ cheburnet не на шине"; exit 1; }
 
-# fw4 обязан работать: firewall-шаг добавляет цепочки в существующую таблицу inet fw4.
-# ssh страхуем ПОСТОЯННЫМ uci-правилом — оно переживает и fw4 reload, и ребут.
-echo "→ Поднимаю fw4 (+ автостарт) с постоянным ssh-правилом"
-vm_ssh 'uci add firewall rule >/dev/null
-        uci set firewall.@rule[-1].name="qemu-ssh"
-        uci set firewall.@rule[-1].src="*"
-        uci set firewall.@rule[-1].proto="tcp"
-        uci set firewall.@rule[-1].dest_port="22"
-        uci set firewall.@rule[-1].target="ACCEPT"
-        uci commit firewall
-        /etc/init.d/firewall enable >/dev/null 2>&1
-        /etc/init.d/firewall start >/dev/null 2>&1; sleep 2
-        nft list table inet fw4 >/dev/null' \
-    || { echo "  ✗ fw4 не поднялся"; vm_ssh 'logread | tail -15'; exit 1; }
-vm_ssh true || { echo "  ✗ ssh потерян после старта fw4"; exit 1; }
+vm_start_firewall
 
 # Эндпоинт «какой у меня IP»: резолвим один раз, дальше пиним по адресу (маршрут ставится на IP).
 ECHO_HOST="api.ipify.org"

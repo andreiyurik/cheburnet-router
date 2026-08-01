@@ -189,22 +189,9 @@ echo "$out" | grep -q 'нет' \
 # здесь (hermetic, без apk).
 
 # ─── steps/firewall: NAT-зона + цепочки на РЕАЛЬНОМ fw4/nft + teardown ───────
-echo "→ подготовка: возвращаю fw4 (vm_boot_and_setup его стопил) + ssh-правило"
-# Наш шаг добавляет цепочки в СУЩЕСТВУЮЩУЮ таблицу inet fw4 — на остановленном
-# firewall её нет в ядре. Поднимаем сервис; ssh-доступ страхуем ПОСТОЯННЫМ
-# uci-правилом (тестовая обвязка VM): apply делает fw4 reload, который стёр бы
-# одноразовое nft-правило, а uci-правило переживает любые reload'ы.
-vm_ssh 'uci add firewall rule >/dev/null
-        uci set firewall.@rule[-1].name="qemu-ssh"
-        uci set firewall.@rule[-1].src="*"
-        uci set firewall.@rule[-1].proto="tcp"
-        uci set firewall.@rule[-1].dest_port="22"
-        uci set firewall.@rule[-1].target="ACCEPT"
-        uci commit firewall
-        /etc/init.d/firewall start >/dev/null 2>&1; sleep 2
-        nft list table inet fw4 >/dev/null' \
-    || { echo "  FAIL: fw4 не поднялся"; vm_ssh 'logread | tail -15'; exit 1; }
-vm_ssh true || { echo "  FAIL: ssh потерян после старта fw4"; exit 1; }
+# Наш шаг добавляет цепочки в СУЩЕСТВУЮЩУЮ таблицу inet fw4 — на остановленном (vm_boot_and_setup
+# его стопил) её нет в ядре.
+vm_start_firewall
 
 echo "→ assert: firewall apply — NAT-зона в uci, цепочки в nft (реальный fw4)"
 # kill-switch на eth0 безопасен для теста: он в forward-цепочке, а ssh к VM —

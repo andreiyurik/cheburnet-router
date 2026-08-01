@@ -62,18 +62,7 @@ REALITY_PATH_BROKEN=0
 ok()  { printf '  \033[32m✓\033[0m %s\n' "$1"; PASS=$((PASS + 1)); }
 bad() { printf '  \033[31m✗\033[0m %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
-echo "→ Проверяю интернет в VM"
-vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
-    || { echo "✗ DNS не работает в VM"; exit 1; }
-
-apk_try() {
-    local cmd="$1"
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-        if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
-        sleep 10
-    done
-    return 1
-}
+vm_check_dns
 apk_try "apk update" || { echo "✗ apk update упал"; exit 1; }
 
 # libustream-mbedtls + ca-bundle — чтобы uclient-fetch умел https С ПРОВЕРКОЙ сертификата:
