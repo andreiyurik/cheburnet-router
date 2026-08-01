@@ -53,19 +53,19 @@ poc-split:
 # ubus-методы, границу доверия сквозь rpcd, rootpass→session.login,
 # family on/off на реальном uci, NAT-зону + nft-цепочки + teardown на реальном fw4.
 qemu-smoke:
-	@./tests/qemu/smoke.sh
+	@bash tests/qemu/smoke.sh
 
 # T3c — установка зависимостей через apk + data-plane против РЕАЛЬНЫХ сервисов
 # (dnsmasq-full/https-dns-proxy). Единственная проверка DEPENDS пакета из живого
 # feed'а. Нужен интернет для apk. ~5-8 мин с KVM.
 qemu-install:
-	@./tests/qemu/install.sh
+	@bash tests/qemu/install.sh
 
 # T3b — HTTP-слой веб-мастера: uhttpd раздаёт Svelte-бандл, /ubus
 # JSON-RPC (путь браузера), ACL anon-vs-admin, session.login, handler-валидация
 # без деструктивных эффектов. Нужен интернет в VM (apk add uhttpd-mod-ubus).
 qemu-webui:
-	@./tests/qemu/webui.sh
+	@bash tests/qemu/webui.sh
 
 # T3g — ПОЛНАЯ установка через ubus и ОТКАТ на живом OpenWrt: оркестратор доходит до
 # health-check, мёртвый сервер НЕ выдаётся за успех, steps/vpn/apply.uc применяется
@@ -73,7 +73,7 @@ qemu-webui:
 # токен остаётся, интернет на роутере цел. Рабочий VPN-сервер НЕ нужен — это и есть
 # случай «сервера нет». Нужен интернет для apk. ~5-8 мин с KVM.
 qemu-rollback:
-	@./tests/qemu/rollback.sh
+	@bash tests/qemu/rollback.sh
 
 # T3h — data-plane ПЕРЕЖИВАЕТ ПЕРЕЗАГРУЗКУ: kill-switch и наборы возвращаются в ядро сами
 # (правила в /etc/nftables.d, а не в памяти), dnsmasq/https-dns-proxy стартуют по procd, мост
@@ -81,14 +81,14 @@ qemu-rollback:
 # всеми init-скриптами — нет, а он случается у каждого. Рабочий VPN-сервер НЕ нужен.
 # Нужен интернет для apk. ~6-9 мин с KVM.
 qemu-reboot:
-	@./tests/qemu/reboot.sh
+	@bash tests/qemu/reboot.sh
 
 # T3d — Full-тир (VLESS+Reality) data-plane WIRING на живом OpenWrt: singbox-шаг
 # применяет config.json + netifd-маршрут singtun0 (half-routes), connectivity-probe
 # корректно отвергает недостижимый сервер (fail-safe), teardown чистит. Рабочий
 # Reality-сервер НЕ нужен (герметично). Нужен интернет для apk. ~4-6 мин с KVM.
 qemu-reality:
-	@./tests/qemu/reality.sh
+	@bash tests/qemu/reality.sh
 
 # T3e — Hysteria2 (Full-тир) на живом OpenWrt: сборка sing-box-tiny РЕАЛЬНО умеет hysteria2
 # (sing-box check принимает наш конфиг), port hopping доезжает в server_ports, TUN и маршруты
@@ -96,14 +96,14 @@ qemu-reality:
 # teardown чистит. Плюс ЗАМЕР веса Full-тира и сверка с порогом preflight в обе стороны.
 # Рабочий Hysteria2-сервер НЕ нужен. Нужен интернет для apk. ~4-6 мин с KVM.
 qemu-hysteria:
-	@./tests/qemu/hysteria.sh
+	@bash tests/qemu/hysteria.sh
 
 # T3f — ЗАМЕР ради которого Hysteria2 и берут: goodput и CPU при tc netem loss 0/5/15 %.
 # Герметичный стенд целиком внутри VM (netns-сервер + veth + netem): QUIC (наш сгенерированный
 # hysteria2-конфиг) против TCP через тот же sing-box, плюс baseline без туннеля. Печатает цифры
 # для ADR 0004; релиз по ним НЕ гейтится (железо CI разное). Нужен интернет. ~6-10 мин с KVM.
 qemu-netem:
-	@./tests/qemu/netem.sh
+	@bash tests/qemu/netem.sh
 
 # T4a — единственная проверка, доказывающая не «обвязка применилась», а «байты дошли до интернета
 # через туннель»: тянем «какой у меня IP» ЧЕРЕЗ туннель и сверяем с адресом VPS, плюс крупная
@@ -111,11 +111,11 @@ qemu-netem:
 # VPS (ключи он генерирует сам) + tests/vps/fetch-links.sh. В CI НЕ входит — зависит от
 # арендованного сервера, см. tests/vps/README.md.
 qemu-live-vps:
-	@./tests/qemu/live-vps.sh
+	@bash tests/qemu/live-vps.sh
 
 # T4b — УСПЕШНАЯ установка целиком через ubus против живого сервера + ПЕРЕЗАГРУЗКА поверх неё:
 # commit-ветка оркестратора (install.json записан, одноразовый токен снят, панель честна), трафик
 # выходит через сервер ДО и ПОСЛЕ ребута, туннель поднимается сам. T3g покрывает обратную ветку
 # (провал+откат), а эту без рабочего сервера проверить нечем. Нужен стенд tests/vps/. Не для CI.
 qemu-live-install:
-	@./tests/qemu/live-install.sh
+	@bash tests/qemu/live-install.sh
