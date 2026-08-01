@@ -68,9 +68,9 @@ flowchart TB
     server --> internet[Интернет]
 ```
 
-- sing-box поднимает **TUN-интерфейс `singtun0`** с `auto_route: false` — он **не трогает**
-  таблицы маршрутизации. Это прямой аналог инварианта `route_allowed_ips='0'` у
-  [[amneziawg|AmneziaWG]].
+- sing-box поднимает **TUN-интерфейс `singtun0`** с `auto_route: false` — маршрут в него ставит
+  наш netifd-конфиг (half-routes), не сам sing-box. Аналог у [[amneziawg|AmneziaWG]] —
+  `route_allowed_ips='1'`: обоими маршрутами владеет netifd, а не сам туннельный демон.
 - Тот же [[policy-routing|policy-routing]] и [[kill-switch|kill-switch]], что и в Light-тире,
   направляют «весь не-direct трафик» в `singtun0` вместо `awg0`. **Туннель взаимозаменяем** —
   data-plane (dnsmasq-nftset, пометка, ip rule, NAT-зона) переиспользуется без изменений.
