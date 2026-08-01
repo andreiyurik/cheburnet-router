@@ -16,11 +16,9 @@ updated: 2026-06-08
 
 ## С чего начать
 
-- 🏠 **[[Home]]** — карта всего vault'а (Map of Content). Главная точка навигации.
+- 🏠 **[[Home]]** — карта всего vault'а (Map of Content) с учебной траекторией и полным списком
+  решений. Главная точка навигации.
 - 🧭 **[[conventions]]** — как устроен этот vault и как кормить его ИИ.
-- 🎓 Новичку — иди по концепциям: [[split-routing]] → [[dnsmasq-nftset]] → [[policy-routing]].
-- 🏗 Инженеру — [[data-plane]], [[engine-ucode]], [[reliability]].
-- 🤔 «Почему так?» — решения в `decisions/`: [[0001-why-not-singbox]], [[0002-ucode-over-go]], [[0004-multi-protocol-tiers]].
 
 ## Как открыть
 

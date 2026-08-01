@@ -50,7 +50,7 @@ flowchart TB
     end
 
     subgraph Router["📡 Роутер на OpenWrt (любая поддерживаемая arch)"]
-        subgraph L1["1️⃣ Bootstrap (тонкий shell, ~30 строк)"]
+        subgraph L1["1️⃣ Bootstrap (тонкий shell, ~150 строк)"]
             boot[добавить feed → apk add cheburnet → напечатать ссылку мастера]
         end
 
@@ -88,7 +88,7 @@ flowchart TB
 ```
 
 ### Слой 1 — Bootstrap (тонкий shell)
-Намеренно остаётся на shell: ~30 строк, shell универсален на OpenWrt. Делает только:
+Намеренно остаётся на shell: ~150 строк, shell универсален на OpenWrt. Делает только:
 добавляет feed → `apk add cheburnet` → печатает ссылку мастера с install-токеном.
 Вся хрупкая логика — **не здесь**.
 
@@ -203,7 +203,7 @@ nft-сета), а не только «uci-запись легла» — тихи
 
 ```
 cheburnet-router/
-├── bootstrap/            # тонкий shell-установщик (~30 строк)
+├── bootstrap/            # тонкий shell-установщик (~150 строк)
 ├── engine/               # движок на ucode
 │   ├── preflight/        #   гейткипер железа/зависимостей
 │   ├── routing/          #   генератор split-routing (чистая логика)

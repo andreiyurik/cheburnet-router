@@ -36,7 +36,7 @@ flowchart TB
 
 | Слой | Технология | Заметка | Роль |
 |---|---|---|---|
-| Bootstrap | shell (~30 строк) | [[bootstrap]] | добавить feed → `apk add` → открыть мастер |
+| Bootstrap | shell (~150 строк) | [[bootstrap]] | добавить feed → `apk add` → открыть мастер |
 | Движок | ucode | [[engine-ucode]] | preflight, шаги, генерация конфигов, ubus |
 | Data-plane | dnsmasq, nftables, awg, https-dns-proxy | [[data-plane]] | через что реально идёт трафик |
 | UI | Svelte | [[web-wizard]] | мастер настройки в браузере |

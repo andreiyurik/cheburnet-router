@@ -69,7 +69,7 @@
 
 | Слой | Технология | Почему |
 |---|---|---|
-| Bootstrap | тонкий shell (~30 строк) | универсален на OpenWrt; вся хрупкая логика — не здесь |
+| Bootstrap | тонкий shell (~150 строк) | универсален на OpenWrt; вся хрупкая логика — не здесь |
 | Движок | **ucode** | нулевой footprint (слабое железо), нативные uci/ubus, любая arch без кросс-компиляции |
 | Data-plane (Light-тир) | **dnsmasq-nftset + nftables + policy routing + AmneziaWG** | в ядре: легче, наглядно, едет на слабом железе |
 | Data-plane (Full-тир) | **+ sing-box-tiny** (VLESS+Reality, Hysteria2) опционально | проходимость и работа на плохом канале; гейтится preflight'ом по железу |

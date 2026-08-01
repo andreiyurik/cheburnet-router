@@ -357,31 +357,11 @@ OpenWrt (официальные сборки на [openwrt.org/toh/cudy](https:/
 ## ❤️ Поддержать проект
 
 Я делаю всё один — код, документацию, ответы в Telegram, разбор багов у конкретных людей. Это часы
-после основной работы. Любая поддержка помогает и сигналит, что проект нужен.
-
-**⭐ Поставь звезду на GitHub** — бесплатно, 2 секунды, и проект находят больше людей, которым он нужен.
+после основной работы. Любая поддержка помогает и сигналит, что проект нужен: звезда на GitHub,
+рубль через CloudTips/TON/Bitcoin или просто рассказать друзьям. Все способы — в
+[docs/support.md](docs/support.md).
 
 **🔗 Нужен VPN-сервер?** Возьми [Amnezia Premium со скидкой 15% — промокод `CHEBURNET15`](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15). Тебе −15% к цене, проекту — поддержка.
-
-**💳 Поддержать рублём — от 100 ₽:**
-
-<div align="center">
-<a href="https://pay.cloudtips.ru/p/61fe8ef3"><img src="assets/donate-cloudtips.png" alt="QR-код CloudTips" width="160"></a>
-<br>
-<sub><a href="https://pay.cloudtips.ru/p/61fe8ef3">pay.cloudtips.ru/p/61fe8ef3</a> — карта / СБП. Отсканируй камерой телефона.</sub>
-</div>
-
-<details>
-<summary>💎 Криптовалюта (TON, Bitcoin)</summary>
-
-<br>
-
-| Сеть | Адрес |
-|---|---|
-| **TON** | `UQC2KsPX-Ad9P8x_VbN3GHbpacOMvYPIbZvLppb-sxJ88KfV` |
-| **Bitcoin** | `bc1qen3tutepyqjtsn7meggcertp6x4m0492vkg4m2` |
-
-</details>
 
 ---
 
