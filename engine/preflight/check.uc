@@ -4,15 +4,11 @@
 //          "ram_total_mb":256,"deps_installable":{"kmod-amneziawg":true,...}}' \
 //     | ucode -R check.uc
 //
-// Факты собирает router-side companion (чтение /proc, ubus, uci, apk --simulate) — см.
-// engine/preflight/README.md. Здесь — только оценка. exit 0 = подходит, 1 = отказ
-// (гейткипер: при отказе движок НЕ должен трогать систему).
+// Факты собирает router-side companion (gather.uc, импурно). Здесь — только оценка.
+// ИНВАРИАНТ: exit 0 = подходит, 1 = отказ — движок НЕ трогает систему при отказе.
 //
-// Флаги (в любом порядке):
-//   --json        отчёт машинно (для ubus/UI), вместо человекочитаемых строк
-//   --allow-soft  «на свой страх и риск»: soft-провалы (флеш/RAM) НЕ блокируют — exit 0, пока
-//                 нет hard-провалов. Ставится только по осознанному выбору владельца
-//                 (install accept_risk); отчёт при этом честно печатает, что пропущено.
+// Флаги: --json (машинный отчёт для ubus/UI); --allow-soft (soft-провалы флеша/RAM не блокируют,
+// exit 0 пока нет hard-провалов — осознанный выбор владельца, install.accept_risk).
 
 import { stdin } from "fs";
 import { evaluate, render_report, evaluate_tiers } from "./preflight.uc";

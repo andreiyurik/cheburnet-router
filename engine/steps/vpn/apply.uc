@@ -1,12 +1,7 @@
-// apply.uc — применение VPN-шага на роутере (импурно, router-side).
-//
-//   cat awg0.conf | ucode -R apply.uc              # применить
-//   cat awg0.conf | ucode -R apply.uc --dry-run    # только показать план
-//   ucode -R apply.uc --teardown                   # снять awg0 (при смене протокола на reality)
-//
-// teardown (delete-before-add, || true) → setup (uci batch) → commit → перезапуск сети, чтобы
-// netifd поднял awg0. Проверяется в QEMU; логика плана — под юнит-тестами (vpn/tests).
-// Битый/неполный .conf → plan.ok=false → отказ без изменений (граница доверия — вход юзера).
+// apply.uc — применение VPN-шага на роутере (импурно): teardown → uci batch → перезапуск сети,
+// чтобы netifd поднял awg0. Логика плана — в vpn.uc (тесты: vpn/tests); битый .conf → plan.ok=false.
+//   cat awg0.conf | ucode -R apply.uc [--dry-run]
+//   ucode -R apply.uc --teardown        # снять awg0 (смена протокола на reality)
 
 import { stdin, popen } from "fs";
 import { sh, uci_batch } from "../../lib/proc.uc";
@@ -25,21 +20,16 @@ let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 // (иначе awg0 держит свой default-маршрут и конфликтует с singtun0). Отсутствие секций — норма.
 if (teardown) {
 	let sects = owned_sections({});
-	sh(sprintf("ifdown %s >/dev/null 2>&1", sects[0])); // sects[0] = интерфейс awg0
+	sh(sprintf("ifdown %s >/dev/null 2>&1", sects[0]));
 	let ops = [];
 	for (let i = 0; i < length(sects); i++)
 		push(ops, "delete network." + sects[i]);
 	uci_batch(ops, "network");
-	// Вернуть WAN его маршрут по умолчанию и ДОЖДАТЬСЯ его. НЕ «на всякий случай»: netifd ставит
-	// default через WAN, а поднявшийся awg0 с route_allowed_ips='1' ЗАМЕЩАЕТ его в main (тот же
-	// prefix и метрика), продолжая считать свой установленным. Поэтому после снятия awg0 в main не
-	// остаётся ни одного дефолта, и следующий шаг — sing-box — не может соединиться с сервером
-	// («no route to internet», поймано на живом роутере при переключении AWG → Full-тир).
-	//
-	// Ждём, потому что ifdown/ifup у netifd асинхронные: без ожидания следующий шаг видит либо ещё
-	// не убранный дефолт через awg0, либо уже пустую таблицу — оба состояния обманчивы. ifup
-	// идемпотентен, а невозврат маршрута здесь НЕ фатален: teardown обязан довести уборку до конца,
-	// а на отсутствие выхода пожалуется следующий шаг (у него это предусловие).
+	// ШРАМ: awg0 с route_allowed_ips='1' замещает WAN-дефолт в main; после снятия awg0 в main не
+	// остаётся ни одного дефолта, и следующий шаг (sing-box) не может соединиться с сервером
+	// («no route to internet» при переключении AWG → Full-тир). Поэтому явно возвращаем и ЖДЁМ
+	// WAN-маршрут (ifdown/ifup у netifd асинхронные) — невозврат здесь не фатален, это подхватит
+	// предусловие следующего шага. Подробно: [[0004-multi-protocol-tiers]] (п.1).
 	sh("ifup wan >/dev/null 2>&1");
 	let wan_back = false;
 	for (let i = 0; i < 10; i++) {
@@ -80,11 +70,9 @@ let rc = uci_batch(plan.setup, "network");
 if (rc != 0)
 	die(sprintf("vpn/apply: uci batch упал (код %d)", rc));
 
-// Поднять awg0. reload — быстрый путь (мягче restart, не дёргает остальные интерфейсы). НО на
-// свежей установке proto-handler amneziawg только что доставлен пакетом, и netifd о нём ещё не
-// знает: reload НЕ создаёт интерфейс (proto:none / NO_DEVICE на OpenWrt 25.12.4). Поэтому после
-// reload проверяем, появилось ли устройство, и при отсутствии эскалируем в restart (он перечитывает
-// /lib/netifd/proto/*). На повторных запусках (proto уже загружен) хватает reload — restart не нужен.
+// Платформенный квирк (OpenWrt 25.12.4): на свежей установке proto-handler amneziawg только что
+// доставлен пакетом, и reload его не подхватывает (proto:none/NO_DEVICE) — нужен restart, который
+// перечитывает /lib/netifd/proto/*. На повторных запусках хватает более лёгкого reload.
 let p = popen("/etc/init.d/network reload >/dev/null 2>&1", "r");
 if (p) p.close();
 // Ждём появления kernel-устройства (до 5с). Нет → reload не подхватил свежий proto-handler.

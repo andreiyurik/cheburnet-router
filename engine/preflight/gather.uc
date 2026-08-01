@@ -36,19 +36,16 @@ for (let i = 0; i < length(req.deps); i++) {
 	let pkg = req.deps[i];
 	deps_installable[pkg] = cmd_rc(sprintf("apk add --simulate %s", pkg));
 }
-// Full-тир (VLESS+Reality и Hysteria2): установимость бинаря sing-box — тем же apk --simulate.
-// Проверяем ВСЕ варианты сборки (tiny — предпочтительный, полный — фолбэк): гейт пройдёт, если
-// ставится любой. Ни один не ставится → Full недоступен (Light не задет: слабое железо остаётся
-// на AmneziaWG).
+// Full-тир: установимость бинаря sing-box, тем же --simulate, для всех вариантов сборки
+// (взаимозаменяемы, см. preflight.uc FULL_REQUIREMENTS).
 let fr = full_requirements();
 for (let i = 0; i < length(fr.pkgs); i++)
 	deps_installable[fr.pkgs[i]] = cmd_rc(sprintf("apk add --simulate %s", fr.pkgs[i]));
 
-// Full-тир — opt-in: бинарь ставится ОТДЕЛЬНО (кнопка в панели / автодогрузка при выборе
-// Full-протокола), не при bootstrap. Поэтому «установлен ли» ≠ «устанавливаем ли» (--simulate
-// выше). evaluate_tiers по этому факту различает: показать кнопку «включить» vs предложить
-// переключение. Проверяем именно БИНАРЬ, а не имя пакета: у tiny и полной сборки он один и тот же
-// (/usr/bin/sing-box), поэтому признак не зависит от того, какая сборка встала.
+// ИНВАРИАНТ: «установлен ли» (бинарь, opt-in — ставится отдельно от bootstrap) отличаем от
+// «устанавливаем ли» (--simulate выше); evaluate_tiers различает по этому факту кнопку
+// «включить» vs переключение. Проверяем БИНАРЬ, не имя пакета: tiny и полная сборка ставят
+// один и тот же /usr/bin/sing-box.
 let sing_box_installed = cmd_rc("command -v sing-box");
 
 let facts = {

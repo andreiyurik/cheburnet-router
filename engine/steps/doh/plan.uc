@@ -1,9 +1,7 @@
-// plan.uc — CLI чистого DoH-шага: current-снимок (stdin JSON) → uci-операции.
+// plan.uc — CLI чистого DoH-шага: current-снимок (stdin JSON) → uci-операции (НЕ применяет).
+// current подаём вручную (так шаг тестируется без роутера).
 //
-//   echo '{"current":{"hdp_sections":["cfg01"],"servers":[]}}' | ucode -R plan.uc
-//   echo '{}' | ucode -R plan.uc --json
-//
-// current подаём вручную (так шаг тестируется без роутора). opts — переопределение резолверов.
+//   echo '{"current":{"hdp_sections":["cfg01"],"servers":[]}}' | ucode -R plan.uc [--json]
 
 import { stdin } from "fs";
 import { build_doh_plan } from "./doh.uc";

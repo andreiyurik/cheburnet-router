@@ -1,25 +1,8 @@
 // singbox.uc — Full-тир: разбор ссылок VLESS+Reality / Hysteria2 и генерация конфига sing-box.
-//
-// Пользователь приносит подключение от своего сервера — ссылкой `vless://…` (панели 3x-ui /
-// Hiddify), ссылкой `hysteria2://…` (она же `hy2://…`) или сырым JSON-конфигом sing-box
-// (advanced). Шаг разбирает вход, валидирует (граница доверия — вход пользователя) и генерирует
-// /etc/sing-box/config.json + включает сервис. См. [[0004-multi-protocol-tiers]].
-//
-// ЧИСТОЕ ЯДРО: parse_vless_link / parse_hysteria2_link (ссылка → поля) +
-// build_singbox_config / build_hysteria2_config (поля → конфиг-объект) + build_singbox_plan
-// (вход → артефакты: config + uci-операции). Применение (запись файла, uci, рестарт) — в
-// apply.uc (импурно, проверяется в QEMU).
-//
-// ДВА ПРОТОКОЛА — ОДИН ШАГ: специфичны ровно разбор ссылки и объект outbound. TUN-инбаунд,
-// netifd-секции, half-routes, сервис и teardown — ОБЩИЕ (см. ADR 0004, «единый контракт
-// транспорта»): туннель остаётся один (singtun0), значит firewall/policy-routing не знают, какой
-// протокол активен, и health/проба у обоих одни.
-//
-// ИНВАРИАНТ (у AWG тот же смысл несёт route_allowed_ips='1'): auto_route=false — маршрутизацией
-// управляет ЯДРО (наш policy-routing / [[policy-routing]]), а НЕ sing-box. sing-box лишь
-// презентует TUN-интерфейс (singtun0); тот же firewall/routing-слой направляет в него
-// помеченный трафик — ровно как в awg0. Тунель становится взаимозаменяемым (Light↔Full).
-// auto_detect_interface=true — серверное соединение sing-box уходит в WAN, не зацикливаясь.
+// Чистое ядро: parse_vless_link/parse_hysteria2_link (ссылка→поля), build_*_config (поля→конфиг),
+// build_singbox_plan (вход→артефакты). Применение (файл, uci, рестарт) — apply.uc. Тесты — tests/.
+// Оба протокола делят TUN/netifd/teardown — специфичны только разбор ссылки и outbound.
+// подробно: [[0004-multi-protocol-tiers]]
 
 const SINGBOX_DEFAULTS = {
 	tun:         "singtun0",          // имя TUN-интерфейса (цель policy-routing, как awg0)
@@ -72,25 +55,12 @@ function network_sections(opts) {
 	return out;
 }
 
-// build_net_plan(opts) → { teardown, setup } — uci network: маршрут «весь трафик в туннель».
-//
-// ПОЧЕМУ netifd, а не sing-box: инвариант auto_route=false — маршрутизацией владеет ядро. У AWG
-// это делает proto-handler (route_allowed_ips=1 ставит default dev awg0). У sing-box TUN такого
-// нет, поэтому маршрут держим сами через netifd — он переустанавливает его при пересоздании
-// устройства (рестарт sing-box), и откатывается обычным uci-snapshot'ом (симметрия с awg0).
-//
-// ПОЧЕМУ half-routes 0.0.0.0/1 + 128.0.0.0/1, а не один default: они СПЕЦИФИЧНЕЕ WAN-дефолта
-// (0.0.0.0/0), поэтому побеждают его в main-таблице БЕЗ удаления WAN. WAN обязан остаться:
-// (1) direct-трафик уходит через него по нашей policy-routing (mark→table→WAN); (2) сам sing-box
-// коннектится к Reality-серверу через WAN (auto_detect_interface читает /0-дефолт = WAN — half-
-// routes его не трогают, петли нет). Тот же приём, что `redirect-gateway def1` у OpenVPN.
-// Наличие этого WAN-дефолта — предусловие шага, а не надежда: apply.uc проверяет его перед
-// подъёмом сервиса (pick_wan_fallback из lib/route.uc), потому что AWG умеет его вытеснить.
-//
-// proto none: интерфейс лишь привязан к устройству singtun0 (адрес назначает сам sing-box,
-// 172.19.0.1/30) — netifd не трогает L3, только держит маршруты и ждёт появления устройства.
-// IPv4-only: TUN у нас v4 (tun_address). IPv6 в туннель не заводим — от утечки v6 защищает
-// kill-switch firewall-шага (drop v6 в туннельном режиме), а не blackhole в v4-only TUN.
+// build_net_plan(opts) → { teardown, setup } — маршрут «весь трафик в туннель» держит netifd,
+// не sing-box (у sing-box TUN, в отличие от AWG route_allowed_ips=1, маршрут сам не ставит).
+// ИНВАРИАНТ: half-routes 0.0.0.0/1 + 128.0.0.0/1, не один default — специфичнее WAN-дефолта,
+// значит побеждают его без удаления WAN. WAN обязан остаться (direct уходит через него, и сам
+// sing-box коннектится к серверу через него же) — apply.uc проверяет это ПЕРЕД стартом сервиса.
+// IPv6 в TUN не заводим — от утечки защищает kill-switch firewall-шага. подробно: [[0004-multi-protocol-tiers]]
 function build_net_plan(opts) {
 	let o = resolve_opts(opts);
 	let teardown = [];
@@ -239,25 +209,9 @@ function wrap_outbound(o, outbound) {
 			// ИНВАРИАНТ: маршрутизацией управляет ядро (наш policy-routing), не sing-box.
 			auto_route: false,
 			strict_route: false,
-			// gvisor, а НЕ system — иначе TCP через туннель не работает на роутере с запущенным
-			// firewall, то есть у всех (поймано qemu-live-install + диагностикой, 2026-07-31).
-			//
-			// Механика: со stack="system" sing-box обрабатывает TCP через ЛОКАЛЬНЫЙ сокет, поэтому
-			// пакет из TUN обязан быть принят цепочкой input. У fw4 input имеет policy drop, а наш
-			// TUN не входит ни в одну зону → SYN до слушателя не доходит. UDP при этом читается из
-			// TUN напрямую и firewall его не касается — отсюда обманчивая картина «туннель живой»:
-			// DNS и NTP ходят, а ни один сайт не открывается. Проба это честно ловила, но падала и
-			// на исправном сервере, и установка Full-тира откатывалась.
-			//
-			// Почему gvisor, а не «разрешить input с туннеля» (второй проверенный вариант, тоже
-			// работает): исключение в firewall открыло бы сервисы роутера со стороны VPN-сервера.
-			// gvisor обрабатывает TCP в пользовательском пространстве, поэтому туннель вообще не
-			// зависит от настроек firewall — включая чужие правила, которых мы не контролируем.
-			// Цена: TCP считается в userspace. На канале до VPS разница неизмерима (узкое место —
-			// сам канал); авторитетное сравнение — qemu-netem (см. ADR 0004).
-			//
-			// Сборка: gvisor есть и в sing-box-tiny (тег with_gvisor), и в полной — доступность
-			// подтверждена в qemu-hysteria.
+			// ИНВАРИАНТ: stack="gvisor", не "system" — при auto_route=false пакет из TUN должен
+			// пройти input, а у fw4 там policy drop и TUN вне зон: TCP молча не идёт (UDP идёт →
+			// картина обманчива). подробно: [[0004-multi-protocol-tiers]]
 			stack: "gvisor",
 		} ],
 		outbounds: [ outbound, {
@@ -314,18 +268,11 @@ function build_singbox_config(fields, opts) {
 }
 
 // --- Hysteria2 (Full-тир, ось «плохой канал»): ссылка → поля → outbound ---
-//
-// Формат (официальная спецификация hy2-URI):
-//   hysteria2://[auth@]host[:портовая-часть][/]?[params]#label      (схема-алиас: hy2://)
-// params: sni, insecure, obfs, obfs-password, pinSHA256, ech (+ наши локальные up/down, ниже).
-// Порт можно опустить (→ 443), а в портовой части разрешён «multi-port» для port hopping.
+// hysteria2://[auth@]host[:портовая-часть][/]?[params]#label (алиас-схема hy2://). подробно: [[hysteria2]]
 
-// parse_port_ranges(spec) → массив диапазонов в СИНТАКСИСЕ SING-BOX ("5000:6000") или null,
-// если спека битая. Вход — портовая часть ссылки или значение mport: "443", "443,5000-6000",
-// уже-двоеточный "5000:6000". Одиночный порт нормализуем в "N:N" — sing-box принимает range-форму,
-// и так вызывающему не нужно различать формы при сборке server_ports.
-// null (а не «пропустить мусор») осознанно: битый диапазон = порт-хоппинг молча не работает,
-// а узнать об этом человек смог бы только по мёртвому туннелю.
+// parse_port_ranges(spec) → диапазоны в синтаксисе sing-box ("5000:6000") или null; одиночный
+// порт нормализуем в "N:N". null — сознательно (не «пропустить мусор»): битая спека роняет
+// port hopping молча, дальше проверка не даёт этому уйти в мёртвый туннель.
 function parse_port_ranges(spec) {
 	let s = trim(spec ?? "");
 	if (length(s) == 0) return null;
@@ -342,15 +289,11 @@ function parse_port_ranges(spec) {
 	return out;
 }
 
-// split_hy2_hostport(s) → { host, port_spec } или null. Два отличия от split_hostport (vless):
-// порт НЕОБЯЗАТЕЛЕН (спецификация: нет порта = 443) и может быть «multi-port» (запятые/дефисы),
-// поэтому валидирует портовую часть parse_port_ranges, а не valid_port.
-//
-// Режем по ПЕРВОМУ ':' (у vless — по последнему): в портовой части могут быть свои двоеточия
-// (диапазон "5000:6000"), и резать по последнему значило бы разорвать сам диапазон.
-// Голый IPv6 без скобок при этом отваливается сам: "fe80::1" даёт port_spec ":1", а он не
-// проходит проверку ниже. Требование скобок — то же, что у vless-парсера, и честный отказ
-// лучше мусорных host/port, которые убили бы туннель уже после установки.
+// split_hy2_hostport(s) → { host, port_spec } или null. Порт необязателен (нет порта = 443) и
+// может быть multi-port, поэтому валидирует parse_port_ranges, а не valid_port.
+// Режем по ПЕРВОМУ ':' (у vless — по последнему): портовая часть сама содержит ':' в диапазоне
+// ("5000:6000"), резать по последнему разорвало бы его. Голый IPv6 без скобок отваливается сам
+// проверкой ниже — требование скобок то же, что у vless-парсера.
 function split_hy2_hostport(s) {
 	let t = trim(s ?? "");
 	if (length(t) == 0) return null;
@@ -437,9 +380,7 @@ function parse_hysteria2_link(s) {
 			sni: p.sni ?? "", insecure: p.insecure ?? "",
 			obfs: p.obfs ?? "", obfs_password: p["obfs-password"] ?? "",
 			pin: p.pinSHA256 ?? "", ech: p.ech ?? "",
-			// up/down — НАШИ локальные параметры, не часть стандарта: спецификация hy2-URI прямо
-			// требует не класть полосу в ссылку (она индивидуальна и «не для слепого применения»).
-			// Их добавляет наш UI по решению владельца — см. ADR 0004, раздел про Brutal.
+			// up/down — наши локальные параметры (не часть hy2-URI), добавляет наш UI. подробно: [[hysteria2]]
 			up: p.up ?? "", down: p.down ?? "",
 			label: label,
 		},
@@ -470,18 +411,10 @@ function looks_like_ip(h) {
 }
 
 // build_hysteria2_config(fields, opts) → { ok, errors, config }. fields — из parse_hysteria2_link.
-//
-// ГРАНИЦА ДОВЕРИЯ. Часть параметров hy2-URI sing-box не умеет, и молчаливое игнорирование здесь
-// было бы худшим из вариантов: человек узнал бы о проблеме из 30-секундной пробы и отката без
-// причины. Поэтому отвергаем с НАЗВАННОЙ причиной (см. ADR 0004, «границы поддержки hy2-URI»):
-//   • pinSHA256 без insecure=1 — пиннинг сертификата sing-box для hysteria2 не поддерживает,
-//     а подставить insecure самим значило бы тихо снять проверку сертификата;
-//   • ech — в сборке sing-box-tiny ECH нет;
-//   • obfs=gecko — Hysteria умеет, sing-box только salamander.
-//
-// Полоса (up_mbps/down_mbps) НЕ имеет дефолта осознанно: пустые значения = BBR (документировано в
-// схеме outbound hysteria2), а выдуманная цифра включила бы Brutal, который берёт объявленную
-// скорость силой — завышение раздувает очередь и делает хуже БЕЗ ошибок в логах.
+// ГРАНИЦА ДОВЕРИЯ: параметры, которых sing-box не умеет (pinSHA256 без insecure, ech, obfs=gecko),
+// отвергаем с названной причиной, а не молчим — иначе провал всплывёт только через 30с-пробу.
+// ИНВАРИАНТ: полоса (up/down) без дефолта — пусто значит BBR, а выдуманная цифра включит Brutal
+// и молча ухудшит канал завышением. подробно: [[hysteria2]]
 function build_hysteria2_config(fields, opts) {
 	let o = resolve_opts(opts);
 	let f = fields ?? {};

@@ -1,13 +1,9 @@
 // replace_vpn.uc — замена AWG-конфига без переустановки (импурно, router-side).
-//
 //   printf '%s' "$awg_conf" | ucode -R replace_vpn.uc
 //
-// Защитный пояс (наследник v1 replace_awg_conf): snapshot UCI → применить vpn-шаг → ждать
-// handshake → commit / restore. При сбое snapshot restore возвращает старый network-конфиг и
-// reload'ит сеть — пользователь не остаётся без туннеля (авто-rollback). Синхронную валидацию
-// .conf (до запуска этого скрипта) делает ubus-обработчик через vpn/plan.uc.
-//
-// Запускается обработчиком в фоне (setsid), код выхода → done-маркер (install_progress).
+// Защитный пояс: snapshot UCI → применить vpn-шаг → ждать handshake → commit / restore. При
+// сбое restore возвращает старый network-конфиг и reload'ит сеть. Запускается в фоне (setsid),
+// код выхода → done-маркер (install_progress).
 
 import { stdin } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";

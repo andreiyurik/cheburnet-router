@@ -3,12 +3,9 @@
 //   echo '{"what":"nft","domains":["example.com"],"opts":{"ipv6":false}}' | ucode -R generate.uc
 //   printf 'example.com\nexample.org\n'                                  | ucode -R generate.uc
 //
-// Контракт stdin (это граница доверия — вход валидируем, см. CLAUDE.md):
-//   • JSON-запрос { domains:[...], opts:{...}, what:"all|dnsmasq|nft|iprules" }
-//   • либо простые строки-домены (по одной; '#' — комментарий) → what по умолчанию "all".
-// Вывод: для секций (nft/iprules/dnsmasq) — строки команд; для "all" — JSON render_all.
-// UCI-обёртку dnsmasq здесь не генерим: интеграция с /etc/config/dhcp — это секции
-// `config ipset`, их строит steps/dns (см. dns.uc — почему не `list nftset`).
+// Stdin (граница доверия, см. CLAUDE.md): JSON { domains, opts, what } ИЛИ простые строки-домены
+// (what по умолчанию "all"). Вывод: секции — строки команд, "all" — JSON render_all. UCI-обёртку
+// dnsmasq здесь не генерим — это steps/dns (см. dns.uc).
 
 import { stdin } from "fs";
 import { build_plan, render_all, render_dnsmasq,

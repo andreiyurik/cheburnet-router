@@ -1,14 +1,9 @@
-// run.uc — установочный оркестратор (импурно, router-side). Связывает кирпичи в поток:
-//   preflight → snapshot UCI → шаги по порядку → health-check → commit / rollback.
+// run.uc — установочный оркестратор (импурно, router-side): preflight → snapshot UCI →
+// шаги по порядку → health-check → commit / rollback. Политика — чистое ядро install.uc, под
+// тестами; здесь — исполнение через существующие CLI, проверяется в QEMU.
 //
-//   echo '{"awg_conf":"...","domains":["example.com"],"routing_opts":{"wan_if":"eth0"}}' \
-//     | ucode -R run.uc
+//   echo '{"awg_conf":"...","domains":["example.com"]}' | ucode -R run.uc
 //   ... | ucode -R run.uc --dry-run     # показать, что будет сделано
-//
-// Политика (порядок, область snapshot, решение) — чистое ядро install.uc (под тестами). Здесь —
-// выполнение: запуск preflight/snapshot/шагов/health через существующие CLI. Проверяется в QEMU.
-//
-// Откат честный: чистые шаги возвращает snapshot restore; грязный (firewall) — его --teardown.
 
 import { stdin, readfile, writefile, unlink, access } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
@@ -27,17 +22,15 @@ const ETC_CHEBURNET = getenv("ETC_CHEBURNET") ?? "/etc/cheburnet";
 // config.json Full-тира: env-override для host-тестов в sandbox (тот же приём, что ETC_CHEBURNET).
 const SB_CONF = getenv("SB_CONFIG") ?? sb_config_path(null);
 
-// set_step(name) — отметить текущий шаг для install_progress (веб-мастер показывает «Шаг: …»).
-// Путь даёт ubus-слой через env STATE_FILE (см. rpcd-cheburnet spawn_bg). Нет env (CLI-запуск)
-// → no-op: прогресс-индикация нужна только фоновой установке из мастера.
+// set_step(name) — текущий шаг для install_progress («Шаг: …» в мастере). Путь — env STATE_FILE
+// от ubus-слоя (rpcd-cheburnet spawn_bg); нет env (CLI) → no-op.
 let STATE_FILE = getenv("STATE_FILE");
 function set_step(name) {
 	if (STATE_FILE) writefile(STATE_FILE, name + "\n");
 }
 
-// set_reason(code) — машинный код исхода (decide_outcome.code) для install_progress.reason:
-// по нему веб-мастер различает «VPN-сервер не ответил» / «упал шаг X» / «preflight» и говорит
-// с пользователем адресно. Путь даёт ubus-слой через env (см. spawn_bg); CLI-запуск — no-op.
+// set_reason(code) — код исхода (decide_outcome.code) для install_progress.reason: мастер
+// различает «VPN-сервер не ответил» / «упал шаг X» / «preflight» адресно, а не одним «не удалось».
 let REASON_FILE = getenv("REASON_FILE");
 function set_reason(code) {
 	if (REASON_FILE) writefile(REASON_FILE, code + "\n");
@@ -48,13 +41,12 @@ function step_cmd(name, extra) {
 }
 // stdin для шага по его потребности (install.uc.needs).
 function step_stdin(s, cfg) {
-	// tunnel_conf — ОБА туннель-шага: какой именно текст (AWG .conf / vless:// / hysteria2:// /
-	// JSON sing-box), решает conf_key активного протокола. Ветки «если reality…» здесь больше нет —
-	// иначе каждый новый протокол требовал бы правки в этом месте (и её легко забыть).
+	// tunnel_conf: какой текст подать, решает conf_key активного протокола (install.uc) — без
+	// ветки «если reality…» здесь, иначе новый протокол требовал бы правки в этом месте.
 	if (s.needs == "tunnel_conf") return tunnel_conf(cfg.protocol ?? default_protocol(), cfg);
 	if (s.needs == "domains")
-		// fw_opts.tunnel_if — интерфейс активного туннеля для NAT-зоны (firewall apply берёт его
-		// из fw_opts; routing его игнорирует). dns-шаг лишний ключ игнорирует — payload общий.
+		// fw_opts.tunnel_if — для NAT-зоны firewall (routing его игнорирует); payload общий, dns
+		// лишний ключ просто не читает.
 		return sprintf("%J", { domains: cfg.domains ?? [], routing_opts: cfg.routing_opts,
 			fw_opts: { tunnel_if: cfg.routing_opts.tunnel_if } });
 	if (s.needs == "wifi")
@@ -64,13 +56,9 @@ function step_stdin(s, cfg) {
 	return "{}";
 }
 
-// tunnel_ok(cfg, iface) — ОДНА проба готовности туннеля (без ожидания). Full-тир (любой протокол
-// на sing-box): НАСТОЯЩИЙ connectivity-probe через туннель (не «pgrep жив» — процесс жив ≠ туннель
-// везёт), см. probe.uc. awg (Light): по latest-handshakes ТОЛЬКО "up" (рукопожатие было). "none"
-// (awg0 отсутствует) — НЕ готовность: vpn-шаг только что применялся, и пустой вывод значит «netifd
-// не создал интерфейс» (vpn/apply это честно оставляет health-check'у) — считать его успехом
-// значило бы commit мёртвой установки. Если vpn-шаг вообще не применялся (disable), healthcheck
-// туннель не опрашивает.
+// tunnel_ok(cfg, iface) — одна проба готовности туннеля (без ожидания). Full-тир: connectivity-
+// probe (probe.uc). awg: latest-handshakes, готово только на "up" — "none" (awg0 только что
+// применялся, интерфейса ещё нет) НЕ считаем готовностью, иначе commit ловил бы мёртвую установку.
 function tunnel_ok(cfg, iface) {
 	if (uses_singbox(cfg.protocol ?? default_protocol()))
 		return tunnel_connectivity(iface);
@@ -82,11 +70,9 @@ function dns_ok() {
 	return trim(sh("nslookup openwrt.org 127.0.0.1 >/dev/null 2>&1; echo $?")) == "0";
 }
 
-// Health-check: и DNS, и туннель должны подняться ДО commit. КЛЮЧЕВОЕ — поллим ОБА в одном окне
-// (~30с): шаги dns/doh/vpn только что (пере)настроили dnsmasq, https-dns-proxy и awg0 — сервисам
-// нужно несколько секунд на тёплый старт (AWG-handshake: initiation+ответ сервера ~5–15с; DoH:
-// https-dns-proxy поднимается не мгновенно). Любая МГНОВЕННАЯ проверка ловила бы этот старт и
-// откатывала рабочую установку (исходный баг). Успех — как только ОБА условия выполнены.
+// Health-check: DNS и туннель должны подняться ДО commit. Шрам: мгновенная проверка сразу после
+// шагов ловила тёплый старт сервисов (AWG-handshake ~5-15с, https-dns-proxy не мгновенен) и
+// откатывала рабочую установку — поэтому поллим ОБА в одном окне (~30с).
 function healthcheck(cfg, tunnel_applied) {
 	let iface = (cfg.routing_opts && cfg.routing_opts.tunnel_if) ? cfg.routing_opts.tunnel_if : "awg0";
 	let dns = false, tun = !tunnel_applied; // туннель-шаг не применялся → его здоровье не требуем
@@ -108,9 +94,8 @@ function rollback_all(steps, cfg) {
 	for (let i = 0; i < length(dirty); i++)
 		run_stdin(step_cmd(dirty[i], " --teardown"), step_stdin({ name: dirty[i], needs: "domains" }, cfg));
 
-	// config.json — внешний файл, uci-снимок его не покрывает (у replace_reality свой бэкап по
-	// той же причине). Если установка поверх рабочего reality его перезаписала/снесла — вернуть,
-	// и поднять сервис, когда восстановленный uci говорит «включён» (пере-установка поверх Full).
+	// config.json — внешний файл, uci-snapshot его не покрывает (тот же приём, что в
+	// replace_singbox.uc). Вернуть, если установка поверх рабочего Full-тира его перезаписала.
 	let sb = SB_CONF;
 	if (access(sb + ".prev")) {
 		sh(sprintf("mv %s.prev %s 2>/dev/null", sb, sb));
@@ -118,26 +103,18 @@ function rollback_all(steps, cfg) {
 			sh("/etc/init.d/sing-box restart >/dev/null 2>&1");
 	}
 
-	// Snapshot вернул uci-КОНФИГИ, но РАНТАЙМ ещё несёт изменения установки, и сам по себе он не
-	// сойдётся с конфигом: netifd держит default через awg0 (route_allowed_ips=1, см. vpn-шаг) и НЕ
-	// вернёт WAN-дефолт, пока его не передёрнуть; dnsmasq резолвит через (возможно мёртвый) DoH.
-	// Без переприменения сервисов провал установки оставит LAN-клиентов БЕЗ интернета (kill-switch
-	// в туннель, которого нет; DNS через https-dns-proxy, который не встал). network restart —
-	// детерминированно (reload недостаточно для снятия awg0+возврата дефолта), на пути отката
-	// (уже не happy-path) краткий разрыв LAN приемлем ради гарантированного восстановления.
+	// Snapshot вернул uci-конфиги, но рантайм не сойдётся сам: netifd держит default через awg0
+	// (route_allowed_ips=1) до RESTART (reload недостаточен), а dnsmasq резолвит через мёртвый DoH.
+	// Без этого провал установки оставляет LAN без интернета; краткий разрыв на пути отката приемлем.
 	sh("/etc/init.d/network restart >/dev/null 2>&1");
 	sh("/etc/init.d/dnsmasq restart >/dev/null 2>&1");
 }
 
 // reapply_data_plane() — после отката ПОВЕРХ РАБОЧЕЙ системы вернуть её runtime-data-plane.
-// Snapshot restore возвращает uci (зону firewall, network), но teardown грязных шагов ВЫШЕ
-// затем сносит зону/nftables.d/ip rules — на чистой системе это правильный ноль, а на
-// пере-установке/смене протокола оставляло восстановленный туннель БЕЗ NAT/policy-routing:
-// LAN без интернета при «installed=true». Признак «была рабочая система» = install.json
-// восстановлен из .prev (restore_cfg_truth); переприменяем firewall из него — как set_mode.
-// Реализация ОДНА — install/reapply.uc: её же зовёт hotplug-хук при подъёме WAN (после
-// перезагрузки роутера). Две копии означали бы «после ребута состояние иначе, чем после отката»,
-// а такое расхождение глазами не ловится.
+// Шрам: teardown грязных шагов (выше) сносит nftables.d/ip rules и на пере-установке оставлял
+// восстановленный туннель БЕЗ NAT/policy-routing — LAN без интернета при «installed=true».
+// Реализация одна — install/reapply.uc (её же зовёт hotplug-хук после ребута), чтобы «после
+// отката» не расходилось с «после ребута».
 function reapply_data_plane() {
 	if (int(trim(sh(sprintf("ucode -R %s/install/reapply.uc >/dev/null 2>&1; echo $?", ENGINE)))) != 0)
 		warn("install: не удалось вернуть firewall прежней системы — примените режим заново в панели\n");
@@ -148,27 +125,23 @@ let raw = trim(stdin.read("all") ?? "");
 let cfg = (substr(raw, 0, 1) == "{") ? json(raw) : {};
 let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
-// Протокол туннеля: awg (Light, дефолт) | reality | hysteria2 (оба Full, на одном sing-box).
-// Определяет активный туннель-шаг, ключ конфига в payload (conf_key) и интерфейс, который туннель
-// презентует (NAT-зона firewall + health-check). tunnel_if кладём в routing_opts: routing его
-// игнорирует, а health-check и (через fw_opts) firewall — используют.
+// Протокол туннеля: awg (Light, дефолт) | reality | hysteria2 (Full, общий sing-box). tunnel_if
+// кладём в routing_opts — health-check и firewall (fw_opts) его используют, routing игнорирует.
 let protocol = cfg.protocol ?? default_protocol();
 let tinfo = tunnel_info(protocol);
 if (type(cfg.routing_opts) != "object") cfg.routing_opts = {};
 cfg.routing_opts.tunnel_if = tinfo.tunnel_if;
 
-// WAN (интерфейс + шлюз) для kill-switch и default-маршрута direct-таблицы. Веб-мастер их НЕ
-// передаёт (пользователь не вводит имена интерфейсов) — определяем САМИ, динамически, не
-// хардкодим (урок v1). Первичный источник — netifd: он знает WAN, даже когда kernel-default
-// уже у туннеля (пере-установка поверх рабочей; детект по `ip route` там находил awg0/ничего).
-// Шлюз обязателен для ethernet-WAN: без via ядро ARP-ит публичные IP прямо в линк, апстрим
-// proxy-ARP не делает → direct-путь молча мёртв (доказано живым прогоном 2026-07-08).
-// PPPoE/p2p отдаёт маршрут без nexthop — там dev-only корректен.
+// WAN для kill-switch и default-маршрута direct-таблицы. Определяем динамически, не хардкодим
+// (урок v1) — мастер имена интерфейсов не вводит. Первичный источник — netifd (знает WAN даже
+// когда kernel-default уже у туннеля). ИНВАРИАНТ: фолбэк-детект по `ip route` обязан исключать
+// туннельные интерфейсы (awg0/singtun0) — иначе на пере-установке поверх рабочей находит сам
+// туннель вместо WAN. Шлюз обязателен для ethernet (без via ARP на публичные IP молчит, прогон
+// 2026-07-08), но не для PPPoE/p2p (маршрут без nexthop).
 if (type(cfg.routing_opts.wan_if) != "string" || length(cfg.routing_opts.wan_if) == 0) {
 	let wr = parse_wan_route(sh("ubus call network.interface.wan status 2>/dev/null"));
 	if (!wr) {
-		// Фолбэк (нестандартное имя WAN-логики в netifd): дефолт-маршрут, минуя туннели.
-		// Разбор — чистая pick_wan_fallback (lib/route.uc, под юнит-тестами).
+		// Фолбэк: дефолт-маршрут, минуя туннели (pick_wan_fallback, lib/route.uc, под тестами).
 		let tunnels = [];
 		for (let p in protocol_ids())
 			push(tunnels, tunnel_info(p).tunnel_if);
@@ -191,11 +164,9 @@ if (type(cfg.disable) == "array")
 let steps = enabled_steps({ disable: disable });
 let scope = snapshot_scope(steps);
 
-// restore_cfg_truth() — вернуть install.json к состоянию ДО этой попытки установки.
-// Файл — признак «установлено» для m_status, а m_install пишет его до исхода: был прежний
-// (пере-установка поверх рабочей) — восстановить из .prev, не было — удалить. Иначе провал/
-// отмена оставляли фантомное installed=true, и мастер после отката открывал «панель» пустой
-// системы (поймано живым провал-прогоном 2026-07-09).
+// restore_cfg_truth() — вернуть install.json к состоянию ДО этой попытки установки: был прежний
+// (пере-установка) — восстановить из .prev, не было — удалить. Шрам: без этого провал/отмена
+// оставляли фантомное installed=true, и мастер после отката открывал «панель» пустой системы.
 function restore_cfg_truth() {
 	let f = ETC_CHEBURNET + "/install.json";
 	let out = sh(sprintf("[ -f %s.prev ] && mv %s.prev %s && echo restored", f, f, f));
@@ -204,10 +175,9 @@ function restore_cfg_truth() {
 }
 
 // --rollback: только откат, без установки. stdin — {domains?, routing_opts?, protocol?}.
-// Зовёт install_cancel — отменённая установка тоже не должна оставлять фантомный install.json.
-// Teardown'им дирти-шаги ВСЕХ туннелей (не только активного протокола): отменённая установка
-// могла быть любого протокола, а teardown идемпотентен (не установлен → no-op) — иначе отмена
-// reality-установки, пришедшая без protocol, оставляла бы живой sing-box с credentials.
+// Teardown'им дирти-шаги ВСЕХ туннелей, не только активного протокола: отменённая установка
+// могла быть любого, а teardown идемпотентен — иначе отмена reality без protocol оставляла бы
+// живой sing-box с credentials.
 if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
 	let rb_steps = enabled_steps({ disable: (type(cfg.disable) == "array") ? cfg.disable : [] });
 	rollback_all(rb_steps, cfg);
@@ -228,10 +198,9 @@ let pf_rc = run_stdin(sprintf("ucode -R %s/preflight/check.uc%s", ENGINE,
 	accept_risk ? " --allow-soft" : ""), facts);
 let preflight = { ok: (pf_rc == 0) };
 
-// Какие именно soft-проверки пропущены — той же ЧИСТОЙ evaluate по УЖЕ собранным фактам (gather
-// не повторяем: apk --simulate на каждый пакет дорог, а вердикт выше вынесен по этим же данным).
-// След решения нужен в install.json: пришёл вопрос «тормозит/отваливается» — сразу видно, что
-// роутер поставлен с пропуском проверок, а не гадать по логам.
+// Какие soft-проверки пропущены — та же evaluate по уже собранным фактам (gather не повторяем,
+// apk --simulate дорог). След нужен в install.json: видно, что роутер поставлен с пропуском
+// проверок, а не гадать по логам при жалобе «тормозит».
 let forced = [];
 if (accept_risk && preflight.ok && substr(trim(facts), 0, 1) == "{") {
 	let f = json(facts);
@@ -242,9 +211,8 @@ if (accept_risk && preflight.ok && substr(trim(facts), 0, 1) == "{") {
 }
 
 if (!preflight.ok) {
-	// Отчёт preflight уже напечатан check.uc выше (его stdout унаследован). Прерываемся, но
-	// правду install.json возвращаем и здесь: abort гейткипера — такой же не-успех, как rollback
-	// (иначе фантомное installed=true — тот же баг, что чинили на ветках отката 2026-07-09).
+	// Отчёт уже напечатан check.uc (stdout унаследован). abort гейткипера — такой же не-успех, как
+	// rollback: тоже возвращаем правду install.json, иначе фантомное installed=true.
 	restore_cfg_truth();
 	let d = decide_outcome({ preflight: preflight });
 	set_reason(d.code);
@@ -262,13 +230,9 @@ if (dry) {
 }
 
 // --- 1b. Full-тир: догрузка sing-box ДО любых изменений ---
-// sing-box — userspace-бинарь, ставится opt-in (не при bootstrap). Выбран Full-протокол (reality
-// или hysteria2 — оба на одном бинаре), а его нет (первая установка Full из мастера) → качаем
-// ПЕРВЫМ, до snapshot и шагов: провал apk (нет интернета) = чистый abort, откатывать нечего
-// (роутер не тронут). Идемпотентно: на switch_to_* / переустановке поверх Full бинарь уже есть →
-// пропуск. install-singbox.sh несёт ретраи (downloads.openwrt.org рвётся из фильтрующих сетей) и
-// код выхода по факту наличия бинаря; run_stdin наследует его stdout в install-лог — мастер видит
-// «Ставлю sing-box…».
+// sing-box — userspace-бинарь, opt-in (не при bootstrap). Первая установка Full → качаем ПЕРВЫМ,
+// до snapshot и шагов: провал apk (нет интернета) = чистый abort, роутер не тронут. Идемпотентно
+// (бинарь уже есть на switch_to_*/переустановке — пропуск). install-singbox.sh несёт ретраи.
 if (uses_singbox(protocol) && length(trim(sh("command -v sing-box 2>/dev/null"))) == 0) {
 	set_step("singbox-download");
 	if (run_stdin(sprintf("sh %s/install/install-singbox.sh", ENGINE), "") != 0) {
@@ -283,9 +247,8 @@ if (uses_singbox(protocol) && length(trim(sh("command -v sing-box 2>/dev/null"))
 set_step("snapshot");
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
 
-// Full-тир: рабочий config.json (пере-установка/смена протокола поверх reality) бэкапим ДО
-// teardown'ов — uci-снимок внешний файл не покрывает, а teardown его удаляет безвозвратно.
-// Возврат — в rollback_all; на commit бэкап зачищается (ниже).
+// Full-тир: config.json бэкапим ДО teardown'ов — uci-snapshot внешний файл не покрывает, а
+// teardown удаляет его безвозвратно. Возврат — в rollback_all; на commit зачищается ниже.
 if (access(SB_CONF))
 	sh(sprintf("cp %s %s.prev 2>/dev/null", SB_CONF, SB_CONF));
 
@@ -321,9 +284,8 @@ let health = all_ok ? { ok: healthcheck(cfg, tunnel_applied) } : null;
 let outcome = decide_outcome({ preflight: preflight, steps: results, health: health });
 if (outcome.action == "commit") {
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
-	// WAN нашли МЫ (детект выше), мастер его не знает → персистим в install.json: set_mode
-	// переприменяет firewall через rpcd БЕЗ run.uc, а без wan_if kill-switch не строится
-	// (firewall-план честно откажет). tunnel_if — туда же (NAT-зона при переприменении).
+	// WAN нашли МЫ (детект выше), мастер его не знает — персистим в install.json: set_mode
+	// переприменяет firewall без run.uc, а без wan_if kill-switch не строится.
 	let cfg_file = ETC_CHEBURNET + "/install.json";
 	let saved_raw = readfile(cfg_file);
 	let saved = (saved_raw && substr(trim(saved_raw), 0, 1) == "{") ? json(saved_raw) : null;
@@ -335,8 +297,7 @@ if (outcome.action == "commit") {
 				saved.routing_opts.wan_gw = cfg.routing_opts.wan_gw;
 			saved.routing_opts.tunnel_if = cfg.routing_opts.tunnel_if;
 		}
-		// forced — какие проверки железа владелец пропустил (пустой массив = переустановка на
-		// подходящем железе стирает прежнюю отметку). Панель показывает по нему честную плашку.
+		// forced — какие проверки железа пропущены (пустой массив стирает прежнюю отметку).
 		saved.forced = forced;
 		writefile(cfg_file, sprintf("%J\n", saved));
 	}

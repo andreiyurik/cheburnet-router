@@ -10,16 +10,9 @@
 //     companion (gather), он импурный и проверяется в QEMU. Граница честная, не пропуск.
 
 // Требования по умолчанию.
-//
-// ПОРОГИ КАЛИБРОВАНЫ ПО РЕАЛЬНЫМ ФАКТАМ, а не «по паспорту железа» — иначе гейткипер отсекает
-// именно те роутеры, которые мы обещали поддерживать (README: «минимум 128 МБ RAM, 32 МБ флеша»):
-//   • min_ram_mb: сравниваем с MemTotal из /proc/meminfo (см. gather/parse_meminfo), а MemTotal
-//     ВСЕГДА меньше физической планки на kernel-reserve: плата со 128 МБ отдаёт 118–124 МБ.
-//     Порог 128 отказывал ЛЮБОМУ 128-МБ роутеру (поймано на живом Keenetic, 120 МБ, 2026-07-29).
-//     112 = «плата на 128 МБ, как бы щедро ядро себе ни отрезало».
-//   • min_flash_mb: свободный overlay, нужный под пакеты + конфиги. 16 МБ — цифра из
-//     docs/kb/reference/hardware-requirements.md (Light-тир); прежние 32 были строже собственной
-//     документации вдвое и отсекали 32-МБ платы, где свободно ~21 МБ (норма для squashfs+overlay).
+// ИНВАРИАНТ: пороги калиброваны по MemTotal/свободному overlay, а не по паспорту железа — kernel
+// резервирует память сверх MemTotal, и паспортный порог отказывал бы поддерживаемому железу
+// (замер и разбор: [[hardware-requirements]]).
 const REQUIREMENTS = {
 	arch: [ "arm", "aarch64", "mips", "mipsel", "x86_64" ],
 	min_openwrt: "25.12",   // apk-based ветка OpenWrt
@@ -222,29 +215,15 @@ function soft_failed_ids(report) {
 	return out;
 }
 
-// FULL-тир (VLESS+Reality и Hysteria2 через sing-box) — отдельные, более жёсткие требования.
-// arch здесь — proxy для AES-ускорения (Reality криптотяжёл, QUIC в userspace не дешевле); точная
-// проверка флагов cpuinfo — gather (router-side).
+// Full-тир (Reality/Hysteria2 через sing-box) — более жёсткие требования, замер и разбор
+// порогов: [[hardware-requirements]]. arch — proxy для AES-ускорения (точная проверка cpuinfo —
+// gather, router-side).
 const FULL_REQUIREMENTS = {
 	arch: [ "aarch64", "x86_64" ],  // ARMv8/x86 с AES; mips/armv7 исключены
-	// 44, а не 56: ЗАМЕР на живом OpenWrt (make qemu-hysteria). Full-тир едет на sing-box-tiny
-	// (11.5 МБ скачивания против 16.0 у полной сборки) — той же функциональности для нас: теги
-	// with_quic (Hysteria2) и with_utls (Reality) в tiny есть, см. ADR 0004. Порог = замеренный
-	// вес + запас под config.json, логи и обновление пакета.
-	// Ниже опускать не стоит: на почти полном флеше OpenWrt перестаёт писать конфиги и логи.
-	// Выше — тоже: прежние 128 МБ втрое превышали нужду и отсекали 64-МБ платы, которые Full
-	// утянули бы. Тест сверяет порог с замером в ОБЕ стороны на каждом прогоне.
-	min_flash_mb: 44,
-	// 240, а не «паспортные» 256 — по той же причине, что min_ram_mb Light-тира: сравниваем с
-	// MemTotal, а он меньше планки на kernel-reserve (256-МБ плата отдаёт 240–250 МБ). Порог 256
-	// не пропускал НИ ОДИН 256-МБ роутер: Full молча не предлагался ни в мастере, ни в панели —
-	// на рекомендуемых 512-МБ Cudy это не проявлялось, потому и жило незамеченным.
-	min_ram_mb: 240,                // userspace-туннель + crypto не упадёт под нагрузкой
-	// Пакеты Full-тира в ПОРЯДКЕ ПРЕДПОЧТЕНИЯ: tiny легче, полный — фолбэк, если tiny не собран
-	// под эту платформу/фид. Взаимозаменяемы по факту: sing-box-tiny объявляет PROVIDES:=sing-box,
-	// ставит тот же /usr/bin/sing-box и тот же init-скрипт (upstream net/sing-box/Makefile).
-	// Гейт проходит, если ставится ЛЮБОЙ из них — иначе отказали бы Full-железу из-за отсутствия
-	// одной конкретной сборки.
+	min_flash_mb: 44,                // sing-box-tiny + config.json + логи (замер: make qemu-hysteria)
+	min_ram_mb: 240,                 // = плата на 256 МБ (MemTotal < паспорта, см. REQUIREMENTS)
+	// ИНВАРИАНТ: любой пакет из pkgs подходит — sing-box-tiny и sing-box взаимозаменяемы
+	// (PROVIDES:=sing-box, тот же бинарь и init-скрипт); tiny предпочтителен, sing-box — фолбэк.
 	pkgs: [ "sing-box-tiny", "sing-box" ],
 };
 
@@ -271,15 +250,10 @@ function num_or(v, fallback) {
 	return match("" + (v ?? ""), /^[0-9]+$/) ? int(v) : fallback;
 }
 
-// full_hw_missing(arch, ram_mb, flash_mb, req) → ЧЕГО не хватает железу для Full-тира:
-// массив из "arch" | "ram" | "flash" (пусто = тянет). Для m_status (видимость кнопки «Включить
-// VLESS+Reality» на каждый поллинг) — лёгкие признаки, БЕЗ apk --simulate; авторитетный гейт —
-// preflight при самой установке. ЧИСТАЯ и толерантна к мусору из shell-батча.
-//
-// Флеш проверяем ИМЕННО ЗДЕСЬ (раньше кнопка его игнорировала): sing-box весит ~42 МБ, и на
-// забитом флеше кнопка честно обещала то, что провалится на apk. Причины возвращаем списком,
-// чтобы панель могла сказать, ЧЕГО не хватает, а не просто спрятать кнопку.
-// flash_mb == null (факт не собран) → флеш НЕ виним: пусть решает preflight, а не догадка.
+// full_hw_missing(arch, ram_mb, flash_mb, req) → чего не хватает железу для Full-тира: массив
+// из "arch"|"ram"|"flash" (пусто = тянет). Лёгкие признаки для панели (видимость кнопки
+// «Включить VLESS+Reality»), БЕЗ apk --simulate — авторитетный гейт остаётся за preflight
+// при установке. flash_mb == null (факт не собран) → флеш не виним, а не гадаем.
 function full_hw_missing(arch, ram_mb, flash_mb, req) {
 	let r = resolve_full_req(req);
 	let out = [];
@@ -296,14 +270,11 @@ function supports_full_hw(arch, ram_mb, flash_mb, req) {
 }
 
 // evaluate_tiers(facts, req) → { light, full, full_installed, full_checks, full_failed }.
-//   light         — проходит ли базовый гейткипер (тот же evaluate; Full на том же базовом стеке).
-//   full          — «железо ПОТЯНЕТ Full» (capable): light И пороги (AES-arch, RAM/флеш, бинарь
-//                   sing-box УСТАНОВИМ через apk --simulate). Сигнал «показать кнопку включения»
-//                   и «дать выбор Full-протоколов в мастере» — их два (Reality и Hysteria2), но
-//                   гейт железа у них ОДИН: тот же бинарь, тот же TUN, та же цена в userspace.
-//   full_installed — sing-box РЕАЛЬНО стоит (opt-in: ставится кнопкой отдельно, не при bootstrap).
-//                   Это сигнал «можно предлагать Reality» (мастер/панель). capable ≠ installed.
-// ИНФОРМАЦИОННО: Light это НЕ блокирует (fail-safe — слабый роутер остаётся на AmneziaWG).
+//   light          — проходит ли базовый гейткипер (Full живёт на том же базовом стеке).
+//   full           — «железо ПОТЯНЕТ Full» (capable: light И AES-arch И RAM/флеш И бинарь
+//                    установим). ИНВАРИАНТ: гейт железа ОДИН на оба Full-протокола (тот же
+//                    бинарь/TUN/цена в userspace) — ветвление по шагу, не по протоколу.
+//   full_installed — sing-box РЕАЛЬНО стоит (opt-in, не при bootstrap). capable ≠ installed.
 // req.full — вложенные кастомные пороги Full (тесты); req (верхний) идёт в Light-evaluate.
 function evaluate_tiers(facts, req) {
 	let light = evaluate(facts, req);

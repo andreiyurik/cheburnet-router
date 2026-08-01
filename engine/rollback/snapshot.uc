@@ -1,13 +1,9 @@
-// snapshot.uc — снимок/восстановление UCI-конфигов (импурно, router-side).
+// snapshot.uc — снимок/восстановление UCI-конфигов (импурно, router-side; политику «что чистое»
+// даёт rollback.uc, под юнит-тестами).
 //
 //   ucode -R snapshot.uc save     [dir]   # сохранить /etc/config/<c> защищаемых конфигов
 //   ucode -R snapshot.uc restore  [dir]   # вернуть их из снимка + reload сервисов
 //   ucode -R snapshot.uc commit   [dir]   # успех: выбросить снимок
-//
-// Транзакция кирпича 3 (см. reliability): save → (применить шаг) → health-check → restore при
-// сбое / commit при успехе. Только ЧИСТЫЕ uci-конфиги (политику даёт rollback.uc). Грязный
-// откат (kmod/линк/сервис) сюда не входит — для него safe-fail на стороне шага.
-// Проверяется в QEMU; политика (что чистое) — под юнит-тестами (rollback/tests).
 
 import { readfile, writefile, mkdir, unlink, rmdir, popen } from "fs";
 import { protected_configs } from "./rollback.uc";

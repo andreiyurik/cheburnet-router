@@ -1,23 +1,9 @@
 // replace_singbox.uc — замена конфига Full-тира без переустановки (импурно, router-side).
-//
 //   printf '%s' "$conf" | ucode -R replace_singbox.uc   # vless://… | hysteria2://… | JSON sing-box
 //
-// ОДИН скрипт на все протоколы Full-тира: у них общий шаг, общий config.json и общая проба —
-// значит и защитный пояс замены общий (см. ADR 0004, «единый контракт транспорта»). Какой протокол
-// приехал, определяет сам singbox-шаг по префиксу ссылки; здесь про протокол знать не нужно.
-//
-// Защитный пояс (аналог replace_vpn.uc для AWG): back up config.json → snapshot UCI → применить
-// singbox-шаг → connectivity-probe ЧЕРЕЗ туннель → commit / restore. При сбое возвращаем и uci
-// (snapshot), и внешний config.json (snapshot его НЕ покрывает — это файл, не uci), и
-// перезапускаем sing-box со СТАРЫМ конфигом: пользователь не остаётся с полу-битым туннелем.
-//
-// ПОЧЕМУ config.json отдельно: у AWG весь конфиг в uci (network.awg0) → snapshot восстанавливает
-// всё. У Full-тира в uci только указатель (sing-box.main.conffile), а сам конфиг — /etc/sing-box/
-// config.json. apply.uc его уже перезаписал новым → snapshot-restore uci вернул бы указатель на
-// НОВЫЙ (битый) файл. Поэтому бэкапим и возвращаем config.json руками.
-//
-// Синхронную валидацию входа (до этого скрипта) делает ubus-обработчик через singbox/plan.uc.
-// Запускается обработчиком в фоне (setsid), код выхода → done-маркер (install_progress).
+// Один скрипт на все протоколы Full-тира: общий шаг, config.json и проба (ADR 0004). Защитный
+// пояс (аналог replace_vpn.uc): бэкап config.json → snapshot UCI → singbox-шаг → connectivity-
+// probe через туннель → commit / restore. Запускается в фоне (setsid), код выхода → done-маркер.
 
 import { stdin, readfile, writefile, unlink } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
@@ -34,7 +20,10 @@ let cfgfile = getenv("SB_CONFIG") ?? config_path({});
 let bak = cfgfile + ".bak";
 let iface = tun_interface({});
 
-// --- 0. бэкап старого config.json (для отката; отсутствие — норма, была чистая система) ---
+// --- 0. бэкап старого config.json (отсутствие — норма, была чистая система) ---
+// ИНВАРИАНТ: бэкап отдельно от uci-snapshot — в uci только указатель (sing-box.main.conffile),
+// сам конфиг внешним файлом; apply.uc его уже перезапишет новым, snapshot-restore uci тогда
+// вернул бы указатель на НОВЫЙ (битый) файл.
 let old_config = readfile(cfgfile);
 if (old_config != null)
 	writefile(bak, old_config);

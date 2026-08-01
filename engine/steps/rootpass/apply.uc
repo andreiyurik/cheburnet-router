@@ -3,10 +3,8 @@
 //   echo '{"root_password":"…"}' | ucode -R apply.uc            # применить
 //   echo '{"root_password":"…"}' | ucode -R apply.uc --dry-run  # только показать намерение
 //
-// Вход — JSON со stdin (а не сырой текст): значение пароля берём точно, без двусмысленности
-// с завершающим переводом строки. Валидация — чистое ядро rootpass.uc (граница доверия).
-// Применение — busybox passwd: он читает новый пароль ДВАЖДЫ со stdin (как в v1
-// `printf '%s\n%s\n' "$p" "$p" | passwd root`). Значение пароля НЕ логируем. Проверяется в QEMU.
+// JSON со stdin (не сырой текст) — значение пароля берём без двусмысленности с завершающим \n.
+// Валидация — чистое ядро rootpass.uc. Значение пароля НЕ логируем. Проверяется в QEMU.
 
 import { stdin, popen } from "fs";
 import { validate_password } from "./rootpass.uc";
