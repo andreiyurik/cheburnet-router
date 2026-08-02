@@ -1,0 +1,61 @@
+name: Баг — что-то не работает
+description: Установка не проходит, VPN не поднимается, сайты идут не туда
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо! Чем конкретнее описание, тем быстрее починится.
+        Если проще написать в чате — [Telegram @industrialprofi](https://t.me/industrialprofi).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: Что произошло
+      description: Что вы делали, что ожидали и что получилось вместо этого.
+      placeholder: |
+        Прошёл мастер до шага «Установка», на 60% появилась ошибка …
+        Ожидал, что установка завершится и откроется панель.
+    validations:
+      required: true
+
+  - type: input
+    id: router
+    attributes:
+      label: Роутер и версия OpenWrt
+      placeholder: Cudy TR3000, OpenWrt 25.12, 512 МБ RAM
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия cheburnet
+      description: Видна в веб-панели внизу или `apk info cheburnet`.
+      placeholder: v2.4.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Протокол
+      options:
+        - AmneziaWG (по умолчанию)
+        - VLESS+Reality
+        - Hysteria2
+        - Ещё не дошёл до выбора
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Диагностика
+      description: >
+        Кнопка «Собрать диагностику» в панели. Пароли и ключи из неё вырезаются автоматически,
+        список вырезанного печатается в шапке файла — но всё равно просмотрите текст перед
+        отправкой. Не дошли до панели — приложите вывод терминала и `logread | tail -200`.
+      render: text
+    validations:
+      required: false
