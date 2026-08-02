@@ -26,11 +26,16 @@ await sleep(1200);
 const browser = await chromium.launch({ args: ['--no-sandbox'] });
 try {
   const page = await browser.newPage({ viewport: { width: 760, height: 900 } });
+  // Железо, которое тянет Full-тир: на скриншоте видно все три туннеля живыми. На слабом мок
+  // запирает два из трёх, и README показывал бы две недоступные строки вместо главной ценности.
+  await page.request.post('http://127.0.0.1:4317/__set', { data: { hw: 'full' } });
   await page.goto('http://127.0.0.1:4317/cheburnet/?token=TESTTOKEN');
   await page.getByText('все 6 проверок пройдены').waitFor();
   await page.getByRole('button', { name: 'Продолжить' }).click();
 
-  // Экран настройки — с заполненными полями (как у реального пользователя).
+  // Экран настройки — с заполненными полями (как у реального пользователя). Дефолт на таком
+  // железе — Reality; для кадра берём AmneziaWG, рекомендованный в README.
+  await page.getByRole('radio', { name: /Роутер слабый или хочется максимально быстро/ }).check();
   await page.getByLabel('VPN-конфиг').fill(AWG_CONF);
   await page.getByLabel('Пароль администратора (root)').fill('secret-pass-1');
   await page.getByLabel('Повторите пароль').fill('secret-pass-1');
