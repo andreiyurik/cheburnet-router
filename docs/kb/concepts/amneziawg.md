@@ -40,9 +40,8 @@ ip route add default dev awg0
 Всё, что [[dnsmasq-nftset|не попало]] в `direct`, идёт в `awg0` → зашифрованно и
 обфусцированно до VPN-сервера → в интернет.
 
-> [!important] Инвариант: конфликта с policy-routing нет — разные таблицы
-> Direct-домены уходят по [[policy-routing|отдельной таблице 100]] (mark→table), а не через
-> main. netifd в main-таблице и наши правила в table 100 не пересекаются — поэтому
+> [!important] Инвариант: конфликта с policy-routing нет
+> Direct-домены уходят по [[policy-routing|отдельной таблице 100]], а не через main — поэтому
 > `route_allowed_ips='1'` можно доверить netifd, не отключая его.
 
 ## Конфиг

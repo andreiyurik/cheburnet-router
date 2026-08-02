@@ -37,7 +37,7 @@ updated: 2026-06-08
 - [[architecture-overview]] — слои целиком
 - [[data-plane]] — плоскость данных (то, через что идёт трафик)
 - [[engine-ucode]] — движок управления на ucode
-- [[bootstrap]] — как устанавливается (feed + apk)
+- [[bootstrap]] — как устанавливается (GitHub Releases + apk)
 - [[web-wizard]] — веб-мастер на Svelte
 - [[reliability]] — три кирпича надёжности: preflight, идемпотентность, rollback
 
@@ -54,6 +54,7 @@ updated: 2026-06-08
 - [[glossary]] — все термины в одном месте
 - [[hardware-requirements]] — какое железо подходит
 - [[troubleshooting]] — что смотреть, когда сломалось
+- [[protocol-measurements-log]] — живой журнал замеров Full-тира (флеш, потери, VPS, физический роутер)
 
 ## 🧭 Мета
 

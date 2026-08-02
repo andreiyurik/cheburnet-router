@@ -86,13 +86,13 @@ UCI-конфиги откатываются чисто → на них тран�
 ```mermaid
 flowchart TB
     u["🟢 Unit (ucode): логика движка — без роутера, секунды"]
-    i["🟡 Integration: моки uci/ubus/dnsmasq"]
     q["🔴 QEMU: живой OpenWrt, матрица arch × версий"]
-    u --> i --> q
+    u --> q
 ```
 
 CI: lint + unit → сборка пакета (OpenWrt SDK, матрица arch) → boot в QEMU (проверка split и
-корректных отказов preflight) → при теге публикация feed. **Тестируем архитектуры, не модели.**
+корректных отказов preflight) → при теге публикация ассета в GitHub Release. **Тестируем
+архитектуры, не модели.**
 
 ## Дальше
 

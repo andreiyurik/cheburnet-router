@@ -48,8 +48,9 @@ updated: 2026-06-08
 - **uci** — система конфигов OpenWrt (`/etc/config/*`).
 - **fw4 / nftables** — фаервол OpenWrt (таблица `inet fw4`).
 - **rpcd** — демон, отдающий ubus-методы (наш RPC-обработчик).
-- **apk** — пакетный менеджер OpenWrt 25.12+; ставит наш пакет из feed. → [[bootstrap]]
-- **feed** — репозиторий пакетов OpenWrt. → [[bootstrap]]
+- **apk** — пакетный менеджер OpenWrt 25.12+; ставит наш пакет с GitHub Releases, остальные
+  зависимости — из штатного feed'а OpenWrt. → [[bootstrap]]
+- **feed** — штатный репозиторий пакетов OpenWrt; своего feed'а у проекта нет — см. [[bootstrap]]
 - **OpenWrt SDK** — тулчейн для сборки пакетов под архитектуры. → [[reliability]]
 - **ImageBuilder** — сборка готового образа прошивки (опциональный путь).
 

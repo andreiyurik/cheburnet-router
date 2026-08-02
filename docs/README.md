@@ -32,5 +32,4 @@
 - **[kb/reference/hardware-requirements.md](kb/reference/hardware-requirements.md)** — какое
   железо подходит.
 - **[kb/meta/release-checklist.md](kb/meta/release-checklist.md)** — ручная проверка перед тегом.
-- **[education.md](education.md)** — лабораторные работы о том, как устроена сеть.
 - **[support.md](support.md)** — как поддержать проект.
