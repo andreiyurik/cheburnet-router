@@ -32,7 +32,7 @@ test('мастер: полный проход от проверки до пан�
   // Шаг 2: настройка. Дефолты: direct-список 'ru'; токен из ссылки — поле свёрнуто
   // в подтверждение (лишний технический вопрос человеку не задаём), «Изменить» раскрывает.
   await expect(page.getByText('Шаг 2 из 4')).toBeVisible();
-  await expect(page.getByLabel('Сайты напрямую, без VPN')).toHaveValue('ru');
+  await expect(page.getByLabel('Сайты напрямую')).toHaveValue('ru');
   await expect(page.getByText('Код установки получен из ссылки')).toBeVisible();
   await page.getByRole('button', { name: 'Изменить' }).click();
   await expect(page.getByLabel('Код установки')).toHaveValue('TESTTOKEN');
@@ -63,10 +63,12 @@ test('мастер: полный проход от проверки до пан�
   // Шаг 4: установка → успех (маскот) → панель управления.
   await expect(page.getByText('Шаг 4 из 4')).toBeVisible();
   // Та же успокаивающая подсказка видна и во время самой установки (пока идёт прогресс).
-  await expect(page.getByText('Не вынимайте кабель и не выключайте роутер', { exact: false })).toBeVisible();
+  await expect(page.getByText('Не выключайте роутер и не закрывайте страницу', { exact: false })).toBeVisible();
   await expect(page.getByText('Готово! Роутер настроен')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Дома — выбранные сайты напрямую').first()).toBeVisible();
+  // Режим показан сегментом с подсвеченным ТЕКУЩИМ состоянием: кнопка-переключатель раньше
+  // называла то, куда переключит, и спорила со строкой сводки рядом.
+  await expect(page.locator('.segmented button.active')).toHaveText('Дома');
 });
 
 // Full-железо: мастер даёт выбор туннеля ПО СИМПТОМУ и предвыбирает VLESS+Reality — самая частая
@@ -146,8 +148,10 @@ test('панель: VPN-сервер молчит → hero-баннер про �
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible();
   // Баннер называет и поломку, и протокол — иначе на трёх туннелях непонятно, что именно мертво.
   await expect(page.getByText('Туннель не работает (AmneziaWG)', { exact: false })).toBeVisible();
-  // Ссылка «вставьте свежий конфиг» ведёт к разделу замены.
-  await expect(page.getByRole('link', { name: 'вставьте свежий конфиг' })).toBeVisible();
+  // Ссылка «вставьте свежий конфиг» ведёт к разделу замены и раскрывает его: блок управления
+  // туннелем в панели свёрнут, и без раскрытия якорь прыгал бы в закрытый <details>.
+  await page.getByRole('link', { name: 'вставьте свежий конфиг' }).click();
+  await expect(page.locator('#tunnel-group')).toHaveJSProperty('open', true);
   await expect(page.getByRole('heading', { name: 'Замена сервера (AmneziaWG)' })).toBeVisible();
 });
 

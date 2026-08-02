@@ -19,7 +19,7 @@
       <li><span>Wi-Fi</span><strong>не настраивается</strong></li>
     {/if}
     <li><span>Фильтрация (DNS)</span><strong>{dnsLabel(args.dns_provider, dnsProviders)}</strong></li>
-    <li><span>Сайты напрямую, без VPN</span><strong>{args.domains.length}</strong></li>
+    <li><span>Сайты напрямую</span><strong>{args.domains.length}</strong></li>
   </ul>
 
   {#if args.accept_risk}
@@ -29,15 +29,9 @@
     </p>
   {/if}
 
-  <p class="muted">
-    Установка займёт несколько минут: пакеты, туннель, шифрованный DNS, firewall. При сбое
-    изменения откатятся автоматически.
-  </p>
-
   <p class="note">
-    📶 Во время настройки интернет и Wi-Fi на несколько минут пропадут — это часть установки,
-    так и должно быть. <strong>Не выключайте роутер и не вынимайте кабель</strong> — связь
-    вернётся сама, даже если что-то пойдёт не так.
+    📶 Установка займёт 1–3 минуты. Интернет и Wi-Fi на это время пропадут — так и должно быть.
+    <strong>Не выключайте роутер и не вынимайте кабель.</strong> При сбое всё откатится само.
   </p>
 
   <div class="row">

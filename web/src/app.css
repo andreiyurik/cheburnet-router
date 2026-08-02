@@ -159,6 +159,47 @@ pre.log.live { max-height: 180px; margin: 0.75rem 0; }
 
 details summary { cursor: pointer; color: var(--muted); margin-top: 0.75rem; }
 
+/* Свёрнутая группа панели (управление туннелем, опасная зона): выглядит как раздел, а не как
+   спрятанный журнал — иначе человек не догадается, что внутри есть действия. */
+details.group {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 0.9rem 0.2rem;
+  margin-top: 1.25rem;
+}
+details.group > summary {
+  margin: 0;
+  padding: 0.8rem 0;
+  color: var(--fg);
+  font-weight: 600;
+}
+details.group[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 0.4rem; }
+details.group.danger-group > summary { color: var(--bad); }
+/* Второстепенное объяснение внутри блока — мельче заголовка группы, чтобы уровни не путались. */
+details.more > summary { font-size: 0.9rem; }
+details.more ul { margin: 0.4rem 0 0; padding-left: 1.1rem; color: var(--muted); }
+
+/* Режим работы: видно ТЕКУЩЕЕ состояние, а не то, куда переключит кнопка. */
+.segmented { display: flex; gap: 0; margin-top: 0.5rem; }
+.segmented button { flex: 1; border-radius: 0; }
+.segmented button:first-child { border-radius: 8px 0 0 8px; }
+.segmented button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.segmented button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.segmented button.active:disabled { opacity: 1; }
+
+/* Подпись к действию: отделена сверху, иначе читается как хвост предыдущего абзаца. */
+.action-hint { margin-top: 1.5rem; margin-bottom: 0; }
+
+/* Легенда значков под списком проверок — те же цвета, что у самих значков. */
+.legend { font-weight: 700; }
+.legend.bad { color: var(--bad); }
+.legend.soft { color: var(--attn); }
+
 .spinner {
   display: inline-block;
   width: 0.85rem; height: 0.85rem;

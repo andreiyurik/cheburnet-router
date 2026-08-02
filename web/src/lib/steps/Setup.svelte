@@ -16,7 +16,7 @@
   // ГЛАВНОЕ В ЭТОМ ЭКРАНЕ: выбор туннеля идёт ОТ СИМПТОМА, а не от названий протоколов. Человек
   // не знает, что такое DPI и QUIC, но точно знает, что у него не работает. Тексты — в каталоге
   // PROTOCOLS (logic.js), здесь только разметка.
-  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup,
+  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup, BRUTAL_WARNING,
            protocolList, protocolInfo, defaultProtocol, SPEED_DEFAULTS } from '../logic.js';
 
   let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, fullReasons = [], acceptRisk = false, urlToken = '', initial = null } = $props();
@@ -107,24 +107,38 @@
   {/if}
 
   <h3>Каким туннелем пользоваться</h3>
-  <p class="muted small">Выберите по тому, что для вас важнее или что не работает сейчас. Ошибиться
-    не страшно: туннель меняется потом из панели одной кнопкой, переустанавливать роутер не нужно.</p>
+  <p class="muted small">Ошибиться не страшно — туннель меняется потом из панели.</p>
 
   {#each protocols as p}
     {@const locked = p.full && !fullAvailable}
     <label class="radio" class:disabled={locked}>
       <input type="radio" bind:group={protocol} value={p.id} disabled={locked} />
       <span><strong>{p.symptom}</strong> — {p.why}
-        <br /><small class="muted">Протокол: {p.name}</small>
-        {#if locked}<br /><em class="req">На этом роутере недоступно{#if fullReasons.length > 0}:
-          {fullReasons.join('; ')}{/if}.</em>{/if}</span>
+        <!-- &nbsp; намеренно: Svelte срезает ведущий пробел внутри {#if}, и получалось
+             «VLESS+Reality· недоступен». -->
+        <br /><small class="muted">Протокол: {p.name}{#if locked}&nbsp;· недоступен на этом роутере{/if}</small></span>
     </label>
   {/each}
 
+  <!-- Причина — ОДНА строка под списком, а не под каждой запертой строкой: она общая для обоих
+       Full-протоколов, и продублированная жирным дважды была самым заметным текстом на экране,
+       где человек вообще-то выбирает туннель. -->
+  {#if !fullAvailable && fullReasons.length > 0}
+    <p class="muted small">Почему недоступны: {fullReasons.join('; ')}.</p>
+  {/if}
+
+  <details class="more">
+    <summary>Чем они отличаются подробнее</summary>
+    <ul class="small">
+      {#each protocols as p}
+        <li><strong>{p.name}</strong> — {p.whyMore}</li>
+      {/each}
+    </ul>
+  </details>
+
   {#if fullAvailable}
-    <p class="muted small">VLESS+Reality и Hysteria2 требуют компонент <code>sing-box</code> — он
-      скачается сам во время установки (~11 МБ, в памяти роутера займёт ~30 МБ). Если интернета на
-      роутере нет, установка честно остановится и ничего не изменит.</p>
+    <p class="muted small">Для VLESS+Reality и Hysteria2 нужен компонент <code>sing-box</code> —
+      он скачается сам во время установки (~11 МБ).</p>
   {/if}
 
   <label>
@@ -159,10 +173,7 @@
         но только если цифры честные.</span>
     </label>
     {#if declareSpeed}
-      <p class="warn">Указывайте скорость, которую ваш интернет <strong>реально держит</strong>, и
-        лучше немного меньше. Если написать больше, чем есть, связь станет <strong>хуже</strong>:
-        вырастут задержки и начнутся обрывы — и никакой ошибки при этом не появится. Не знаете
-        точных цифр — выберите «автоматически».</p>
+      <p class="warn">{BRUTAL_WARNING} Не знаете точных цифр — выберите «автоматически».</p>
       <label>
         <span>Скорость приёма (Мбит/с)</span>
         <input type="number" min="1" max="10000" bind:value={speedDown} />
@@ -176,15 +187,15 @@
   {/if}
 
   <label>
-    <span>Сайты напрямую, без VPN</span>
+    <span>Сайты напрямую</span>
     <textarea
       bind:value={domainsText}
       rows="3"
       placeholder="ru&#10;example.com"
     ></textarea>
-    <small class="muted">Эти сайты (домены) открываются напрямую; весь остальной трафик идёт
-      через VPN. Одна запись зоны (например, <code>ru</code>) покрывает сразу все сайты в ней;
-      отдельные сайты дописывайте своей строкой. Можно оставить как есть.</small>
+    <small class="muted">Эти сайты идут напрямую, остальное — через туннель. Запись зоны
+      (<code>ru</code>) покрывает все сайты в ней; остальные — своей строкой. Можно оставить
+      как есть.</small>
   </label>
 
   <h3>Пароль роутера</h3>

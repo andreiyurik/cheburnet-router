@@ -16,8 +16,18 @@ async function openPanel(page, request, state) {
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible();
 }
 
+// Управление туннелем и опасная зона свёрнуты (details.group): панель делает восемь разных вещей,
+// и развёрнуто по умолчанию только то, ради чего сюда заходят. Тест раскрывает их так же, как
+// человек — кликом по заголовку.
+async function expand(page, id) {
+  const g = page.locator(`#${id}`);
+  if (!(await g.evaluate((el) => el.open))) await g.locator('> summary').click();
+  await expect(g).toHaveJSProperty('open', true);
+}
+
 test('панель: кнопка догрузки ставит компонент и открывает переключение', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: false });
+  await expand(page, 'tunnel-group');
 
   // Слабое железо кнопку не видит (гейт full_capable) — здесь она обязана быть.
   const btn = page.getByRole('button', { name: 'Установить компонент' });
@@ -39,6 +49,7 @@ test('панель: кнопка догрузки ставит компонен�
 
 test('панель: сбой догрузки → честное сообщение, текущий туннель не тронут', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: false, bgResult: 'fail' });
+  await expand(page, 'tunnel-group');
 
   await page.getByRole('button', { name: 'Установить компонент' }).click();
   await expect(page.getByText('Не удалось скачать компонент', { exact: false })).toBeVisible({ timeout: 15_000 });
@@ -49,6 +60,7 @@ test('панель: сбой догрузки → честное сообщен�
 
 test('панель: переключение AWG→Reality — успех меняет протокол на месте', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'awg' });
+  await expand(page, 'tunnel-group');
 
   await expect(page.getByRole('heading', { name: 'Сменить туннель' })).toBeVisible();
   await page.getByRole('radio', { name: /Протокол: VLESS\+Reality/ }).check();
@@ -66,6 +78,7 @@ test('панель: переключение AWG→Reality — успех мен
 
 test('панель: переключение AWG→Hysteria2 зовёт свой метод со своим аргументом', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'awg' });
+  await expand(page, 'tunnel-group');
 
   await page.getByRole('radio', { name: /Протокол: Hysteria2/ }).check();
   await page.getByLabel('Ссылка hysteria2:// или конфиг sing-box')
@@ -86,6 +99,7 @@ test('панель: переключение AWG→Hysteria2 зовёт свой
 // Если бы UI её терял, человек включал бы ручной режим впустую и не понимал, почему ничего не изменилось.
 test('панель: объявленная скорость дописывается в ссылку Hysteria2', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'awg' });
+  await expand(page, 'tunnel-group');
 
   await page.getByRole('radio', { name: /Протокол: Hysteria2/ }).check();
   await page.getByLabel('Ссылка hysteria2:// или конфиг sing-box')
@@ -106,6 +120,7 @@ test('панель: объявленная скорость дописывает
 
 test('панель: без ручного режима скорость в ссылку НЕ попадает (остаётся BBR)', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'awg' });
+  await expand(page, 'tunnel-group');
 
   await page.getByRole('radio', { name: /Протокол: Hysteria2/ }).check();
   await page.getByLabel('Ссылка hysteria2:// или конфиг sing-box')
@@ -120,6 +135,7 @@ test('панель: без ручного режима скорость в сс�
 
 test('панель: переключение не удалось → fail-safe-сообщение, протокол остался AWG', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'awg', bgResult: 'fail' });
+  await expand(page, 'tunnel-group');
 
   await page.getByRole('radio', { name: /Протокол: VLESS\+Reality/ }).check();
   await page.getByLabel('Ссылка vless:// или конфиг sing-box')
@@ -134,6 +150,7 @@ test('панель: переключение не удалось → fail-safe-�
 
 test('панель: при protocol=reality замена конфига зовёт replace_reality_conf, не awg', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'reality' });
+  await expand(page, 'tunnel-group');
 
   await expect(page.getByRole('heading', { name: 'Замена сервера (VLESS+Reality)' })).toBeVisible();
   await page.getByLabel('Ссылка vless:// или конфиг sing-box').first()
@@ -149,6 +166,7 @@ test('панель: при protocol=reality замена конфига зовё
 
 test('панель: при protocol=hysteria2 замена зовёт replace_hysteria2_conf', async ({ page, request }) => {
   await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'hysteria2' });
+  await expand(page, 'tunnel-group');
 
   await page.getByLabel('Ссылка hysteria2:// или конфиг sing-box').first()
     .fill('hysteria2://pw@new.example.com:8443?sni=example.com');
@@ -167,12 +185,12 @@ test('панель: при protocol=hysteria2 замена зовёт replace_hy
 test('панель: результат действия печатается рядом с кнопкой, а не в конце страницы', async ({ page, request }) => {
   await openPanel(page, request, {});
 
-  await page.getByRole('button', { name: 'Обновить список доменов' }).click();
-  const note = page.locator('.row:has-text("Обновить список доменов") + p');
+  await page.getByRole('button', { name: 'Обновить список сайтов' }).click();
+  const note = page.locator('.row:has-text("Обновить список сайтов") + p');
   await expect(note).toHaveText(/Список обновлён/);
 
   // И оно НЕ уехало в опасную зону: там своё сообщение (о сбросе), чужих быть не должно.
-  await expect(page.locator('h3.danger-h ~ p', { hasText: 'Список обновлён' })).toHaveCount(0);
+  await expect(page.locator('#danger-group p', { hasText: 'Список обновлён' })).toHaveCount(0);
 });
 
 // Диагностика — единственный путь помочь удалённо, и одновременно самый опасный: пакет уходит в
@@ -210,6 +228,7 @@ test('панель: диагностика без входа ведёт на в�
 // есть путь в мастер прямо из панели.
 test('панель: сброс честно говорит, что останется, и ведёт назад в мастер', async ({ page, request }) => {
   await openPanel(page, request, {});
+  await expand(page, 'danger-group');
 
   await page.getByRole('button', { name: 'Сбросить настройку cheburnet…' }).click();
   // Честность до подтверждения: программа и панель остаются, удаление — отдельная команда.
@@ -248,16 +267,18 @@ test('панель: admin-метод без сессии → модалка вх
   await openPanel(page, request, { adminLocked: true });
 
   // Действие отбито PERMISSION_DENIED → вместо голой ошибки открывается вход.
-  await page.getByRole('button', { name: 'Обновить список доменов' }).click();
+  await page.getByRole('button', { name: 'Обновить список сайтов' }).click();
   await expect(page.getByRole('heading', { name: 'Вход в управление' })).toBeVisible();
 
   // Кнопок «Войти» на странице две (linklike под панелью и в модалке) — скоупим модалкой.
   const modal = page.locator('.modal');
 
-  // Неверный пароль — понятный счётчик попыток.
+  // Неверный пароль — понятный счётчик попыток. Поле при этом НЕ блокируется: опечатка не должна
+  // стоить перезагрузки страницы (перебор всё равно отбивает rpcd, а не панель).
   await modal.getByLabel('Пароль').fill('wrong-pass');
   await modal.getByRole('button', { name: 'Войти' }).click();
-  await expect(page.getByText('Пароль не подошёл (попытка 1 из 3)', { exact: false })).toBeVisible();
+  await expect(page.getByText('Пароль не подошёл (попытка 1)', { exact: false })).toBeVisible();
+  await expect(modal.getByLabel('Пароль')).toBeEnabled();
 
   // Верный — сессия получена, действие можно повторить.
   await modal.getByLabel('Пароль').fill('panel-pass-1');
@@ -265,6 +286,6 @@ test('панель: admin-метод без сессии → модалка вх
   await expect(page.getByText('Вход выполнен — повторите действие.')).toBeVisible();
   // Конкретика от самого действия сохраняется (сколько доменов подтянулось), а не заменяется
   // безликим «готово» — admin() ставит дефолтный текст только если действие своего не дало.
-  await page.getByRole('button', { name: 'Обновить список доменов' }).click();
+  await page.getByRole('button', { name: 'Обновить список сайтов' }).click();
   await expect(page.getByText('Список обновлён:', { exact: false })).toBeVisible();
 });

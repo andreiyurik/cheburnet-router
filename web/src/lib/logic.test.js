@@ -15,7 +15,7 @@ import {
   heroKind, tunnelFallback, switchTargets, tunnelRowText, fullReasons, explainFullTierFail,
   fullMissingText, FULL_MISSING_LABELS,
   PROTOCOLS, PROTOCOL_ORDER, protocolList, protocolInfo, requiresFull, defaultProtocol,
-  withDeclaredSpeed, SPEED_DEFAULTS, SPEED_MAX, SUPPORT,
+  withDeclaredSpeed, SPEED_DEFAULTS, SPEED_MAX, SUPPORT, checkConf, BRUTAL_WARNING,
 } from './logic.js';
 
 // Контакт поддержки показывается на трёх экранах и вшивается в прошивку на годы. Проверяем
@@ -72,6 +72,15 @@ describe('каталог протоколов (три оси покрытия)',
     expect(protocolList().map((p) => p.id)).toEqual(PROTOCOL_ORDER);
   });
 
+  // why видно у всех трёх вариантов сразу — там ровно одна мысль; остальное уезжает в whyMore
+  // («Подробнее»). Разъезд обратно в три абзаца делает экран выбора нечитаемым.
+  it('короткое объяснение остаётся коротким, длинное живёт отдельно', () => {
+    for (const p of protocolList()) {
+      expect(p.why.length).toBeLessThanOrEqual(110);
+      expect(p.whyMore.length).toBeGreaterThan(20);
+    }
+  });
+
   it('у каждого протокола есть симптом, объяснение и имена ubus-полей/методов', () => {
     for (const p of protocolList()) {
       expect(p.symptom.length).toBeGreaterThan(10);
@@ -104,7 +113,44 @@ describe('каталог протоколов (три оси покрытия)',
   });
 });
 
+// Проверка формата ДО отправки. Движок отказал бы и сам, но его отказ стоит цикла «установка →
+// откат» (в панели — с фоновой операцией и снимком). Ссылка, вставленная вместо .conf, — самая
+// частая путаница, потому что оба поля выглядят одинаково.
+describe('checkConf — формат конфига ловится в форме', () => {
+  it('пусто → просьба вставить (для .conf — ещё и загрузить файлом)', () => {
+    expect(checkConf('awg', '   ')).toMatch(/загрузите/i);
+    expect(checkConf('reality', '')).toMatch(/vless:\/\//);
+    expect(checkConf('hysteria2', null)).toMatch(/hysteria2:\/\//);
+  });
+
+  it('правильный формат проходит, включая JSON-конфиг sing-box у Full-протоколов', () => {
+    expect(checkConf('awg', '[Interface]\nPrivateKey = x')).toBe('');
+    expect(checkConf('reality', 'vless://u@h:443?security=reality')).toBe('');
+    expect(checkConf('hysteria2', 'hy2://pw@h:443')).toBe('');
+    expect(checkConf('hysteria2', 'hysteria2://pw@h:443')).toBe('');
+    expect(checkConf('reality', '{"outbounds":[]}')).toBe('');
+    expect(checkConf('hysteria2', '  {"outbounds":[]}')).toBe('');
+  });
+
+  it('перепутанные форматы отбиваются с подсказкой про нужный', () => {
+    expect(checkConf('awg', 'vless://u@h:443')).toMatch(/\[Interface\]/);
+    expect(checkConf('reality', '[Interface]\nPrivateKey = x')).toMatch(/vless:\/\//);
+    expect(checkConf('hysteria2', 'vless://u@h:443')).toMatch(/hysteria2:\/\//);
+  });
+
+  // Обрезанный конфиг — вторая частая беда: человек копирует со второй строки.
+  it('конфиг без шапки [Interface] не принимается', () => {
+    expect(checkConf('awg', 'PrivateKey = x\nAddress = 10.0.0.2/32')).toMatch(/\[Interface\]/);
+  });
+});
+
 describe('validateSetup — конфиг туннеля', () => {
+  it('ссылка вместо .conf ловится до отправки (иначе цикл установка → откат)', () => {
+    const r = validateSetup(fields({ confs: { awg: 'vless://u@h:443' } }));
+    expect(r.error).toMatch(/\[Interface\]/);
+    expect(r.args).toBeUndefined();
+  });
+
   it('awg: пустой конфиг → просьба вставить/загрузить', () => {
     const r = validateSetup(fields({ confs: { awg: '   ' } }));
     expect(r.error).toMatch(/загрузите/i);
@@ -176,6 +222,14 @@ describe('validateSetup — скорость канала для Hysteria2 (Brut
   it('ручной режим у других протоколов ничего не меняет (Brutal есть только у Hysteria2)', () => {
     const r = validateSetup(fields({ declareSpeed: true, speedDown: 80, speedUp: 20 }));
     expect(r.args.awg_conf).toBe('[Interface]\nPrivateKey = x');
+  });
+
+  // Предупреждение показывается в мастере и в панели. Две копии одного текста разъезжаются при
+  // первой правке, поэтому оно одно — и обязано называть последствие («хуже»), иначе человек не
+  // свяжет завышенную цифру с обрывами: ошибок в логах при этом не будет.
+  it('предупреждение про завышенную скорость одно на весь UI и называет последствие', () => {
+    expect(BRUTAL_WARNING).toMatch(/хуже/);
+    expect(BRUTAL_WARNING).toMatch(/реально держит/);
   });
 
   it('консервативные подсказки существуют и отдача не больше приёма', () => {

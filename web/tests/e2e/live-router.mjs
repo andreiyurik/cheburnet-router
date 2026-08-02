@@ -40,7 +40,7 @@ try {
     // если поле файла не по label — пробуем прямой input[type=file]
     await page.locator('input[type=file]').setInputFiles(AWG_CONF);
   });
-  const domains = await page.getByLabel('Сайты напрямую, без VPN').inputValue().catch(() => '?');
+  const domains = await page.getByLabel('Сайты напрямую').inputValue().catch(() => '?');
   log(`direct-домены по умолчанию: "${domains}"`);
   const tokenAuto = await page.getByText('Код установки получен из ссылки').isVisible().catch(() => false);
   log(`токен подставлен из ссылки: ${tokenAuto ? 'да' : 'нет'}`);

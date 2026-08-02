@@ -23,7 +23,7 @@ test('снимок: экран установки показывает пред�
   await page.getByRole('button', { name: 'Установить' }).click(); // confirm
 
   // Ждём шаг health-check (усиленный текст) и снимаем.
-  await expect(page.getByText('Не вынимайте кабель и не выключайте роутер', { exact: false })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Не выключайте роутер и не закрывайте страницу', { exact: false })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('если сервер не ответит, роутер сам всё вернёт назад', { exact: false })).toBeVisible();
   await page.screenshot({ path: '/tmp/cheburnet-shots/10-installing-new-warning.png', fullPage: true });
 });

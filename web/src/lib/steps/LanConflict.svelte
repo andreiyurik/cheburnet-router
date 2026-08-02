@@ -56,7 +56,7 @@
     </p>
 
     <label>
-      <span>Код установки (install-токен)</span>
+      <span>Код установки</span>
       <input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
       <small class="muted">Смена адреса рвёт соединения — поэтому требует код владельца роутера.</small>
     </label>
