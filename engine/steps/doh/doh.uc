@@ -1,12 +1,6 @@
-// doh.uc — DoH-шаг: настроить https-dns-proxy и завернуть upstream dnsmasq в него.
-//
-// Шифрует upstream-резолв (DNS over HTTPS) лёгким https-dns-proxy перед dnsmasq — замена DoH,
-// который в v1 нёс sing-box ([[encrypted-dns]]). Централизованный DNS на роутере, чтобы
-// сохранить [[dnsmasq-nftset|пометку адресов]] и [[adblock]] — клиентский DoH их ломает.
-//
-// ЧИСТОЕ ЯДРО: build_doh_plan(current, opts) → uci-операции для https-dns-proxy + dnsmasq.
-// Применение — apply.uc (импурно, QEMU). dnsmasq-привязку держим САМИ (не магия пакета):
-// видно каждый шаг (учебная цель), один владелец конфига dnsmasq.
+// doh.uc — DoH-шаг: настроить https-dns-proxy и завернуть upstream dnsmasq в него ([[encrypted-dns]]).
+// build_doh_plan(current, opts) → uci-операции для https-dns-proxy + dnsmasq (чистое ядро);
+// apply.uc применяет (импурно, QEMU). dnsmasq-привязку держим сами, не магией пакета.
 
 import { reconcile_list, starts_with } from "../../lib/uci.uc";
 import { resolvers_for, default_provider } from "./providers.uc";
@@ -42,7 +36,6 @@ function build_doh_plan(current, opts) {
 	let o = resolve_opts(opts);
 	let R = o.resolvers;
 
-	// Валидация конфигурации резолверов.
 	let errors = [], names = {}, ports = {};
 	if (!R || length(R) == 0)
 		push(errors, "пустой список резолверов");
@@ -75,11 +68,10 @@ function build_doh_plan(current, opts) {
 		// в свежей установке (проверено на роутере, пакет 2026.03.18) секции нет, и `set` опции
 		// падал с 'uci: Invalid argument'. `set …=main` идемпотентен (повторно — no-op).
 		push(su, "set https-dns-proxy.config=main");
-		// Имя опции в пакете МЕНЯЛОСЬ: старые версии читают update_dnsmasq_config, текущая
-		// (2026.03.18) — dnsmasq_config_update. Пишем ОБА: если живо только старое имя, новое —
-		// инертная опция (и наоборот). Без '-' init пакета при КАЖДОМ старте сам вписывает все
-		// свои инстансы в dhcp.server → чужой резолвер (dns.google из дефолт-секции) оказывается
-		// upstream'ом dnsmasq МИМО выбранной фильтрации (поймано живым прогоном 2026-07-08).
+		// Платформенный квирк: имя опции менялось между версиями пакета (update_dnsmasq_config →
+		// dnsmasq_config_update) — пишем ОБА, неактуальное просто инертно. ШРАМ: без '-' init пакета
+		// на каждом старте вписывает свои инстансы в dhcp.server, и чужой резолвер (dns.google)
+		// оказывается upstream'ом мимо выбранной фильтрации (живой прогон, 2026-07-08).
 		push(su, "set https-dns-proxy.config.update_dnsmasq_config='-'");
 		push(su, "set https-dns-proxy.config.dnsmasq_config_update='-'");
 	}
@@ -112,9 +104,22 @@ function build_doh_plan(current, opts) {
 	for (let i = 0; i < length(rec.add); i++)
 		push(dops, sprintf("add_list dhcp.%s.server='%s'", sect, rec.add[i]));
 
+	// ШРАМ: https-dns-proxy восстанавливает dnsmasq из СВОИХ backup-ключей (doh_backup_*) при
+	// каждой остановке/ребуте, даже после того как мы забрали upstream себе — шифрование тихо
+	// отключалось после первого же ребута (qemu-reboot, 2026-07-31). Подробно: [[encrypted-dns]].
+	// ОТДЕЛЬНЫМ списком (не dnsmasq_ops): uci_batch считает сбоем любой вывод, включая «Entry not
+	// found» — отсутствие ключей это норма (повторный запуск). rc игнорируется осознанно (apply.uc).
+	let cleanup = [];
+	if (o.manage_dnsmasq) {
+		push(cleanup, sprintf("delete dhcp.%s.doh_backup_noresolv", sect));
+		push(cleanup, sprintf("delete dhcp.%s.doh_backup_server", sect));
+		push(cleanup, sprintf("delete dhcp.%s.doh_server", sect));
+	}
+
 	return {
 		ok: true, errors: [],
 		hdp_teardown: td, hdp_setup: su, dnsmasq_ops: dops,
+		dnsmasq_cleanup: cleanup,
 		servers: desired,
 	};
 }

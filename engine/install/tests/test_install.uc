@@ -2,9 +2,11 @@
 //   ucode -R engine/install/tests/test_install.uc
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
-import { route_uses_iface, fresh_handshake, pick_wan_fallback,
+import { pick_wan_fallback } from "../../lib/route.uc";
+import { route_uses_iface, fresh_handshake,
          all_steps, enabled_steps, snapshot_scope, dirty_steps,
          decide_outcome, protocol_ids, default_protocol, tunnel_info,
+         uses_singbox, singbox_protocols, tunnel_conf,
          disabled_tunnels, handshake_state, tunnel_health,
          HANDSHAKE_FRESH_S } from "../install.uc";
 
@@ -63,7 +65,7 @@ test("snapshot_scope: network защищён при обоих протокол�
 // Teardown неактивного туннеля адресуется по имени ШАГА (vpn/singbox) — у обоих есть --teardown.
 // Если сюда попадёт не-туннельный шаг, run.uc дёрнул бы у него несуществующий режим.
 test("disabled_tunnels возвращает только туннель-шаги (у них есть --teardown)", () => {
-	let protos = [ "awg", "reality" ];
+	let protos = protocol_ids();
 	for (let i = 0; i < length(protos); i++) {
 		let dt = disabled_tunnels(protos[i]);
 		for (let j = 0; j < length(dt); j++)
@@ -72,21 +74,51 @@ test("disabled_tunnels возвращает только туннель-шаги
 	}
 });
 
-// --- модель протокола (две оси покрытия, ADR 0004) ---
-test("protocol_ids / default_protocol: awg (дефолт) и reality", () => {
-	deep_eq(protocol_ids(), [ "awg", "reality" ]);
-	eq(default_protocol(), "awg");
+// --- модель протокола (три оси покрытия, ADR 0004) ---
+test("protocol_ids / default_protocol: awg (дефолт), reality, hysteria2", () => {
+	deep_eq(protocol_ids(), [ "awg", "reality", "hysteria2" ]);
+	eq(default_protocol(), "awg", "дефолт — лёгкий туннель в ядре, а не userspace");
 });
 
-test("tunnel_info: awg→vpn/awg0, reality→singbox/singtun0, неизвестный→дефолт", () => {
-	deep_eq(tunnel_info("awg"), { step: "vpn", tunnel_if: "awg0" });
-	deep_eq(tunnel_info("reality"), { step: "singbox", tunnel_if: "singtun0" });
-	deep_eq(tunnel_info("bogus"), { step: "vpn", tunnel_if: "awg0" }, "fail-safe на дефолт");
+test("tunnel_info: шаг, интерфейс и conf_key каждого протокола; неизвестный → дефолт", () => {
+	deep_eq(tunnel_info("awg"), { step: "vpn", tunnel_if: "awg0", conf_key: "awg_conf" });
+	deep_eq(tunnel_info("reality"),
+		{ step: "singbox", tunnel_if: "singtun0", conf_key: "reality_conf" });
+	deep_eq(tunnel_info("hysteria2"),
+		{ step: "singbox", tunnel_if: "singtun0", conf_key: "hysteria2_conf" });
+	deep_eq(tunnel_info("bogus"), { step: "vpn", tunnel_if: "awg0", conf_key: "awg_conf" },
+		"fail-safe на дефолт");
+});
+
+// КЛЮЧЕВОЙ инвариант ADR 0004: оба Full-протокола делят ОДИН туннельный интерфейс. Разъедься
+// они — firewall/policy-routing/NAT-зона перестали бы быть протокол-независимыми.
+test("оба sing-box-протокола презентуют ОДИН интерфейс (data-plane их не различает)", () => {
+	eq(tunnel_info("reality").tunnel_if, tunnel_info("hysteria2").tunnel_if);
+	eq(tunnel_info("reality").step, tunnel_info("hysteria2").step);
+});
+
+test("uses_singbox / singbox_protocols: Full-протоколы определяются по ШАГУ, не по списку имён", () => {
+	ok(!uses_singbox("awg"), "awg считается в ядре");
+	ok(uses_singbox("reality"));
+	ok(uses_singbox("hysteria2"));
+	ok(!uses_singbox("bogus"), "неизвестный → дефолтный awg → не Full (fail-safe)");
+	deep_eq(singbox_protocols(), [ "reality", "hysteria2" ]);
+});
+
+test("tunnel_conf: конфиг берётся по conf_key активного протокола", () => {
+	let cfg = { awg_conf: "AWG", reality_conf: "vless://x", hysteria2_conf: "hy2://y" };
+	eq(tunnel_conf("awg", cfg), "AWG");
+	eq(tunnel_conf("reality", cfg), "vless://x");
+	eq(tunnel_conf("hysteria2", cfg), "hy2://y");
+	eq(tunnel_conf("hysteria2", {}), "", "нет ключа → пусто (шаг честно упадёт, а не возьмёт чужой)");
+	eq(tunnel_conf("reality", { reality_conf: 42 }), "", "не строка → пусто");
+	eq(tunnel_conf("bogus", cfg), "AWG", "неизвестный протокол → ключ дефолтного");
 });
 
 test("disabled_tunnels: отключает неактивный туннель-шаг (взаимоисключение)", () => {
 	deep_eq(disabled_tunnels("awg"), [ "singbox" ], "awg → singbox off");
 	deep_eq(disabled_tunnels("reality"), [ "vpn" ], "reality → vpn off");
+	deep_eq(disabled_tunnels("hysteria2"), [ "vpn" ], "hysteria2 → vpn off (шаг тот же, что у reality)");
 });
 
 test("enabled_steps: awg-протокол (disable singbox) → туннель = vpn", () => {
@@ -94,9 +126,11 @@ test("enabled_steps: awg-протокол (disable singbox) → туннель =
 	deep_eq(names(s), [ "vpn", "dns", "doh", "wifi", "firewall" ]);
 });
 
-test("enabled_steps: reality-протокол (disable vpn) → туннель = singbox", () => {
-	let s = enabled_steps({ disable: disabled_tunnels("reality") });
-	deep_eq(names(s), [ "singbox", "dns", "doh", "wifi", "firewall" ]);
+test("enabled_steps: reality/hysteria2 (disable vpn) → туннель = singbox", () => {
+	deep_eq(names(enabled_steps({ disable: disabled_tunnels("reality") })),
+		[ "singbox", "dns", "doh", "wifi", "firewall" ]);
+	deep_eq(names(enabled_steps({ disable: disabled_tunnels("hysteria2") })),
+		[ "singbox", "dns", "doh", "wifi", "firewall" ], "новый протокол не добавляет шагов");
 });
 
 // --- decide_outcome ---
@@ -199,6 +233,18 @@ test("tunnel_health reality: отсутствие AWG-рукопожатия е�
 		"у VLESS рукопожатия нет — это не признак поломки");
 });
 
+// Инвариант ADR 0004: Hysteria2 НЕ приносит своей семантики здоровья. Признак ветвится по шагу,
+// поэтому новый sing-box-протокол получает её автоматически — забыть его здесь невозможно.
+test("tunnel_health hysteria2: та же семантика, что у reality (единый контракт транспорта)", () => {
+	let facts = [ { sb_running: true, tun_up: true }, { sb_running: true, tun_up: false },
+	              { sb_running: false, tun_up: true }, {} ];
+	for (let i = 0; i < length(facts); i++)
+		eq(tunnel_health("hysteria2", facts[i]), tunnel_health("reality", facts[i]),
+			sprintf("факты #%d: здоровье обоих Full-протоколов считается одинаково", i));
+	eq(tunnel_health("hysteria2", { hs_age: null, sb_running: true, tun_up: true }), "up",
+		"рукопожатия у Hysteria2 тоже нет — это не поломка");
+});
+
 test("tunnel_health: неизвестный протокол → правила дефолтного (awg), не исключение", () => {
 	eq(tunnel_health("banana", { hs_age: 5 }), "up");
 	eq(tunnel_health(null, { hs_age: null }), "down");
@@ -286,14 +332,15 @@ test("enabled_steps: копия несёт needs/rollback (на них вися�
 		ok(length(steps[i].needs ?? "") > 0 || steps[i].needs == null, "поле needs существует");
 		ok(steps[i].rollback == "clean" || steps[i].rollback == "dirty");
 	}
-	// vpn ждёт awg_conf, singbox — reality (контракт step_stdin в run.uc).
+	// Оба туннель-шага ждут tunnel_conf — КАКОЙ именно текст, решает conf_key протокола
+	// (контракт step_stdin в run.uc). Иначе каждый новый протокол требовал бы ветки в раздаче stdin.
 	let by = {};
 	for (let i = 0; i < length(steps); i++) by[steps[i].name] = steps[i];
-	eq(by.vpn.needs, "awg_conf");
-	eq(by.singbox.needs, "reality");
+	eq(by.vpn.needs, "tunnel_conf");
+	eq(by.singbox.needs, "tunnel_conf");
 	// мутация копии не трогает реестр
 	by.vpn.needs = "mutated";
-	eq(enabled_steps({})[0].needs, "awg_conf");
+	eq(enabled_steps({})[0].needs, "tunnel_conf");
 });
 
 exit(summary());

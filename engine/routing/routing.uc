@@ -1,16 +1,10 @@
-// routing.uc — генератор конфигов split-routing (чистая логика, без роутера).
+// routing.uc — генератор конфигов split-routing (чистая логика, юниты — engine/routing/tests).
+// Вход: домены прямого доступа + опции (mark, table, сеты, WAN, режим). Выход: план + рендереры
+// в три артефакта data-plane — dnsmasq nftset-строки ([[dnsmasq-nftset]]), nft сеты+правила и
+// ip rule/route ([[policy-routing]]). Идемпотентность, применение, резолв WAN — не здесь (engine/steps).
 //
-// Вход:  список доменов прямого доступа + опции (mark, table, имена сетов, WAN, режим).
-// Выход: «план маршрутизации» + рендереры в три артефакта data-plane:
-//   • dnsmasq nftset-строки  — DNS кладёт резолвнутый IP в nft-сет  ([[dnsmasq-nftset]])
-//   • nft объявления+правила — сеты и пометка пакетов fwmark        ([[policy-routing]])
-//   • ip rule / ip route     — policy routing разводит туннель/WAN  ([[policy-routing]])
-//
-// Чистые функции → юнит-тестируются без роутера (engine/routing/tests). Идемпотентность,
-// применение и резолв WAN — НЕ здесь, это слой engine/steps. Здесь только генерация текста.
-//
-// Ключевой инсайт: доменно-зависим ТОЛЬКО dnsmasq-слой. nft-правила и ip rule — функция
-// от опций, а не от списка: ядро работает с сетом по ссылке (@direct), наполняет dnsmasq.
+// ИНВАРИАНТ: доменно-зависим ТОЛЬКО dnsmasq-слой; nft/ip rule — функция от опций (ядро смотрит
+// на сет по ссылке @direct, который наполняет dnsmasq).
 
 // Значения по умолчанию. Переопределяются через opts в build_plan().
 const DEFAULTS = {
@@ -56,9 +50,8 @@ function normalize_domain(raw) {
 	return s;
 }
 
-// is_valid_domain(d) — true, если d пригоден как direct-домен dnsmasq.
-// Требуем ASCII LDH (letters/digits/hyphen + точки): не-ASCII (IDN) в DNS живёт как
-// punycode (xn--...), поэтому юникод сюда не пускаем — он бы не сматчился (см. dnsmasq-nftset).
+// is_valid_domain(d) — true, если d пригоден как direct-домен dnsmasq. Требуем ASCII LDH:
+// IDN живёт в DNS как punycode (xn--...), см. [[dnsmasq-nftset]].
 function is_valid_domain(d) {
 	if (length(d) < 1 || length(d) > 253)
 		return false;

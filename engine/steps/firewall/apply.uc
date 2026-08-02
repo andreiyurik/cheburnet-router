@@ -1,22 +1,14 @@
-// apply.uc — применение firewall-шага на роутере (импурно, router-side).
-//
+// apply.uc — применение firewall-шага на роутере (импурно, router-side). Пишет nftables.d-файл,
+// hotplug-хук, NAT-зону (uci) и ip rule/route по плану из firewall.uc (детали и инварианты — там).
 //   echo '{"domains":["example.com"],"routing_opts":{"wan_if":"eth0"}}' | ucode -R apply.uc
-//   ... | ucode -R apply.uc --dry-run
-//   ... | ucode -R apply.uc --teardown
-//
-// Наши цепочки/сеты/правила пишутся в /etc/nftables.d/10-cheburnet.nft — fw4 включает файл в
-// table inet fw4 при каждом reload, поэтому правила ПЕРЕЖИВАЮТ любой reload (урок живого
-// прогона: ручная `nft add`-инъекция терялась при hotplug/reload → kill-switch тихо умирал).
-// NAT-зона — uci firewall (чистый откат через snapshot). ip rule/route — iproute2.
-//
-// wan_if обязателен в routing_opts (его даёт gather). Нет → план.ok=false → отказ без изменений.
+//   ... | ucode -R apply.uc --dry-run | --teardown
 
 import { stdin, writefile, unlink } from "fs";
 import { sh, uci_batch } from "../../lib/proc.uc";
 import { build_plan } from "../../routing/routing.uc";
 import { build_firewall_plan } from "./firewall.uc";
 
-function run(cmd) { // запустить, вернуть код выхода
+function run(cmd) {
 	return int(trim(sh(cmd + " >/dev/null 2>&1; echo $?")));
 }
 
@@ -31,17 +23,23 @@ let teardown_only = (arg == "--teardown"); // снять наши правила
 let routing_plan = build_plan(req.domains ?? [], req.routing_opts);
 let plan = build_firewall_plan(routing_plan, req.fw_opts);
 
+// Пути артефактов: env-override ТОЛЬКО для host-тестов в sandbox (тот же приём, что SB_CONFIG у
+// Full-тира). Модуль плана остаётся чистым — подмена живёт на импурной границе, здесь.
+if (getenv("CHEB_NFT_PATH"))     plan.nft_path = getenv("CHEB_NFT_PATH");
+if (getenv("CHEB_HOTPLUG_PATH")) plan.hotplug_path = getenv("CHEB_HOTPLUG_PATH");
+
 // teardown-only: убрать nftables.d-файл (+reload вычистит цепочки), ip-правила и NAT-зону,
 // ничего не ставя. Код uci_batch НЕ проверяем: teardown толерантен (отсутствие секций — норма).
 if (teardown_only) {
 	unlink(plan.nft_path); // отсутствие файла — норма (unlink вернёт false, игнорим)
+	unlink(plan.hotplug_path); // хук снимаем вместе с правилами: иначе он вернёт их после ребута
 	for (let i = 0; i < length(plan.ip_teardown); i++)
 		run(plan.ip_teardown[i]);
 	for (let i = 0; i < length(plan.uci_teardown); i++)
 		run("uci -q " + plan.uci_teardown[i]);
 	run("uci commit firewall");
-	run("/etc/init.d/firewall reload"); // пересобрать fw4 без нашего файла и зоны
-	// reload не удаляет чужие цепочки/сеты (остаются пустыми) — добиваем явно, отсутствие — норма.
+	run("/etc/init.d/firewall reload");
+	// Платформенный квирк: reload не удаляет чужие цепочки/сеты (см. firewall.uc) — добиваем явно.
 	for (let i = 0; i < length(plan.nft_teardown); i++)
 		run("nft " + plan.nft_teardown[i]);
 	print("firewall: teardown выполнен (правила и NAT-зона сняты)\n");
@@ -64,14 +62,20 @@ if (dry) {
 	exit(0);
 }
 
-// 1) nftables.d-файл (наши цепочки/сеты/правила). Пишем ДО uci-reload, чтобы тот же reload
-// сразу включил их в fw4 — не остаётся окна без kill-switch.
+// 1) nftables.d-файл — ДО uci-reload, чтобы тот же reload сразу включил его в fw4 (без окна
+// без kill-switch).
 if (!writefile(plan.nft_path, plan.nft_file))
 	die(sprintf("firewall/apply: не смог записать %s", plan.nft_path));
 
-// 2) NAT-зона (uci firewall) + commit + reload. Reload пересобирает fw4 И подхватывает наш
-// файл из nftables.d — одним действием и зона, и наши цепочки. Код batch ОБЯЗАТЕЛЬНО проверяем:
-// без NAT-зоны kill-switch + default через awg0 = «зелёная» установка без интернета у LAN.
+// 1b) hotplug-хук — тоже ДО остального применения: ребут посреди установки должен вернуть уже
+// полное состояние. 0755 — его запускает hotplug.
+if (!writefile(plan.hotplug_path, plan.hotplug_file))
+	die(sprintf("firewall/apply: не смог записать %s", plan.hotplug_path));
+run(sprintf("chmod 0755 '%s'", plan.hotplug_path));
+
+// 2) NAT-зона + commit + reload (один reload подхватывает и зону, и наш nftables.d-файл).
+// rc ОБЯЗАТЕЛЬНО проверяем: без NAT-зоны kill-switch + default через awg0 = «зелёная»
+// установка без интернета у LAN.
 for (let i = 0; i < length(plan.uci_teardown); i++)
 	run("uci -q " + plan.uci_teardown[i]);
 let uci_rc = uci_batch(plan.uci_setup, "firewall");

@@ -1,5 +1,5 @@
 #!/bin/sh
-# engine/run-tests.sh — прогон всех юнит-тестов движка v2 (ucode), без роутера.
+# engine/run-tests.sh — прогон всех юнит-тестов движка (ucode), без роутера.
 #
 #   sh engine/run-tests.sh
 #

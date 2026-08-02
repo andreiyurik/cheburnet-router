@@ -3,7 +3,7 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../../lib/assert.uc";
 import { build_plan } from "../../../routing/routing.uc";
-import { build_firewall_plan, build_nat_ops } from "../firewall.uc";
+import { build_firewall_plan, build_nat_ops, render_hotplug, HOTPLUG_PATH } from "../firewall.uc";
 
 // routing-план с заданным WAN (v4-only для краткости, если не сказано иначе).
 function rp(extra) {
@@ -142,6 +142,40 @@ test("build_firewall_plan: NAT включён по умолчанию, выкл�
 	let off = build_firewall_plan(rp(null), { nat: false });
 	deep_eq(off.uci_setup, [], "nat=false → нет uci-операций");
 	deep_eq(off.uci_teardown, []);
+});
+
+// --- hotplug-хук: восстановление ip-части после перезагрузки ---
+// РЕГРЕССИЯ живого прогона (2026-08-01): nft-часть переживала ребут файлом в /etc/nftables.d/, а
+// `ip rule fwmark → table` и таблица direct — нет. Итог: панель зелёная, туннель поднят, наборы
+// наполняются, а direct-домены идут В ТУННЕЛЬ, потому что направлять их стало нечем.
+test("render_hotplug: реагирует на ifup и гейтит по ФАКТУ отсутствия правил", () => {
+	let h = render_hotplug(100);
+	ok(index(h, '[ "$ACTION" = "ifup" ] || exit 0') >= 0, "прочие события игнорируются");
+	// Фильтра по имени интерфейса быть НЕ должно: имя WAN-логики бывает не «wan» (wwan, wan_4),
+	// и там хук молча не срабатывал бы. Вместо имени — дешёвая проверка наличия правила.
+	ok(index(h, '"$INTERFACE"') < 0, "не завязываемся на имя интерфейса");
+	ok(index(h, "grep -q fwmark") >= 0, "повторные срабатывания почти бесплатны");
+	// ОБА артефакта: при первом ifup WAN может быть не готов, и остаётся половина (правило без
+	// маршрута). Гейт только по правилу закрывал бы путь к починке навсегда.
+	ok(index(h, "route show table 100") >= 0, "маршрут таблицы direct тоже проверяется");
+});
+
+test("render_hotplug: логику НЕ дублирует, зовёт reapply.uc", () => {
+	let h = render_hotplug(100);
+	ok(index(h, "install/reapply.uc") >= 0, "одна реализация на ребут и на откат");
+	// Единственное упоминание ip rule — дешёвый гейт «правило уже на месте»; СОБИРАТЬ правила
+	// хук не должен: их состав знает движок (метка, номер таблицы, шлюз WAN).
+	ok(index(h, "ip rule add") < 0, "хук не конструирует правила сам");
+	ok(index(h, "ip route add") < 0, "маршрут хук тоже не конструирует");
+	ok(index(h, "#!/bin/sh") == 0, "исполняемый POSIX-скрипт");
+});
+
+test("build_firewall_plan: хук лежит в плане, номер таблицы — из плана routing", () => {
+	let p = build_firewall_plan(rp(null), null);
+	ok(index(p.hotplug_file, "table 100") >= 0, "номер таблицы подставлен движком, не зашит в хук");
+	eq(p.hotplug_path, HOTPLUG_PATH);
+	eq(p.hotplug_path, "/etc/hotplug.d/iface/99-cheburnet", "каталог netifd-событий");
+	ok(length(p.hotplug_file) > 0);
 });
 
 exit(summary());

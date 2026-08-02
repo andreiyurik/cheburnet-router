@@ -1,10 +1,7 @@
-// plan.uc — CLI чистого firewall-шага: facts → nft/ip команды (НЕ применяет).
+// plan.uc — CLI чистого firewall-шага: facts → nft/ip команды (НЕ применяет). --json → план машинно.
 //
 //   echo '{"domains":["example.com"],"routing_opts":{"ipv6":false,"wan_if":"eth0"}}' \
 //     | ucode -R plan.uc
-//
-// Печатает teardown/setup секции по порядку применения. wan_if обязателен в routing_opts —
-// без него kill-switch не строится (см. firewall.uc). --json → весь план машинно.
 
 import { stdin } from "fs";
 import { build_plan } from "../../routing/routing.uc";

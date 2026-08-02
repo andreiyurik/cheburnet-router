@@ -1,17 +1,10 @@
-// ubus.uc — RPC-фасад движка: ЧИСТОЕ ядро валидации и роутинга входящих вызовов.
+// ubus.uc — RPC-фасад движка: ЧИСТОЕ ядро валидации и роутинга входящих вызовов (реестр методов,
+// разбор аргументов, `list`/ACL). Импурная сторона (регистрация на шине, запуск CLI, poll) —
+// rpcd-cheburnet, проверяется в QEMU. Юниты здесь — engine/ubus/tests.
 //
-// Веб-мастер общается с движком через ubus RPC (см. web-wizard). Это ГРАНИЦА ДОВЕРИЯ: вход
-// из RPC валидируем здесь (единственное место — как stdin пользователя), внутренним границам
-// движка доверяем (см. CLAUDE.md: «валидируем только вход из ubus RPC и stdin»).
-//
-// Разделение ради тестируемости (паттерн движка):
-//   • ЧИСТОЕ (здесь): реестр методов, разбор/проверка аргументов, вывод дескриптора `list`
-//     и ACL — всё детерминировано, юнит-тестируется без шины (engine/ubus/tests).
-//   • ИМПУРНОЕ (rpcd-cheburnet): регистрация на шине, запуск движковых CLI (preflight/run/
-//     fetch/apply), фон+poll установки. Проверяется в QEMU.
-//
-// Источник правды — REGISTRY: из него выводятся и дескриптор `list`, и ACL. Так список методов
-// и права не разъезжаются между кодом и rpcd-acl.json (тест сверяет файл с выводом отсюда).
+// ИНВАРИАНТ: вход из ubus RPC — граница доверия (как stdin пользователя), валидируем здесь;
+// внутренним границам движка доверяем (CLAUDE.md). REGISTRY — источник правды: из него выводятся
+// и дескриптор `list`, и rpcd-acl.json (тест сверяет файл с выводом отсюда).
 
 // Валидные id DNS-провайдеров — из каталога (единственный источник, enum не дрейфует с providers.uc).
 import { provider_ids } from "../steps/doh/providers.uc";
@@ -22,21 +15,16 @@ import { protocol_ids } from "../install/install.uc";
 const PROTOCOL_IDS = protocol_ids();
 
 // Реестр методов RPC. Один метод = одна запись (порядок стабилен → стабильны list/ACL).
-//   args  — спецификации аргументов: { name, type, required?, enum?, minlen?, maxlen? }.
-//           type ∈ string|array|object|bool. minlen/maxlen — границы длины строки (граница доверия:
-//           короткий пароль/SSID режем синхронно ДО фоновой установки, как install_start в v1).
+//   args  — { name, type, required?, enum?, minlen?, maxlen? }; type ∈ string|array|object|bool.
 //   access— read | write (ubus-разделение прав в ACL).
-//   auth  — anon  = доступен из LAN до установки (мутации гейтятся install-токеном на импурном слое);
-//           admin = только авторизованной сессии (post-install управление).
-//   token — мутации pre-install требуют install-токен (проверка значения — импурно, файл; здесь
-//           лишь фиксируем, что поле обязательно и строкового типа).
+//   auth  — anon = доступен из LAN до установки (мутации гейтятся токеном); admin = только
+//           авторизованной сессии.
+//   token — требует install-токен (значение сверяет импурный слой; здесь лишь обязательность поля).
 const REGISTRY = [
 	{ name: "preflight", access: "read",  auth: "anon",  token: false, args: [] },
 	{ name: "status",    access: "read",  auth: "anon",  token: false, args: [] },
-	// Пред-инсталл безопасность: детект пересечения LAN/WAN-подсетей (read) и смена LAN-IP.
-	// apply_lan_ip — anon+токен (как install): до установки пароля root ещё нет, токен из
-	// bootstrap — единственный идентификатор «это владелец, а не сосед по LAN». Деструктивно
-	// (рвёт соединения LAN-клиентов) → строгая валидация значения ip на импурном слое.
+	// apply_lan_ip — anon+токен (как install): пароля root ещё нет, install-токен — единственный
+	// идентификатор владельца. Деструктивно (рвёт LAN-соединения) → строгая валидация ip импурно.
 	{ name: "check_lan_conflict", access: "read", auth: "anon", token: false, args: [] },
 	{ name: "apply_lan_ip", access: "write", auth: "anon", token: true, args: [
 		{ name: "ip",    type: "string", required: true },
@@ -44,28 +32,26 @@ const REGISTRY = [
 	] },
 	{ name: "install_progress", access: "read", auth: "anon", token: false, args: [] },
 	{ name: "install",   access: "write", auth: "anon",  token: true, args: [
-		// Туннель: protocol выбирает awg (Light, дефолт) | reality (Full). awg_conf нужен для awg,
-		// reality_conf — для reality; оба НЕОБЯЗАТЕЛЬНЫ на этой границе — активный туннель-шаг
-		// (vpn/singbox) валидирует свой вход и падает fail-safe при отсутствии (см. ADR 0004).
-		{ name: "protocol",      type: "string", enum: PROTOCOL_IDS },
-		{ name: "awg_conf",      type: "string" }, // AmneziaWG .conf (protocol=awg)
-		{ name: "reality_conf",  type: "string" }, // vless://… или JSON sing-box (protocol=reality), секрет → payload 600
-		{ name: "root_password", type: "string", required: true, minlen: 8 }, // секрет → payload 600, не install.json
-		// Wi-Fi необязателен: wired-only роутеры (x86/мини-ПК) ставятся без него. UI просит поля
-		// только при наличии радио (status.wireless_present); шаг wifi делает no-op без них.
+		// protocol: awg (Light, дефолт) | reality | hysteria2 (Full, ADR 0004). Конфиг каждого —
+		// в своём поле, ВСЕ необязательны здесь: активный туннель-шаг валидирует вход сам,
+		// fail-safe при отсутствии.
+		{ name: "protocol",       type: "string", enum: PROTOCOL_IDS },
+		{ name: "awg_conf",       type: "string" }, // AmneziaWG .conf (protocol=awg)
+		{ name: "reality_conf",   type: "string" }, // vless://… или JSON sing-box, секрет → payload 600
+		{ name: "hysteria2_conf", type: "string" }, // hysteria2://… или JSON sing-box, секрет → payload 600
+		{ name: "root_password", type: "string", required: true, minlen: 8 }, // секрет → payload 600
+		// Wi-Fi необязателен: wired-only роутеры ставятся без него (UI спрашивает поля только
+		// при status.wireless_present; шаг wifi — no-op без них).
 		{ name: "ssid",          type: "string", minlen: 1, maxlen: 32 },
 		{ name: "wifi_key",      type: "string", minlen: 8, maxlen: 63 }, // секрет → payload 600
 		{ name: "dns_provider",  type: "string", enum: PROVIDER_IDS }, // фильтрация = выбор резолвера
 		{ name: "domains",       type: "array" },
 		{ name: "routing_opts",  type: "object" },
-		// «Поставить на свой страх и риск»: осознанное решение владельца пропустить SOFT-провалы
-		// preflight (мало флеша/RAM). HARD-провалы (arch/версия/пакеты) не пропускает никто —
-		// см. preflight.uc. Гейтится тем же install-токеном, что и вся установка.
+		// accept_risk: осознанный пропуск SOFT-провалов preflight (флеш/RAM). HARD не пропускает
+		// никто (preflight.uc).
 		{ name: "accept_risk",   type: "bool" },
 		{ name: "token",         type: "string", required: true },
 	] },
-	// install_cancel — anon+токен (как install): отмену контролирует тот же человек, что запускал
-	// установку (у него токен из bootstrap); admin-сессии при установке ещё нет.
 	{ name: "install_cancel", access: "write", auth: "anon", token: true, args: [
 		{ name: "token", type: "string", required: true },
 	] },
@@ -76,35 +62,47 @@ const REGISTRY = [
 		{ name: "url", type: "string" },
 	] },
 	{ name: "service_restart", access: "write", auth: "admin", token: false, args: [
-		// v2-сервисы data-plane (без podkop/sing-box; adblock убран — фильтрация через DNS)
+		// сервисы data-plane (без podkop/sing-box; adblock убран — фильтрация через DNS)
 		{ name: "service", type: "string", required: true, enum: [ "vpn", "dns", "doh" ] },
 	] },
-	// Выбор DNS-провайдера = выбор уровня фильтрации (реклама/семейный/без). Заменяет
-	// set_family_filter: «семейный режим» теперь = выбрать семейного провайдера (см. providers.uc).
+	// Выбор DNS-провайдера = выбор уровня фильтрации (реклама/семейный/без), см. providers.uc.
 	{ name: "set_dns_provider", access: "write", auth: "admin", token: false, args: [
 		{ name: "provider", type: "string", required: true, enum: PROVIDER_IDS },
 	] },
-	// Full-тир (VLESS+Reality) — opt-in: догрузить sing-box по кнопке (apk add sing-box), НЕ при
-	// bootstrap. Дефолт остаётся лёгким AWG; слабое железо sing-box вообще не качает.
+	// Full-тир — opt-in: бинарь sing-box догружается по кнопке, не при bootstrap.
 	{ name: "install_full_tier", access: "write", auth: "admin", token: false, args: [] },
-	// In-place смена активного туннеля AWG→Reality без прохода мастера: приносим только ссылку,
-	// домены/DNS/режим берём из сохранённой конфигурации. Требует уже установленного sing-box.
+	// In-place смена активного туннеля: приносим только конфиг нового, домены/DNS/режим — из
+	// сохранённой конфигурации. Три метода вместо switch_tunnel(protocol, conf) — имя аргумента
+	// = имя формата (vless:// ≠ .conf ≠ hysteria2://); импурный путь под ними один общий.
+	// Требует уже установленного бинаря sing-box.
 	{ name: "switch_to_reality", access: "write", auth: "admin", token: false, args: [
 		{ name: "reality_conf", type: "string", required: true },
 	] },
-	// Обратная смена Reality→AmneziaWG (зеркало switch_to_reality): приносим только AWG-конфиг,
-	// домены/DNS/режим — из сохранённой конфигурации. sing-box остаётся установленным (не удаляем).
+	{ name: "switch_to_hysteria2", access: "write", auth: "admin", token: false, args: [
+		{ name: "hysteria2_conf", type: "string", required: true },
+	] },
+	// Обратная смена на AmneziaWG (зеркало переходов выше); sing-box остаётся установленным.
 	{ name: "switch_to_awg", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
 	] },
 	{ name: "replace_awg_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
 	] },
-	// Смена Reality-сервера без переустановки (Full-тир). Аналог replace_awg_conf: снапшот →
-	// применить → connectivity-probe → commit/restore. reality_conf — vless://… или JSON sing-box.
+	// Смена сервера без переустановки (Full): снапшот → применить → probe → commit/restore
+	// (общий replace_singbox.uc).
 	{ name: "replace_reality_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "reality_conf", type: "string", required: true },
 	] },
+	{ name: "replace_hysteria2_conf", access: "write", auth: "admin", token: false, args: [
+		{ name: "hysteria2_conf", type: "string", required: true },
+	] },
+	// Диагностика: логи+состояние+версии с ВЫРЕЗАННЫМИ секретами (diagnostics.uc + lib/redact.uc).
+	// auth=admin: даже вычищенный пакет раскрывает топологию сети — соседу по LAN не отдаём.
+	{ name: "diagnostics", access: "read", auth: "admin", token: false, args: [] },
+	// Install-токен для повторной настройки (одноразовый, снимается успешной установкой) —
+	// подробно: [[troubleshooting]]. access=write: метод СОЗДАЁТ состояние. auth=admin
+	// обязателен — иначе любой в LAN выписал бы себе право пройти мастер на чужом роутере.
+	{ name: "install_token", access: "write", auth: "admin", token: false, args: [] },
 	{ name: "factory_reset", access: "write", auth: "admin", token: false, args: [
 		// защитное слово; значение ("RESET") сверяет импурный слой — здесь лишь обязательность
 		{ name: "confirm", type: "string", required: true },

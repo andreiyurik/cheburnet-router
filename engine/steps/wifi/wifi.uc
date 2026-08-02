@@ -1,14 +1,9 @@
 // wifi.uc — Wi-Fi-шаг: разбор желаемого состояния радио и идемпотентный UCI-план.
 //
-// Пользователь задаёт имя сети (SSID) и пароль в веб-мастере. Шаг приводит секции wifi-iface
-// к желаемому состоянию (ssid/шифрование/ключ) и поднимает их (disabled='0'). Имена секций НЕ
-// хардкодим (radio0/default_radioN различаются по board.json) — apply.uc перечисляет реально
-// присутствующие и передаёт сюда. Нет радио / нет ключа → пустой план (no-op): fail-safe для
-// wired-only роутеров (x86/мини-ПК) и для случая «поле не заполнено».
-//
 // ЧИСТОЕ ЯДРО: validate_wifi (граница доверия — вход пользователя) + build_wifi_plan (→ uci ops).
-// Выбор шифрования (sae-mixed vs psk2+ccmp) зависит от УСТАНОВЛЕННОГО wpad → решается в apply.uc
-// (импурно) и приходит сюда опцией. Применение uci — apply.uc, проверяется в QEMU.
+// Имена секций wifi-iface не хардкодим (различаются по board.json) — их перечисляет apply.uc.
+// Выбор шифрования зависит от установленного wpad — тоже решается в apply.uc, приходит опцией.
+// Применение uci и QEMU-проверка — apply.uc.
 
 const SSID_MIN = 1, SSID_MAX = 32;  // IEEE 802.11 SSID: 1..32 байта
 const KEY_MIN = 8,  KEY_MAX = 63;   // WPA-PSK passphrase: 8..63 символа
@@ -30,14 +25,12 @@ function validate_wifi(ssid, key) {
 }
 
 // build_wifi_plan(ifaces, opts) → { ok, errors, teardown, setup, applied }.
-//   ifaces — имена секций wifi-iface (их перечисляет apply.uc); пусто → no-op (нет радио).
-//   opts   — { ssid, key, encryption?, pmf? }. encryption по умолчанию sae-mixed (WPA2/WPA3-mixed).
-// teardown — tolerant-удаления (apply гонит с -q): снимаем ieee80211w, когда PMF не нужен.
-// setup    — idempotent set'ы через uci batch. Разделение как в vpn-шаге (delete-before-set).
+//   ifaces — имена секций wifi-iface; пусто → no-op (нет радио).
+//   opts   — { ssid, key, encryption?, pmf? }. encryption по умолчанию sae-mixed.
 //
-// PMF (ieee80211w) осмыслен только при SAE; на чистом WPA2 он рвёт совместимость со старыми
-// клиентами (телефоны/IoT) — поэтому в не-SAE режиме мы его УДАЛЯЕМ, а не оставляем (урок v1 T4:
-// vanilla-секции default_radioN могут нести ieee80211w из коробки).
+// Шрам (v1 T4): vanilla-секции default_radioN могут нести ieee80211w из коробки, а PMF на
+// чистом WPA2 (не-SAE) рвёт совместимость со старыми клиентами — поэтому в не-SAE режиме
+// ieee80211w УДАЛЯЕМ, а не оставляем как есть.
 function build_wifi_plan(ifaces, opts) {
 	let o = opts ?? {};
 	let enc = o.encryption ?? "sae-mixed";

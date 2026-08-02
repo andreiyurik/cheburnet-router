@@ -29,7 +29,8 @@
                     "preflight",
                     "status",
                     "check_lan_conflict",
-                    "install_progress"
+                    "install_progress",
+                    "diagnostics"
                 ]
             }
         },
@@ -45,9 +46,12 @@
                     "set_dns_provider",
                     "install_full_tier",
                     "switch_to_reality",
+                    "switch_to_hysteria2",
                     "switch_to_awg",
                     "replace_awg_conf",
                     "replace_reality_conf",
+                    "replace_hysteria2_conf",
+                    "install_token",
                     "factory_reset"
                 ]
             }

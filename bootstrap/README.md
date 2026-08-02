@@ -2,7 +2,7 @@
 
 Один скрипт `bootstrap.sh` (~50 строк POSIX/busybox): ставит kmod-amneziawg через
 [awg-openwrt](../vendor/README.md), ставит пакет cheburnet из наших GitHub Releases
-(`--allow-untrusted`) и печатает URL веб-мастера + install-токен. Архитектура — [docs/v2/architecture/bootstrap.md](../docs/v2/architecture/bootstrap.md).
+(`--allow-untrusted`) и печатает URL веб-мастера + install-токен. Архитектура — [docs/kb/architecture/bootstrap.md](../docs/kb/architecture/bootstrap.md).
 
 **Намеренно тонкий.** Вся хрупкая логика (preflight, шаги, rollback) — в [движке на ucode](../engine/),
 а не здесь. Это нормально и не противоречит уходу от bash: убираем bash из *логики*, а не из

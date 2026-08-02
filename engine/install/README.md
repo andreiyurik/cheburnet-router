@@ -1,6 +1,6 @@
 # engine/install — установочный оркестратор
 
-Связывает кирпичи надёжности в один поток ([reliability](../../docs/v2/architecture/reliability.md)):
+Связывает кирпичи надёжности в один поток ([reliability](../../docs/kb/architecture/reliability.md)):
 
 ```
 preflight → snapshot UCI → шаги по порядку → health-check → commit / rollback
@@ -50,15 +50,32 @@ echo '{"awg_conf":"<...>","domains":["example.com"],"routing_opts":{"wan_if":"et
 ucode -R engine/install/run.uc --dry-run < install.json   # показать план без изменений
 ```
 
-Вход: `{ awg_conf, root_password, ssid, wifi_key, domains, routing_opts{wan_if,...},
-disable:[шаги], ... }`. Домены обычно готовит [list](../list/) (user + community); awg_conf,
-пароли и SSID приносит пользователь (через ubus-payload 600 — содержит секреты).
+Вход: `{ protocol, <conf_key>, root_password, ssid, wifi_key, domains, routing_opts{wan_if,...},
+disable:[шаги], ... }`, где `protocol` ∈ `awg` | `reality` | `hysteria2`, а конфиг лежит под ключом
+этого протокола (`awg_conf` / `reality_conf` / `hysteria2_conf` — соответствие задаёт `PROTOCOLS` в
+[install.uc](install.uc), см. `tunnel_conf`). Домены обычно готовит [list](../list/)
+(user + community); конфиг туннеля, пароли и SSID приносит пользователь (через ubus-payload 600 —
+содержит секреты).
 
 ## Соседние оркестраторы (router-side, QEMU)
 
 - **`replace_vpn.uc`** — замена AWG-конфига без переустановки: snapshot → vpn-шаг → ждать
   **свежий** handshake (новее старта, до 30 с) → commit / restore (авто-rollback: пользователь
   не остаётся без туннеля). Запускает ubus-метод `replace_awg_conf` (фон+poll).
+- **`replace_singbox.uc`** — то же для Full-тира, ОДИН скрипт на оба протокола (у Reality и
+  Hysteria2 общий `config.json`, общий шаг и общая проба): бэкап `config.json` → snapshot →
+  singbox-шаг → connectivity-probe через туннель (до 30 с) → commit / restore. `config.json`
+  бэкапим руками: uci-снимок внешний файл не покрывает. Запускают методы `replace_reality_conf` /
+  `replace_hysteria2_conf`.
+- **`install-singbox.sh`** — догрузка бинаря Full-тира (`sing-box-tiny` → `sing-box`, критерий
+  успеха = появился бинарь). Зовётся кнопкой `install_full_tier` и самим `run.uc` первым шагом,
+  когда выбран Full-протокол, а бинаря нет: до snapshot, поэтому провал = чистый abort.
+- **`reapply.uc`** — вернуть runtime-часть data-plane (policy-routing) из сохранённой
+  конфигурации. Зовётся hotplug-хуком при подъёме WAN (перезагрузка роутера, реконнект канала) и
+  самим `run.uc` при откате поверх рабочей системы — ОДНА реализация на оба случая, иначе
+  «после ребута иначе, чем после отката». WAN определяет заново (шлюз мог смениться), на
+  ненастроенном роутере молчит. Причина существования — в README шага firewall: nft-часть ребут
+  переживает, ip-часть нет.
 - **`reset.uc`** — полный teardown cheburnet-конфигурации: firewall `--teardown` (nft/ip +
   NAT-зона), семейный режим off, наши uci-секции (network/dhcp/https-dns-proxy), `/etc/cheburnet`.
   «Что считать нашим» НЕ хардкодит — имена приходят из шагов-владельцев (`vpn.owned_sections`,
@@ -68,7 +85,9 @@ disable:[шаги], ... }`. Домены обычно готовит [list](../l
 
 ## Границы
 
-- **health-check** минимальный (DNS резолвится + awg-handshake) — расширяемо.
+- **health-check** минимальный: DNS резолвится + туннель готов. Чем мерить туннель, решает
+  протокол (`uses_singbox`): у AWG — свежий handshake, у Full-тира — connectivity-probe через TUN
+  ([probe.uc](probe.uc)). Расширяемо.
 - Вызов оркестраторов из web — задача **ubus-обработчика**.
 
 ## Тесты

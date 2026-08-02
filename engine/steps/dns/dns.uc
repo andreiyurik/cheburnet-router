@@ -1,16 +1,8 @@
 // dns.uc — идемпотентный DNS-шаг: секции `config ipset` в /etc/config/dhcp + noresolv.
-//
-// Это мост [[dns-and-routing|домен → IP → set]]: dnsmasq на резолве кладёт IP direct-доменов
-// в nft-сет (см. dnsmasq-nftset). Найдено на живом OpenWrt 25.12: init-скрипт dnsmasq
-// НЕ читает `list nftset` из секции dnsmasq — nftset-строки он собирает ТОЛЬКО из секций
-// `config ipset` (name/domain/family), всё прочее молча игнорируется. Поэтому пишем
-// именованные ipset-секции. family задаём явно: без него init выводит семейство через
-// `nft list set`, а на свежей установке наших сетов ещё нет (firewall-шаг идёт после dns) —
-// вывод молча проваливается и nftset-строка выходит без семейства.
+// Мост [[dns-and-routing|домен → IP → set]] — механика nftset: [[dnsmasq-nftset]].
 //
 // ЧИСТОЕ ЯДРО: build_dns_plan(routing_plan, current, opts) → список uci-операций.
-// Идемпотентность: желаемая секция совпала с текущей → не трогаем; всё совпало → пустой
-// план → no-op. Свои секции узнаём по именам (owned_sections) — чужие ipset-секции не трогаем.
+// Идемпотентность: желаемая секция совпала с текущей → не трогаем; всё совпало → no-op.
 
 const DNS_DEFAULTS = {
 	sect4: "cheburnet_dns4", // именованная ipset-секция для v4-сета
@@ -33,8 +25,8 @@ function owned_sections(opts) {
 	return [ o.sect4, o.sect6 ];
 }
 
-// same_section(cur, want) — текущее состояние секции уже совпадает с желаемым?
-// Сравниваем name/domain (порядок значим — оба детерминированы) и family.
+// same_section(cur, want) → bool. name/domain сравниваются как строки — порядок значим,
+// но оба источника детерминированы.
 function same_section(cur, want) {
 	if (!cur || !want)
 		return !cur && !want;
@@ -56,6 +48,8 @@ function section_ops(sect, want, ro, exists) {
 	push(ops, sprintf("set dhcp.%s=ipset", sect));
 	push(ops, sprintf("set dhcp.%s.table='%s'", sect, ro.fw_table));
 	push(ops, sprintf("set dhcp.%s.table_family='%s'", sect, ro.family));
+	// Платформенный квирк: family задаём явно — иначе init выводит его через `nft list set`,
+	// а на свежей установке сета ещё нет (firewall-шаг идёт после dns). Подробно: [[dnsmasq-nftset]].
 	push(ops, sprintf("set dhcp.%s.family='%s'", sect, want.family));
 	for (let i = 0; i < length(want.name); i++)
 		push(ops, sprintf("add_list dhcp.%s.name='%s'", sect, want.name[i]));

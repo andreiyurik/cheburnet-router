@@ -4,24 +4,22 @@
 //   cat vless.txt | ucode -R apply.uc --dry-run    # только показать артефакты
 //   ucode -R apply.uc --teardown                   # снять (выключить сервис, убрать конфиг)
 //
-// Запись config.json → uci-включение сервиса → рестарт sing-box. TUN-интерфейс поднимет сам
-// sing-box; маршрутизацию в него навешивает firewall-шаг (как для awg0). Логика плана — под
-// юнит-тестами (singbox/tests); живой стек (реальный sing-box + Reality-сервер) — QEMU/железо.
-// Битый/неполный вход → plan.ok=false → отказ без изменений (граница доверия — вход юзера).
+// Запись config.json → uci-включение сервиса → рестарт sing-box; маршрутизацию в TUN навешивает
+// firewall-шаг. Логика плана — юнит-тесты (singbox/tests); живой стек — QEMU/железо.
 
 import { stdin, popen } from "fs";
 import { build_singbox_plan, build_net_plan, config_path, service_name, network_sections } from "./singbox.uc";
+import { pick_wan_fallback } from "../../lib/route.uc";
 import { sh, uci_batch } from "../../lib/proc.uc";
 
 let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
 let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
-// config.json: env-override пути для host-тестов в sandbox — тот же env читают run.uc и
-// replace_reality.uc (все слои пишут/бэкапят ОДИН файл и в тесте, и в бою). Без env — дефолт плана.
+// SB_CONFIG: env-override пути config.json, тот же читают run.uc и replace_singbox.uc —
+// все слои должны писать/бэкапить ОДИН файл. Без env — дефолт плана.
 const SB_OPTS = getenv("SB_CONFIG") ? { config_path: getenv("SB_CONFIG") } : {};
 
-// writefile(path, text) — атомарная запись через tmp+rename (config.json не должен читаться
-// полу-записанным). Каталог /etc/sing-box создаёт пакет; на всякий случай mkdir -p.
+// writefile(path, text) → атомарная запись файла (tmp + rename).
 function writefile(path, text) {
 	let dir = replace(path, /\/[^\/]+$/, "");
 	let m = popen(sprintf("mkdir -p '%s'", dir), "r"); if (m) m.close();
@@ -41,8 +39,8 @@ if (teardown) {
 	let name = service_name({});
 	svc("stop", name);
 	svc("disable", name);
-	// Снять netifd-маршрут: ifdown интерфейса + удалить наши секции network (иначе остаётся
-	// half-route в мёртвый TUN → LAN без интернета). Отсутствие секций — норма (уже снято).
+	// ИНВАРИАНТ: ifdown ДО удаления секций network — иначе netifd оставляет half-route
+	// в мёртвый TUN, и LAN лишается интернета.
 	sh(sprintf("ifdown %s >/dev/null 2>&1", network_sections({})[0]));
 	let nsects = network_sections({});
 	let nops = [];
@@ -64,6 +62,31 @@ if (!plan.ok) {
 	exit(1);
 }
 
+// ИНВАРИАНТ: перед стартом в main-таблице обязан быть WAN-дефолт мимо ОБОИХ туннелей (свой TUN
+// и awg0) — auto_detect_interface иначе не может дозвониться до сервера. Ждём с ретраями, а не
+// проверяем однократно: ifdown/ifup у netifd асинхронные. Подробно (инцидент): [[0004-multi-protocol-tiers]].
+const TUNNEL_IFS = [ "awg0" ];   // + свой TUN добавляем ниже: он известен из плана
+function wan_ready(tun) {
+	let skip = [ tun ];
+	for (let i = 0; i < length(TUNNEL_IFS); i++) push(skip, TUNNEL_IFS[i]);
+	return pick_wan_fallback(sh("ip -4 route show default 2>/dev/null"), skip) != null;
+}
+if (!dry) {
+	let ok_wan = false;
+	for (let i = 0; i < 10; i++) {
+		if (wan_ready(plan.tun)) { ok_wan = true; break; }
+		// Владелец WAN-маршрута — netifd; просим его переустановить, а не правим таблицу сами.
+		if (i == 0)
+			sh("ifup wan >/dev/null 2>&1");
+		sh("sleep 1");
+	}
+	if (!ok_wan) {
+		warn("singbox: в main-таблице нет маршрута по умолчанию мимо туннелей — sing-box не сможет дозвониться до сервера\n");
+		warn("singbox: проверьте WAN (uci show network.wan; ip route show default) — шаг не применён, туннель не тронут\n");
+		exit(1);
+	}
+}
+
 let config_text = sprintf("%J\n", plan.config);
 
 if (dry) {
@@ -76,7 +99,23 @@ if (dry) {
 	exit(0);
 }
 
-writefile(plan.config_path, config_text);
+// ИНВАРИАНТ: конфиг гоняем через `sing-box check` ДО того, как он станет живым — семантику
+// (в отличие от структуры) знает только бинарь. Подробно (инцидент): [[0004-multi-protocol-tiers]].
+// Гейт по наличию бинаря: в dry-run/host-тестах sing-box может отсутствовать — тогда health-check
+// поймает проблему позже, но валить шаг здесь не за что.
+let staged = plan.config_path + ".check";
+writefile(staged, config_text);
+if (trim(sh("command -v sing-box 2>/dev/null")) != "") {
+	let chk = sh(sprintf("sing-box check -c '%s' 2>&1; echo __rc=$?", staged));
+	let m = match(chk, /__rc=([0-9]+)/);
+	if (!m || m[1] != "0") {
+		sh(sprintf("rm -f '%s'", staged));
+		warn("singbox: sing-box отверг сгенерированный конфиг — шаг не применён, туннель не тронут\n");
+		warn(trim(replace(chk, /__rc=[0-9]+\s*$/, "")) + "\n");
+		exit(1);
+	}
+}
+sh(sprintf("mv '%s' '%s'", staged, plan.config_path));
 
 // teardown по одному с глушением (отсутствие секции — норма), затем setup атомарно.
 for (let i = 0; i < length(plan.uci_teardown); i++) {
@@ -87,8 +126,7 @@ let rc = uci_batch(plan.uci_setup, "sing-box");
 if (rc != 0)
 	die(sprintf("singbox/apply: uci batch (sing-box) вернул %d", rc));
 
-// netifd-маршрут в туннель (отдельный конфиг network). teardown с глушением, setup — с проверкой rc:
-// молча упавший batch = нет маршрута в туннель под видом успеха (тот же урок, что dns/doh/vpn).
+// netifd-маршрут (отдельный конфиг network): setup — с проверкой rc, тот же урок, что dns/doh/vpn.
 for (let i = 0; i < length(plan.net_teardown); i++) {
 	let p = popen(sprintf("uci -q %s", plan.net_teardown[i]), "r");
 	if (p) p.close();

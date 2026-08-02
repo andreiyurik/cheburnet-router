@@ -3,10 +3,8 @@
 //   echo '{"domains":["example.com"]}' | ucode -R apply.uc            # применить
 //   echo '{"domains":["example.com"]}' | ucode -R apply.uc --dry-run  # только показать план
 //
-// Читает ТЕКУЩЕЕ состояние наших ipset-секций и dnsmasq из uci, строит план (чистое ядро
-// dns.uc) и применяет его через `uci batch` + commit, затем перезагружает dnsmasq. Импурную
-// часть (uci/init.d) проверяем в QEMU, не юнитами — логика плана под юнит-тестами (dns/tests).
-// Идемпотентно: пустой план → ничего не делаем и не дёргаем dnsmasq зря.
+// Читает текущее состояние из uci, строит план чистым ядром (dns.uc), применяет через
+// `uci batch` + commit, перезагружает dnsmasq. Импурная часть — QEMU; логика плана — dns/tests.
 
 import { stdin } from "fs";
 import { sh, uci_batch } from "../../lib/proc.uc";
@@ -59,9 +57,8 @@ if (dry) {
 	exit(0);
 }
 
-// Применяем через общий uci_batch + commit, затем перезагружаем dnsmasq. rc проверяем:
-// молча упавший batch = полуприменённый конфиг под видом успеха (урок doh/QEMU). Сам процесс
-// `uci batch` выходит 0 даже на ошибках — uci_batch (lib/proc.uc) ловит их по выводу.
+// rc проверяем: молча упавший batch = полуприменённый конфиг под видом успеха. Платформенный
+// квирк `uci batch` (exit 0 даже на ошибках) разобран в lib/proc.uc:uci_batch.
 let rc = uci_batch(plan.ops, "dhcp");
 if (rc != 0)
 	die(sprintf("dns/apply: uci batch упал (код %d)", rc));

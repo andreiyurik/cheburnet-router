@@ -1,0 +1,841 @@
+<script>
+  import { onDestroy } from 'svelte';
+  import { cheburnet, login, isLoggedIn, logout } from '../ubus.js';
+  import { hs, FORCED_LABELS, heroKind, tunnelFallback, switchTargets, tunnelRowText,
+           explainFullTierFail, fullMissingText, protocolInfo, checkConf, BRUTAL_WARNING,
+           withDeclaredSpeed, SPEED_DEFAULTS, SUPPORT } from '../logic.js';
+
+  // onReinstall — запустить мастер заново (с preflight).
+  let { onReinstall } = $props();
+
+  let s = $state(null);
+  let error = $state('');
+  // Панель делает восемь разных вещей; развёрнуто по умолчанию только то, ради чего сюда заходят
+  // («работает ли?» и перезапуск). Остальное — свёрнуто, но открывается само, когда hero ведёт
+  // в блок ссылкой: иначе якорь прыгал бы в закрытый <details>.
+  let tunnelOpen = $state(false);
+  let dangerOpen = $state(false);
+  let action = $state(''); // текст результата/ошибки управляющего действия
+  // Где показать это сообщение. Одно место на всю страницу означало, что результат нажатия
+  // верхней кнопки появлялся через два экрана вниз — человек его просто не видел. Каждое
+  // сообщение печатается у той группы кнопок, которая его вызвала.
+  let actionScope = $state('manage'); // manage | restart | dns | replace | switch | full | danger
+  let busy = $state(false);
+  // Замена сервера АКТИВНОГО туннеля: одно поле, метод и подпись — из каталога протоколов.
+  let replaceConf = $state('');
+  let replacePhase = $state('idle'); // idle | running | ok | fail
+  let replaceLog = $state('');
+  let resetWord = $state('');
+  let resetArmed = $state(false);
+  let fullPhase = $state('idle'); // догрузка компонента: idle | running | ok | fail
+  let fullLog = $state('');
+  // Смена туннеля: конфиги хранятся ПО ПРОТОКОЛАМ (переключение выбора не теряет вставленное).
+  let switchConfs = $state({ awg: '', reality: '', hysteria2: '' });
+  // switchPick — ВЫБРАННОЕ направление (радио), switchTarget — то, что уже переключается.
+  // Раньше блоков было по одному на протокол: три похожих поля для ссылок на одной странице, и
+  // вставить в чужое — обычное дело. Теперь как в мастере: сначала выбор по симптому, потом одно поле.
+  let switchPick = $state('');
+  let switchTarget = $state('');  // направление текущего свитча
+  let switchPhase = $state('idle');
+  let switchLog = $state('');
+  // Скорость канала для Hysteria2 (Brutal). По умолчанию — автоматически (BBR): см. logic.js.
+  let declareSpeed = $state(false);
+  let speedDown = $state(SPEED_DEFAULTS.down);
+  let speedUp = $state(SPEED_DEFAULTS.up);
+  let timer = null;
+  let replaceTimer = null;
+  let fullTimer = null;
+  let switchTimer = null;
+
+  // Вход (admin-сессия root).
+  let loggedIn = $state(isLoggedIn());
+  let loginOpen = $state(false);
+  let loginPass = $state('');
+  let loginError = $state('');
+  let loginAttempts = $state(0);
+
+  async function refresh() {
+    try {
+      s = await cheburnet('status');
+      if (!providerSel && s.dns_provider) providerSel = s.dns_provider;
+      error = '';
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  // Управляющие действия — admin-методы. Без сессии (или с протухшей) ubus отдаёт
+  // PERMISSION_DENIED — открываем модалку входа, а не показываем голую ошибку.
+  async function admin(label, fn, scope = 'manage') {
+    busy = true;
+    action = '';
+    actionScope = scope;
+    try {
+      await fn();
+      // Само действие могло сообщить конкретику («Список обновлён: N доменов») — не затираем её
+      // безликим «готово». Раньше затирало, и счётчик доменов, который для этого и считался,
+      // до экрана не доезжал.
+      if (action === '') action = `${label} — готово.`;
+      await refresh();
+    } catch (e) {
+      if (e.message.includes('PERMISSION_DENIED')) {
+        logout(); // протухшую сессию выбрасываем
+        loggedIn = false;
+        loginOpen = true;
+        action = `${label}: нужен вход — введите пароль роутера.`;
+      } else {
+        action = `${label}: ${e.message}`;
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
+  // needLogin(e, what) — общая обработка PERMISSION_DENIED для фоновых операций (они не идут
+  // через admin(), потому что там свой поллинг прогресса).
+  function needLogin(e, what, scope = 'manage') {
+    busy = false;
+    actionScope = scope;
+    if (e.message.includes('PERMISSION_DENIED')) {
+      logout(); loggedIn = false; loginOpen = true;
+      action = `${what}: нужен вход — введите пароль роутера.`;
+    } else {
+      action = `${what}: ${e.message}`;
+    }
+  }
+
+  async function doLogin() {
+    loginError = '';
+    try {
+      await login(loginPass);
+      loggedIn = true;
+      loginOpen = false;
+      loginPass = '';
+      loginAttempts = 0;
+      actionScope = 'manage';
+      action = 'Вход выполнен — повторите действие.';
+    } catch (e) {
+      loginAttempts += 1;
+      loginPass = '';
+      // Попытки считаем и показываем, но НЕ блокируем поле: опечатка не должна стоить перезагрузки
+      // страницы. Защита от перебора здесь всё равно не наша — пароль проверяет rpcd.
+      loginError = `Пароль не подошёл (попытка ${loginAttempts}). Нужен пароль роутера, заданный при установке.`;
+    }
+  }
+
+  function doLogout() {
+    logout();
+    loggedIn = false;
+    actionScope = 'manage';
+    action = 'Вы вышли — управление снова требует входа.';
+  }
+
+  const setMode = (mode) => admin(`Режим ${mode}`, () => cheburnet('set_mode', { mode }));
+  const updateList = () =>
+    admin('Обновление списка', async () => {
+      const r = await cheburnet('update_list');
+      action = `Список обновлён: ${r.direct_domains} доменов.`;
+    });
+  const restart = (service, label) =>
+    admin(`Перезапуск: ${label}`, () => cheburnet('service_restart', { service }), 'restart');
+  // DNS-провайдер = уровень фильтрации (реклама/семейный/без). Выбор из каталога (status.dns_providers).
+  let providerSel = $state('');
+
+  // Главный сигнал панели и запасной путь — чистые функции (logic.js, под vitest). hero знает,
+  // ЧЕМ мерить каждый протокол; fallback — куда вести, если активный туннель не поднимается.
+  const hero = $derived(heroKind(s));
+  const active = $derived(protocolInfo(s?.protocol));
+  const fallback = $derived(tunnelFallback(s));
+  const targets = $derived(switchTargets(s));
+  // Выбранное направление смены туннеля. Эффект, а не $derived: значение принадлежит радио
+  // (пользователь его меняет), а список вариантов приходит асинхронно и меняется после каждого
+  // переключения — активный протокол из targets уходит. Досеиваем на первый доступный, чтобы поле
+  // ссылки и кнопка никогда не остались без протокола.
+  $effect(() => {
+    if (targets.length > 0 && !targets.some((p) => p.id === switchPick)) switchPick = targets[0].id;
+  });
+  const pick = $derived(protocolInfo(switchPick));
+  // Чего не хватает железу для Full-тира (status.full_missing) — человеческими словами.
+  const fullMissing = $derived(fullMissingText(s?.full_missing));
+  const setProvider = () =>
+    admin(`DNS-провайдер: ${providerSel}`, () => cheburnet('set_dns_provider', { provider: providerSel }), 'dns');
+
+  // Загрузка .conf файлом (только у AmneziaWG — ссылку файлом не приносят).
+  async function onReplaceFile(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    replaceConf = await f.text();
+  }
+  async function onSwitchFile(e, id) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    switchConfs[id] = await f.text();
+  }
+
+  // Диагностика для поддержки: пакет собирает роутер (логи + состояние + версии) с ВЫРЕЗАННЫМИ
+  // секретами. Показываем его на экране ДО скачивания — обещание «мы всё вычистили» человек может
+  // проверить только глазами, и это единственный честный способ его дать.
+  let diagText = $state('');
+  let diagRemoved = $state([]);
+  let diagPhase = $state('idle'); // idle | running | ok | fail
+  async function collectDiagnostics() {
+    diagPhase = 'running';
+    actionScope = 'support';
+    action = '';
+    try {
+      const r = await cheburnet('diagnostics');
+      diagText = r.text ?? '';
+      diagRemoved = r.removed ?? [];
+      diagPhase = 'ok';
+    } catch (e) {
+      diagPhase = 'fail';
+      needLogin(e, 'Сбор диагностики', 'support');
+    }
+  }
+  // Скачивание через Blob: работает по http без сервера-помощника (панель отдаётся с роутера).
+  function downloadDiagnostics() {
+    const blob = new Blob([diagText], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cheburnet-диагностика.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // hy2Conf(id, conf) — ссылка Hysteria2 с объявленной скоростью, если владелец её включил.
+  // Для остальных протоколов — как есть.
+  function hy2Conf(id, conf) {
+    return (id === 'hysteria2' && declareSpeed)
+      ? withDeclaredSpeed(conf, speedDown, speedUp)
+      : conf;
+  }
+
+  // Замена сервера активного туннеля: метод и имя аргумента — из каталога протоколов, поэтому
+  // третий протокол не потребовал третьей копии этой функции. Фон+poll — общий канал
+  // install_progress (тот же, что у установки).
+  async function replaceTunnel() {
+    const conf = replaceConf.trim();
+    actionScope = 'replace';
+    // Формат сверяем ДО вызова: замена — фоновая операция со снимком и откатом, и ссылка,
+    // вставленная вместо .conf, стоила бы человеку полного цикла ожидания.
+    const bad = checkConf(active.id, conf);
+    if (bad) {
+      action = bad;
+      return;
+    }
+    busy = true;
+    action = '';
+    replaceLog = '';
+    try {
+      await cheburnet(active.replaceMethod, { [active.confKey]: hy2Conf(active.id, conf) });
+      replacePhase = 'running';
+      replaceTimer = setInterval(pollReplace, 2000);
+    } catch (e) {
+      needLogin(e, 'Замена конфига', 'replace');
+    }
+  }
+
+  async function pollReplace() {
+    try {
+      const p = await cheburnet('install_progress');
+      replaceLog = p.log ?? '';
+      if (p.done) {
+        clearInterval(replaceTimer);
+        replaceTimer = null;
+        busy = false;
+        actionScope = 'replace';
+        if (p.result === 'ok') {
+          replacePhase = 'ok';
+          replaceConf = '';
+          action = `Новый сервер применён (${active.name}) — трафик идёт через туннель.`;
+        } else {
+          replacePhase = 'fail';
+          // Честный намёк на случай, когда виноват не сервер, а сеть — иначе пользователь меняет
+          // один конфиг на другой по кругу без понимания, почему все падают.
+          action = 'Новый сервер тоже не отозвался — прежний возвращён автоматически. Проверьте, что '
+            + 'конфиг свежий и сервер жив. Если несколько серверов подряд не работают, дело, скорее '
+            + 'всего, не в них: попробуйте другой туннель — блок «Сменить туннель» ниже.';
+        }
+        await refresh();
+      }
+    } catch {
+      // единичный сбой поллинга не валим — следующий тик повторит
+    }
+  }
+
+  // obtainToken() — install-токен для мастера: движок отдаёт существующий или выпускает новый
+  // (install_token, admin). Нужен и после сброса, и для «Настроить заново»: успешная установка
+  // токен снимает как одноразовый, поэтому без этого шага мастер доходил до последней кнопки и
+  // получал «токен не найден — запустите bootstrap по SSH». Пусто → ссылку не выдумываем.
+  async function obtainToken() {
+    try {
+      const t = await cheburnet('install_token');
+      return t.token ?? '';
+    } catch (e) {
+      needLogin(e, 'Повторная настройка', 'danger');
+      return '';
+    }
+  }
+
+  // «Настроить заново» из панели: сначала токен, потом мастер — иначе человек заполнит все поля и
+  // упрётся в отказ на последнем шаге. Без токена мастер всё равно откроем (там честно скажут,
+  // что делать), но пробовать получить его обязаны.
+  async function reinstall() {
+    const t = await obtainToken();
+    if (t) {
+      location.search = `?token=${encodeURIComponent(t)}`;
+      return;
+    }
+    onReinstall();
+  }
+
+  // Factory reset: двойное подтверждение — ввод слова RESET руками. Ждём ЗАВЕРШЕНИЯ (тот же
+  // канал install_progress, что у остальных фоновых операций): раньше панель говорила «запущен» и
+  // на этом заканчивала, а человек оставался наедине с роутером в промежуточном состоянии.
+  let resetPhase = $state('idle'); // idle | running | ok | fail
+  let resetToken = $state('');
+  let resetTimer = null;
+  // Движок принимает ровно "RESET" (регистр важен) — панель приводит ввод сама: осознанность даёт
+  // набранное руками слово, а не раскладка Shift'а. Иначе «reset» оставлял кнопку серой молча.
+  const resetOk = $derived(resetWord.trim().toUpperCase() === 'RESET');
+  const factoryReset = () =>
+    admin('Сброс cheburnet', async () => {  // scope 'danger' — сообщение остаётся в опасной зоне
+      await cheburnet('factory_reset', { confirm: resetWord.trim().toUpperCase() });
+      action = 'Снимаю конфигурацию — роутер вернётся к обычной маршрутизации.';
+      resetWord = '';
+      resetArmed = false;
+      resetPhase = 'running';
+      resetTimer = setInterval(pollReset, 2000);
+    }, 'danger');
+
+  async function pollReset() {
+    try {
+      const p = await cheburnet('install_progress');
+      if (!p.done) return;
+      clearInterval(resetTimer); resetTimer = null;
+      actionScope = 'danger';
+      if (p.result === 'ok') {
+        resetPhase = 'ok';
+        action = 'Готово: конфигурация cheburnet снята, роутер вернулся к обычной маршрутизации.';
+        resetToken = await obtainToken();
+      } else {
+        resetPhase = 'fail';
+        action = 'Сброс завершился с ошибкой — часть настройки могла остаться. '
+          + 'Соберите диагностику (блок «Если что-то не работает») и пришлите её.';
+      }
+      await refresh();
+    } catch { /* единичный сбой поллинга — следующий тик повторит */ }
+  }
+
+  refresh();
+  // 15 с, не чаще: каждый опрос — это спавн rpcd-скрипта + shell-батч на роутере (слабое железо).
+  timer = setInterval(refresh, 15000);
+  onDestroy(() => {
+    if (timer) clearInterval(timer);
+    if (replaceTimer) clearInterval(replaceTimer);
+    if (fullTimer) clearInterval(fullTimer);
+    if (switchTimer) clearInterval(switchTimer);
+    if (resetTimer) clearInterval(resetTimer);
+  });
+
+  // In-place смена туннеля: приносим только конфиг нового туннеля, домены/DNS берутся из
+  // сохранённого (мастер не проходим). run.uc делает snapshot → teardown прежнего → apply → health
+  // → commit/rollback, прогресс — тот же канал install_progress. При сбое ПРЕЖНИЙ туннель
+  // возвращается автоматически. Одна функция на все шесть переходов — метод берём из каталога.
+  async function switchTo(p) {
+    const conf = (switchConfs[p.id] ?? '').trim();
+    actionScope = 'switch';
+    const bad = checkConf(p.id, conf);
+    if (bad) {
+      action = bad;
+      return;
+    }
+    switchTarget = p.id;
+    busy = true; action = ''; switchLog = '';
+    try {
+      await cheburnet(p.switchMethod, { [p.confKey]: hy2Conf(p.id, conf) });
+      switchPhase = 'running';
+      switchTimer = setInterval(pollSwitch, 2000);
+    } catch (e) {
+      needLogin(e, 'Переключение', 'switch');
+    }
+  }
+
+  async function pollSwitch() {
+    try {
+      const p = await cheburnet('install_progress');
+      switchLog = p.log ?? '';
+      if (p.done) {
+        clearInterval(switchTimer); switchTimer = null; busy = false;
+        actionScope = 'switch';
+        const to = protocolInfo(switchTarget).name;
+        const from = active.name;
+        if (p.result === 'ok') {
+          switchPhase = 'ok';
+          switchConfs[switchTarget] = '';
+          action = `Переключено на ${to} — туннель работает.`;
+        } else {
+          switchPhase = 'fail';
+          action = `Не удалось поднять ${to} — прежний туннель (${from}) возвращён автоматически. `
+            + 'Проверьте, что конфиг вставлен целиком и сервер жив.';
+        }
+        await refresh();
+      }
+    } catch { /* единичный сбой поллинга — следующий тик повторит */ }
+  }
+
+  // Full-тир (opt-in): кнопка догружает компонент sing-box фоном. Прогресс — тот же канал
+  // install_progress. Работающий туннель при этом не трогается (ставим только пакет).
+  async function enableFullTier() {
+    busy = true; action = ''; fullLog = '';
+    try {
+      await cheburnet('install_full_tier');
+      fullPhase = 'running';
+      fullTimer = setInterval(pollFull, 2000);
+    } catch (e) {
+      needLogin(e, 'Установка запасного туннеля', 'full');
+    }
+  }
+
+  async function pollFull() {
+    try {
+      const p = await cheburnet('install_progress');
+      fullLog = p.log ?? '';
+      if (p.done) {
+        clearInterval(fullTimer); fullTimer = null; busy = false;
+        actionScope = 'full';
+        if (p.result === 'ok') {
+          fullPhase = 'ok';
+          action = 'Компонент установлен. Ниже появился блок «Сменить туннель» — вставьте туда ссылку от вашего сервера.';
+        } else {
+          fullPhase = 'fail';
+          // Причина из движка (install-singbox.sh пишет REASON_FILE): совет «проверьте интернет»
+          // на забитом флеше отправлял чинить не то, а компонент реально может не влезть.
+          action = explainFullTierFail(p.reason);
+        }
+        await refresh();
+      }
+    } catch { /* единичный сбой поллинга — следующий тик повторит */ }
+  }
+</script>
+
+<!-- Результат действия печатается только у той группы кнопок, которая его вызвала (actionScope).
+     Одно место на всю страницу означало, что итог нажатия верхней кнопки появлялся под опасной
+     зоной — то есть там, куда человек не смотрит. -->
+{#snippet actionNote(scope)}
+  {#if action && actionScope === scope}<p class="muted">{action}</p>{/if}
+{/snippet}
+
+<!-- Скорость канала (Brutal) — сниппет, потому что рендерится РЯДОМ С ПОЛЕМ, к которому относится:
+     в замене сервера, если Hysteria2 уже активен, и в смене туннеля, если на него переключаются.
+     Раньше блок стоял единожды в конце страницы — то есть НИЖЕ кнопок, которые его применяют, и
+     человек нажимал раньше, чем узнавал о настройке. Оба места одновременно не выпадают: активный
+     протокол в targets не попадает, поэтому общее состояние declareSpeed однозначно.
+     Поле не голое сознательно: завышенная цифра делает связь ХУЖЕ и молча (см. ADR 0004). -->
+{#snippet speedFields()}
+  <h4>Скорость канала</h4>
+  <label class="radio">
+    <input type="radio" bind:group={declareSpeed} value={false} disabled={busy} />
+    <span><strong>Подбирать автоматически</strong> — рекомендуем.</span>
+  </label>
+  <label class="radio">
+    <input type="radio" bind:group={declareSpeed} value={true} disabled={busy} />
+    <span><strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями.</span>
+  </label>
+  {#if declareSpeed}
+    <p class="warn">{BRUTAL_WARNING}</p>
+    <label>
+      <span>Скорость приёма (Мбит/с)</span>
+      <input type="number" min="1" max="10000" bind:value={speedDown} disabled={busy} />
+    </label>
+    <label>
+      <span>Скорость отдачи (Мбит/с)</span>
+      <input type="number" min="1" max="10000" bind:value={speedUp} disabled={busy} />
+    </label>
+  {/if}
+{/snippet}
+
+<section>
+  <h2>Состояние</h2>
+
+  {#if error}<p class="warn">{error}</p>{/if}
+
+  {#if s}
+    <!-- Hero-статус: с ОДНОГО взгляда «всё работает / есть проблема + что делать». Здоровье
+         туннеля даёт движок (status.tunnel_health) — он знает, чем мерить активный протокол;
+         панель лишь подбирает формулировку и путь к починке (якоря блоков ниже). -->
+    {#if hero === 'down'}
+      <p class="banner">
+        <strong>⚠️ Туннель не работает ({active.name}).</strong> Открываются только сайты из
+        списка «напрямую». Попробуйте кнопку «Туннель» в «Перезапуске сервисов»; не помогло —
+        <a href="#replace-tunnel" onclick={() => (tunnelOpen = true)}>вставьте свежий конфиг</a>.
+      </p>
+      <!-- Ведём к запасному пути ровно в тот момент, когда он нужен, а не прячем его в конце
+           страницы. ВАЖНО: с AmneziaWG предлагаем именно VLESS+Reality. Hysteria2 работает по
+           UDP, как и AmneziaWG, поэтому сеть, которая режет UDP, ломает их вместе — предлагать
+           его как замену «не открывается вообще» значило бы посылать человека по кругу. -->
+      {#if fallback?.action === 'install'}
+        <p class="note">
+          Не помог и свежий конфиг? Похоже, сеть режет сам протокол AmneziaWG (он работает по UDP).
+          Тогда помогает <a href="#full-tier" onclick={() => (tunnelOpen = true)}>добавить
+          VLESS+Reality</a> — снаружи он выглядит как обычный HTTPS. AmneziaWG никуда не денется.
+        </p>
+      {:else if fallback?.action === 'switch'}
+        <p class="note">
+          Не помог и свежий конфиг? Значит дело, скорее всего, не в сервере, а в сети — попробуйте
+          другой туннель:
+          <!-- Ссылка не только ведёт к блоку, но и ВЫБИРАЕТ там нужный туннель: человек попадает
+               на готовое поле, а не выбирает второй раз то, что уже выбрал здесь. href оставлен
+               настоящим (работает и без JS, и как обычная ссылка на якорь). -->
+          {#each fallback.targets as t, i}{#if i > 0}, {/if}<a href="#switch-tunnel"
+            onclick={() => { switchPick = t; tunnelOpen = true; }}>{protocolInfo(t).name}</a>{/each}.
+          Если новый не поднимется, прежний вернётся сам.
+        </p>
+      {/if}
+    {:else if hero === 'up' && active.full}
+      <!-- Формулировка слабее, чем у AWG, ОСОЗНАННО: у Full-протоколов нет рукопожатия — мы видим,
+           что туннель поднят, но не что сервер отвечает. Не обещаем «всё работает». -->
+      <p class="ok-msg">✅ {active.name} активен: трафик идёт через туннель.</p>
+      <p class="muted small">Если сайты всё же не открываются — сервер мог отключиться. Свежий
+        конфиг вставляется ниже, прежний вернётся сам при неудаче.</p>
+    {:else if hero === 'up'}
+      <p class="ok-msg">✅ Всё работает: VPN активен, трафик защищён.</p>
+    {/if}
+
+    <!-- Тревожный (красный) баннер — ТОЛЬКО когда direct-доменов вообще нет: тогда split не
+         работает и весь трафик реально идёт в туннель. Если у пользователя есть свои домены
+         (direct_domains>0), они идут напрямую — красная тревога тут ложна и вводит в заблуждение. -->
+    {#if s.installed && s.direct_domains === 0}
+      <p class="banner">
+        Список «сайты напрямую» пуст — весь трафик идёт через туннель (безопасно, но медленнее).
+        Добавьте сайты в мастере («Настроить заново») или подтяните готовый список кнопкой ниже.
+      </p>
+    {:else if s.installed && !s.direct_list_loaded}
+      <!-- Необязательный community-список не подтянут — это НЕ проблема (свои домены работают).
+           Нейтральная подсказка, не красная тревога. -->
+      <p class="note">
+        Ваши сайты напрямую работают ({s.direct_domains}). Можно дополнительно подтянуть готовый
+        список популярных — кнопка «Обновить список сайтов» ниже.
+      </p>
+    {/if}
+
+    <!-- Роутер поставлен с пропуском проверок железа (install.json.forced). Плашка постоянная и
+         нейтральная: это не поломка, но при разборе «тормозит/отваливается» она — первое, что
+         должно быть видно (в том числе на скриншоте статуса от пользователя). -->
+    {#if s.installed && s.forced?.length > 0}
+      <p class="note">
+        Роутер слабее рекомендуемого — установлено по вашему решению
+        ({s.forced.map((f) => FORCED_LABELS[f] ?? f).join(', ')}). Работает, но стабильность
+        не гарантируется: при странных перезагрузках или тормозах это первая причина, куда смотреть.
+      </p>
+    {/if}
+
+    <ul class="status">
+      <li><span>Сайты напрямую</span><strong>{s.direct_domains}</strong></li>
+      <li><span>Импортированный список</span><strong>{s.direct_list_loaded ? `${s.imported_domains} доменов` : 'не загружен'}</strong></li>
+      <!-- Подпись зависит от протокола: у AWG видно, когда сервер отвечал; у Full-протоколов —
+           только что туннель поднят (см. tunnelRowText). Цвет — из единого tunnel_health движка. -->
+      <li class:ok={s.tunnel_health === 'up'} class:bad={s.tunnel_health !== 'up'}>
+        <span>Туннель ({active.name})</span>
+        <strong>{tunnelRowText(s)}</strong>
+      </li>
+      <li class:ok={s.dns_up} class:bad={!s.dns_up}><span>DNS</span><strong>{s.dns_up ? 'работает' : 'нет'}</strong></li>
+      <li class:ok={s.doh_up} class:bad={!s.doh_up}><span>Шифрованный DNS</span><strong>{s.doh_up ? 'работает' : 'нет'}</strong></li>
+      {#if s.wireless_present}
+        <li><span>Wi-Fi (SSID)</span><strong>{s.ssid || '—'}</strong></li>
+      {/if}
+      <li><span>DNS-фильтрация</span><strong>{s.dns_provider_desc ? s.dns_provider_desc.name : (s.dns_provider ?? '—')}</strong></li>
+    </ul>
+
+    <h3>Управление</h3>
+    <!-- Подсказка про вход — ЗДЕСЬ, перед первой кнопкой. Раньше она стояла в конце страницы:
+         человек прокручивал экран серых неактивных кнопок и только внизу узнавал, почему они серые. -->
+    {#if loggedIn}
+      <p class="muted small">Вы вошли как root. <button class="linklike" onclick={doLogout}>Выйти</button></p>
+    {:else}
+      <p class="muted small">
+        Управляющие действия ниже требуют входа.
+        <button class="linklike" onclick={() => (loginOpen = true)}>Войти</button>
+      </p>
+    {/if}
+    <!-- Сегмент, а не кнопка-переключатель: кнопка показывала, КУДА переключит, а строка сводки
+         рядом — где сейчас. Одни и те же два слова в двух местах с противоположным смыслом. -->
+    <div class="segmented" role="group" aria-label="Режим работы">
+      <button class:active={s.mode !== 'travel'} disabled={busy}
+              onclick={() => s.mode === 'travel' && setMode('home')}>Дома</button>
+      <button class:active={s.mode === 'travel'} disabled={busy}
+              onclick={() => s.mode !== 'travel' && setMode('travel')}>В поездке</button>
+    </div>
+    <p class="muted small">Дома — сайты из списка идут напрямую. В поездке — весь трафик через туннель.</p>
+    <!-- Подпись ПЕРЕД кнопкой: сразу под кнопками печатается результат действия (actionNote), и
+         вставленный между ними текст отодвигал бы его от того, что человек только что нажал.
+         Отступ обязателен — иначе подпись слипается с абзацем про режимы и читается как его хвост. -->
+    <p class="muted small action-hint">Подтянуть свежий готовый список популярных сайтов прямого доступа.</p>
+    <div class="row">
+      <button disabled={busy} onclick={updateList}>Обновить список сайтов</button>
+    </div>
+    {@render actionNote('manage')}
+
+    <h3>Перезапуск сервисов</h3>
+    <div class="row">
+      <button disabled={busy} onclick={() => restart('vpn', 'туннель')}>Туннель</button>
+      <button disabled={busy} onclick={() => restart('dns', 'DNS')}>DNS</button>
+      <button disabled={busy} onclick={() => restart('doh', 'шифрованный DNS')}>Шифрованный DNS</button>
+    </div>
+    {@render actionNote('restart')}
+
+    <h3>Фильтрация (DNS)</h3>
+    <label>
+      <span>Блокировка рекламы / взрослого контента</span>
+      <select bind:value={providerSel} disabled={busy}>
+        {#each s.dns_providers ?? [] as p}
+          <option value={p.id}>{p.name} — {p.description}</option>
+        {/each}
+      </select>
+    </label>
+    <div class="row">
+      <button disabled={busy || !providerSel || providerSel === s.dns_provider} onclick={setProvider}>Применить</button>
+    </div>
+    <p class="muted small">«Семейный» провайдер блокирует сайты 18+ и форсит безопасный поиск. Выбор провайдера = уровень фильтрации.</p>
+    {@render actionNote('dns')}
+
+    <!-- Управление туннелем свёрнуто: это самый объёмный блок панели, а нужен он в редкие дни,
+         когда что-то сломалось. Открывается сам по ссылкам из hero-баннера (tunnelOpen). -->
+    <details class="group" id="tunnel-group" bind:open={tunnelOpen}>
+    <summary>Туннель — заменить сервер или сменить протокол</summary>
+
+    <!-- Замена сервера АКТИВНОГО туннеля. Метод, подпись и placeholder — из каталога протоколов. -->
+    <h3 id="replace-tunnel">Замена сервера ({active.name})</h3>
+    <p class="muted small">Туннель перестал работать — вставьте свежий конфиг от своего сервера.
+      Если новый не отзовётся, прежний вернётся сам.</p>
+    <label>
+      <span>{active.confLabel}</span>
+      <textarea bind:value={replaceConf} rows="5" disabled={busy}
+        placeholder={active.placeholder}></textarea>
+    </label>
+    {#if active.file}
+      <label class="file">
+        <span>…или загрузить файлом</span>
+        <input type="file" accept=".conf,text/plain" onchange={onReplaceFile} disabled={busy} />
+      </label>
+    {/if}
+    {#if active.id === 'hysteria2'}{@render speedFields()}{/if}
+    <div class="row">
+      <button disabled={busy || replaceConf.trim().length === 0} onclick={replaceTunnel}>
+        {replacePhase === 'running' ? 'Применяю…' : 'Заменить конфиг'}
+      </button>
+    </div>
+    {#if replacePhase === 'running'}
+      <p><span class="spinner"></span> Применяю новый конфиг — при сбое прежний вернётся автоматически.</p>
+    {/if}
+    {@render actionNote('replace')}
+    {#if replaceLog && replacePhase !== 'idle'}
+      <details open={replacePhase === 'fail'}>
+        <summary>Журнал замены</summary>
+        <pre class="log">{replaceLog}</pre>
+      </details>
+    {/if}
+
+    <!-- Full-тир не установлен: либо кнопка догрузки (железо тянет), либо честное объяснение,
+         почему её нет. Молчать нельзя — иначе человек не поймёт, почему у него нет функции,
+         о которой написано в документации. -->
+    {#if !s.full_installed}
+      <h3 id="full-tier">Запасные туннели — если этот не выручает</h3>
+      {#if s.full_capable}
+        <p class="muted small">Два запасных туннеля: <strong>VLESS+Reality</strong> — если интернет
+          через VPN вообще не открывается, <strong>Hysteria2</strong> — если открывается, но
+          тормозит и рвётся. Кнопка скачает общий для них компонент <code>sing-box</code> (~11 МБ).
+          <strong>Текущий туннель продолжит работать.</strong></p>
+        <details class="more">
+          <summary>Подробнее</summary>
+          <p class="muted small">Компонент ставится один раз и занимает в памяти роутера ~30 МБ.
+            Переключиться можно потом, когда появится ссылка от сервера, и так же вернуться назад.</p>
+        </details>
+        <div class="row">
+          <button disabled={busy || fullPhase === 'running'} onclick={enableFullTier}>
+            {fullPhase === 'running' ? 'Устанавливаю…' : 'Установить компонент'}
+          </button>
+        </div>
+        {#if fullPhase === 'running'}
+          <p><span class="spinner"></span> Скачиваю компонент — это может занять минуту.</p>
+        {/if}
+        {#if fullLog && fullPhase !== 'idle'}
+          <details open={fullPhase === 'fail'}>
+            <summary>Журнал установки</summary>
+            <pre class="log">{fullLog}</pre>
+          </details>
+        {/if}
+      {:else}
+        <p class="muted small">Два запасных туннеля (VLESS+Reality и Hysteria2)
+          <strong>на этом роутере недоступны</strong>{#if fullMissing}: {fullMissing}{/if}. Они
+          считаются программой, а не ядром — на слабом железе это медленнее самого интернета.</p>
+        {#if s.full_missing?.includes('flash')}
+          <p class="muted small">Место можно освободить (по SSH <code>apk del</code> ненужные
+            пакеты) или подключить USB-флешку (extroot) — тогда кнопка появится.</p>
+        {/if}
+      {/if}
+    {/if}
+    <!-- ЗА пределами {#if !full_installed}: после успешной догрузки блок с кнопкой исчезает, и
+         сообщение об успехе исчезло бы вместе с ним — ровно в тот момент, когда его читают. -->
+    {@render actionNote('full')}
+
+    <!-- Смена туннеля: СНАЧАЛА выбор направления по симптому (как в мастере), потом одно поле
+         ссылки. Раньше здесь было по блоку на протокол — три похожих поля подряд на одной
+         странице, и вставить ссылку в чужое поле было проще, чем в своё. AmneziaWG доступен
+         всегда, Full-протоколы — когда компонент установлен (иначе выше кнопка догрузки). -->
+    {#if targets.length > 0}
+      <h3 id="switch-tunnel">Сменить туннель</h3>
+      <p class="muted small">Сейчас активен <strong>{active.name}</strong>. Сайты, DNS и режим
+        сохранятся, мастер проходить не нужно. Не поднимется — прежний вернётся сам.</p>
+      {#each targets as p}
+        <label class="radio">
+          <input type="radio" bind:group={switchPick} value={p.id} disabled={busy} />
+          <span><strong>{p.symptom}</strong> — {p.why}
+            <br /><small class="muted">Протокол: {p.name}</small></span>
+        </label>
+      {/each}
+      <label>
+        <span>{pick.confLabel}</span>
+        <textarea bind:value={switchConfs[switchPick]} rows="4" disabled={busy}
+          placeholder={pick.placeholder}></textarea>
+      </label>
+      {#if pick.file}
+        <label class="file">
+          <span>…или загрузить файлом</span>
+          <input type="file" accept=".conf,text/plain" onchange={(e) => onSwitchFile(e, switchPick)} disabled={busy} />
+        </label>
+      {/if}
+      {#if switchPick === 'hysteria2'}{@render speedFields()}{/if}
+      <div class="row">
+        <button disabled={busy || (switchConfs[switchPick] ?? '').trim().length === 0} onclick={() => switchTo(pick)}>
+          {switchPhase === 'running' && switchTarget === switchPick ? 'Переключаю…' : `Переключиться на ${pick.name}`}
+        </button>
+      </div>
+      {#if switchPhase === 'running'}
+        <p><span class="spinner"></span> Поднимаю {protocolInfo(switchTarget).name} — при сбое
+          вернётся {active.name}.</p>
+      {/if}
+      {@render actionNote('switch')}
+      {#if switchLog && switchPhase !== 'idle'}
+        <details open={switchPhase === 'fail'}>
+          <summary>Журнал переключения</summary>
+          <pre class="log">{switchLog}</pre>
+        </details>
+      {/if}
+    {/if}
+    </details>
+
+    <!-- Поддержка. Стоит ПЕРЕД опасной зоной и НЕ свёрнута осознанно: человек, у которого не
+         работает, должен найти путь «спросить» раньше, чем кнопку «сбросить всё». -->
+    <h3 id="support">Если что-то не работает</h3>
+    <p class="muted small">Напишите мне в Telegram — <a href={SUPPORT.telegramUrl} target="_blank"
+      rel="noreferrer">{SUPPORT.telegram}</a>. Там же можно предложить идею. Проект и документация:
+      <a href={SUPPORT.page} target="_blank" rel="noreferrer">на GitHub</a>.</p>
+    <p class="muted small">Приложите диагностику: логи, состояние сети, версии.
+      <strong>Пароли и ключи вырезаются</strong> — файл вы увидите здесь до отправки, сам он
+      никуда не уходит.</p>
+    <div class="row">
+      <button disabled={busy || diagPhase === 'running'} onclick={collectDiagnostics}>
+        {diagPhase === 'running' ? 'Собираю…' : 'Собрать диагностику'}
+      </button>
+      {#if diagPhase === 'ok'}
+        <button onclick={downloadDiagnostics}>Скачать файл</button>
+      {/if}
+    </div>
+    {@render actionNote('support')}
+    {#if diagPhase === 'ok'}
+      <p class="muted small">
+        {#if diagRemoved.length > 0}
+          Вырезано: {diagRemoved.join('; ')}. Адрес сервера оставлен — без него причину не найти.
+        {:else}
+          Секретов известных форм не нашлось. Всё равно пролистайте текст перед отправкой.
+        {/if}
+      </p>
+      <details open>
+        <summary>Что будет отправлено</summary>
+        <pre class="log">{diagText}</pre>
+      </details>
+    {/if}
+
+    <details class="group danger-group" id="danger-group" bind:open={dangerOpen}>
+    <summary>Опасная зона</summary>
+    {#if !resetArmed}
+      <button class="danger" disabled={busy} onclick={() => (resetArmed = true)}>Сбросить настройку cheburnet…</button>
+    {:else}
+      <!-- Честно перечисляем и то, что останется: «сбросить всё» люди читают как «удалить
+           программу», а это не так — и обнаружить расхождение постфактум хуже, чем прочитать
+           заранее. Списками, а не прозой: два перечня сравниваются взглядом. -->
+      <p class="warn">Роутер вернётся к обычной маршрутизации — весь трафик пойдёт напрямую, без VPN.</p>
+      <ul class="small">
+        <li><strong>Снимется:</strong> туннель, разделение трафика, шифрованный DNS, фильтрация.</li>
+        <li><strong>Останется:</strong> программа и эта панель, Wi-Fi, пароль роутера.</li>
+      </ul>
+      <p class="muted small">Настроить заново можно сразу отсюда — ссылка на мастер появится после
+        сброса. Удалить полностью — <code>apk del cheburnet</code> по SSH.</p>
+      <label>
+        <span>Введите слово <code>RESET</code> для подтверждения</span>
+        <input type="text" bind:value={resetWord} placeholder="RESET" />
+      </label>
+      <div class="row">
+        <button disabled={busy} onclick={() => { resetArmed = false; resetWord = ''; }}>Отмена</button>
+        <button class="danger" disabled={busy || !resetOk} onclick={factoryReset}>
+          Подтвердить сброс
+        </button>
+      </div>
+    {/if}
+    {#if resetPhase === 'running'}
+      <p><span class="spinner"></span> Снимаю конфигурацию — роутер на несколько секунд
+        перезапустит сеть.</p>
+    {/if}
+    {@render actionNote('danger')}
+    <!-- Путь назад в мастер: ссылка несёт свежий токен, выпущенный сбросом (reset.uc), поэтому
+         человек проходит настройку сразу и не упирается в «запустите bootstrap по SSH».
+         Токена нет (метод не ответил) — честно показываем путь через SSH, а не битую ссылку. -->
+    {#if resetPhase === 'ok'}
+      {#if resetToken}
+        <p class="ok-msg">Можно настраивать заново:
+          <a href="?token={encodeURIComponent(resetToken)}">открыть мастер настройки</a>.</p>
+      {:else}
+        <p class="muted small">Чтобы настроить заново, запустите команду установки по SSH — она
+          напечатает новую ссылку на мастер.</p>
+      {/if}
+    {/if}
+    </details>
+  {:else}
+    <p class="muted">Загрузка…</p>
+  {/if}
+
+  <hr />
+  <button onclick={reinstall}>Настроить заново</button>
+  <!-- Подпись обязательна: кнопка стоит сразу под «Опасной зоной» и без неё читается как второй
+       способ всё стереть. -->
+  <p class="muted small">Пройти мастер заново. Текущая настройка работает до конца установки.</p>
+
+  {#if loginOpen}
+    <div class="modal-back" role="presentation" onclick={() => (loginOpen = false)}>
+      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+      <div class="modal" onclick={(e) => e.stopPropagation()}>
+        <h3>Вход в управление</h3>
+        <p class="muted small">Пароль администратора роутера (root) — тот, что задан при установке.</p>
+        <label>
+          <span>Пароль</span>
+          <input
+            type="password"
+            bind:value={loginPass}
+            autocomplete="current-password"
+            onkeydown={(e) => e.key === 'Enter' && doLogin()}
+          />
+        </label>
+        {#if loginError}<p class="warn">{loginError}</p>{/if}
+        <div class="row">
+          <button onclick={() => (loginOpen = false)}>Отмена</button>
+          <button
+            class="primary"
+            disabled={loginPass.length === 0}
+            onclick={doLogin}
+          >Войти</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+</section>

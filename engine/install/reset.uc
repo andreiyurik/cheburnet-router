@@ -1,19 +1,8 @@
-// reset.uc — полный teardown cheburnet-конфигурации (импурно, router-side).
+// reset.uc — полный teardown cheburnet-конфигурации (импурно, router-side): ucode -R reset.uc
 //
-//   ucode -R reset.uc
-//
-// Снимает ВСЁ, что поставила установка, и возвращает роутер к до-cheburnet состоянию:
-// nft/ip-правила + NAT-зона (firewall --teardown), семейный режим, наши uci-секции
-// (network, dhcp, https-dns-proxy), /etc/cheburnet. Пакеты НЕ удаляем (apk del — забота
-// пользователя), Wi-Fi и пароль root НЕ трогаем (рабочие настройки, не data-plane).
-// Это НЕ firstboot v1: сбрасывается cheburnet, не роутер.
-//
-// «Что считать нашим» НЕ хардкодим: имена секций/записей приходят из шагов-владельцев
-// (vpn.owned_sections / dns.owned_sections / doh.listen_prefix) —
-// переименование в шаге автоматически подхватывается здесь, дрейфа нет.
-//
-// Идемпотентно: повторный запуск на уже чистой системе — no-op (uci -q семантика).
-// Запускается обработчиком в фоне (setsid), код выхода → done-маркер. Проверяется в QEMU.
+// Возвращает роутер к до-cheburnet состоянию: nft/ip-правила + NAT-зона (firewall --teardown),
+// наши uci-секции (network, dhcp, https-dns-proxy), /etc/cheburnet. Пакеты, Wi-Fi, пароль root
+// НЕ трогает. Идемпотентно (uci -q семантика). Запускается в фоне (setsid), проверяется в QEMU.
 
 import { readfile, unlink, rmdir, lsdir } from "fs";
 import { sh, run_stdin, uci_batch } from "../lib/proc.uc";
@@ -36,8 +25,9 @@ print("reset: снимаю data-plane (nft/ip/NAT-зона)\n");
 run_stdin(sprintf("ucode -R %s/steps/firewall/apply.uc --teardown", ENGINE),
 	sprintf("%J", { domains: [], routing_opts: ro }));
 
-// network: секции туннеля — имена дают шаги-владельцы (vpn: awg0+peer; singbox: singtun+routes).
-// Снимаем обе группы независимо от активного протокола: reset идемпотентен и чистит всё наше.
+// ИНВАРИАНТ: «что считать нашим» не хардкодим — имена секций берём из шагов-владельцев
+// (owned_sections/listen_prefix), переименование в шаге подхватывается тут без дрейфа.
+// Снимаем секции обоих туннелей независимо от активного протокола — reset чистит всё наше.
 print("reset: убираю туннель из network\n");
 let net = owned_sections(null);
 for (let i = 0; i < length(sb_net_sections(null)); i++)
@@ -85,18 +75,17 @@ if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) == "y") {
 	unlink(sb_config());
 }
 
-// /etc/cheburnet: конфигурация, install-токен, кэш импортированного списка.
 print("reset: удаляю /etc/cheburnet\n");
 let files = lsdir(ETC_CHEBURNET) ?? [];
 for (let i = 0; i < length(files); i++)
 	unlink(ETC_CHEBURNET + "/" + files[i]);
 rmdir(ETC_CHEBURNET);
+// Install-токен здесь НЕ выпускаем: это отдельный ubus-метод install_token, зовётся владельцем
+// по запросу, а не автоматически при сбросе.
 
-// Перечитать конфиги: network, firewall (уже reload'нут teardown'ом), dnsmasq.
-// network RESTART, не reload: awg0 был дефолтным маршрутом (route_allowed_ips=1). Reload НЕ
-// возвращает WAN-дефолт после удаления awg0 — netifd держит остаточный дефолт через мёртвый
-// туннель, и роутер остаётся БЕЗ интернета (поймано живьём: reset обрывал связь). Тот же урок,
-// что в install/run.uc rollback_all (d4bd0bf) — на пути отмены он был, в reset его не хватало.
+// Шрам: RESTART, не reload — awg0 был дефолтным маршрутом (route_allowed_ips=1), reload не
+// возвращает WAN-дефолт после его удаления, и роутер оставался без интернета. Тот же урок, что
+// в install/run.uc rollback_all.
 sh("/etc/init.d/network restart >/dev/null 2>&1");
 sh("/etc/init.d/dnsmasq restart >/dev/null 2>&1");
 

@@ -3,10 +3,8 @@
 //   echo '{"ssid":"Home","key":"password123"}' | ucode -R apply.uc            # применить
 //   echo '{"ssid":"Home","key":"password123"}' | ucode -R apply.uc --dry-run  # только план
 //
-// Поток: нет SSID/ключа → no-op; нет wifi-device → no-op (wired-only роутер); перечислить секции
-// wifi-iface (имена нестандартны → не хардкодим); выбрать шифрование по установленному wpad;
-// построить план чистым ядром (wifi.uc); teardown (-q, tolerant) → setup (uci batch) → commit →
-// `wifi reload`. Логика плана под юнит-тестами (wifi/tests); импурную часть проверяем в QEMU.
+// Собирает факты (радио есть? какие iface? какой wpad?), строит план чистым ядром (wifi.uc)
+// и применяет через uci batch + `wifi reload`. Логика плана — wifi/tests; импурная часть — QEMU.
 
 import { stdin, popen } from "fs";
 import { sh, uci_batch } from "../../lib/proc.uc";
@@ -44,9 +42,8 @@ if (length(ifaces) == 0) {
 	ifaces = list_ifaces();
 }
 
-// Выбор шифрования по УСТАНОВЛЕННОМУ wpad: полный wpad-mbedtls → WPA2/WPA3-mixed (SAE) + PMF;
-// иначе WPA2 (psk2+ccmp). Пакеты НЕ ставим — это забота preflight/зависимостей; промах = безопасный
-// откат на WPA2 (fail-safe), а не отказ Wi-Fi. WPA3 требует `+wpad-mbedtls` в DEPENDS пакета.
+// Шифрование зависит от УСТАНОВЛЕННОГО wpad (не ставим его сами — забота preflight/DEPENDS):
+// wpad-mbedtls есть → sae-mixed (WPA2/WPA3+PMF), нет → откат на psk2+ccmp (fail-safe, не отказ).
 let full = trim(sh("apk list --installed 2>/dev/null | grep -c '^wpad-mbedtls-'"));
 let enc = (match(full, /^[0-9]+$/) && int(full) > 0) ? "sae-mixed" : "psk2+ccmp";
 

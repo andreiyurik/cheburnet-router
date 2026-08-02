@@ -1,16 +1,6 @@
-// vpn.uc — VPN-шаг: разбор AmneziaWG .conf и идемпотентный UCI-план интерфейса awg0.
-//
-// Пользователь приносит .conf от провайдера. Шаг парсит его и приводит network.<iface> +
-// peer-секцию к желаемому состоянию ([[amneziawg]]). awg0 — дефолт для всего, что не direct.
-//
-// ЧИСТОЕ ЯДРО: parse_awg_conf (INI → объект) + split_endpoint + build_vpn_plan (→ uci-операции).
-// .conf — вход пользователя, поэтому ВАЛИДИРУЕМ (граница доверия): нет обязательных полей →
-// errors, ok=false, шаг не трогает сеть. Применение uci — в apply.uc (импурно, QEMU).
-//
-// МАРШРУТИЗАЦИЯ (v2): route_allowed_ips='1' — netifd ставит default через awg0 (туннель — дефолт
-// для всего, что не direct) и host-route на endpoint через WAN (без зацикливания). Direct-исключения
-// вытягивает наша policy-routing (mark→table-100→WAN, см. [[policy-routing]]) — конфликта нет, разные
-// таблицы. В v1 дефолт ставил podkop, поэтому стояло '0'; podkop убран — дефолт теперь на netifd.
+// vpn.uc — VPN-шаг: разбор AmneziaWG .conf → идемпотентный uci-план интерфейса awg0.
+// Пользователь приносит .conf от провайдера ([[amneziawg]]); .conf — вход пользователя, поэтому
+// валидируем (граница доверия) и не трогаем сеть при ok=false. Чистое ядро — apply.uc применяет.
 
 const VPN_DEFAULTS = {
 	interface: "awg0",
@@ -105,7 +95,6 @@ function build_vpn_plan(parsed, opts) {
 	let peersect = ifname + "_peer";        // network.awg0_peer (именованная секция — batch-friendly)
 	let peertype = "amneziawg_" + ifname;   // тип секции кодирует привязку к интерфейсу
 
-	// Валидация входа пользователя.
 	let errors = [];
 	if (!iface.PrivateKey) push(errors, "нет PrivateKey в [Interface]");
 	if (!iface.Address)    push(errors, "нет Address в [Interface]");
@@ -153,10 +142,9 @@ function build_vpn_plan(parsed, opts) {
 	push(setup, sprintf("set network.%s.endpoint_port='%s'", peersect, ep.port));
 	push(setup, sprintf("set network.%s.persistent_keepalive='%s'",
 		peersect, peer.PersistentKeepalive ?? o.keepalive));
-	// route_allowed_ips='1' — netifd ставит default dev awg0 (туннель = дефолт) + host-route на
-	// endpoint через WAN. Direct идёт мимо туннеля через mark→table-100 (routing/firewall). fail-safe:
-	// промах direct-списка = трафик уходит в туннель, а не дропается kill-switch'ем. v1 ставил '0'
-	// (маршрутом владел podkop); в v2 podkop нет — дефолт держит netifd.
+	// ИНВАРИАНТ: route_allowed_ips='1' — netifd держит default dev awg0 (туннель = дефолт для
+	// не-direct), direct уходит мимо через mark→table-100 (routing/firewall), конфликта нет
+	// (разные таблицы). fail-safe: промах direct-списка = трафик в туннель, а не мимо kill-switch'а.
 	push(setup, sprintf("set network.%s.route_allowed_ips='1'", peersect));
 
 	return {

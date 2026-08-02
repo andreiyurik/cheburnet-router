@@ -1,7 +1,7 @@
 # engine/steps/vpn — AmneziaWG-туннель (awg0)
 
 Пользователь приносит `.conf` от VPN-провайдера; шаг парсит его и приводит UCI-интерфейс
-`awg0` + peer-секцию к желаемому состоянию ([amneziawg](../../../docs/v2/concepts/amneziawg.md)).
+`awg0` + peer-секцию к желаемому состоянию ([amneziawg](../../../docs/kb/concepts/amneziawg.md)).
 `awg0` — дефолт-маршрут для всего, что не помечено `direct` (его ставит netifd по
 `route_allowed_ips='1'`, см. ниже).
 
@@ -9,7 +9,7 @@
 
 > **`route_allowed_ips='1'`** — netifd ставит `default dev awg0` (туннель — дефолт для всего, что
 > не `direct`) и host-route на endpoint через WAN (без зацикливания). Direct-исключения вытягивает
-> наша [policy-routing](../../../docs/v2/concepts/policy-routing.md) (`mark→table-100→WAN`) — это
+> наша [policy-routing](../../../docs/kb/concepts/policy-routing.md) (`mark→table-100→WAN`) — это
 > другая таблица, конфликта нет. **fail-safe:** промах direct-списка = трафик уходит в туннель, а не
 > дропается kill-switch'ем. Зафиксировано тестом.
 >

@@ -9,14 +9,14 @@
 
 | Команда | Что делает | Время | Интернет нужен? |
 |---|---|---|---|
-| `make qemu-v2` | T3a — hermetic smoke движка: ubus-методы, граница доверия, rootpass→session.login, family, NAT-зона+nft+teardown | ~2мин | нет* |
-| `make qemu-webui-v2` | T3b — + uhttpd + HTTP/UI: раздача Svelte-бандла, ACL anon-vs-admin, session.login | ~3мин | да (apk add uhttpd-mod-ubus) |
-| `make qemu-install-v2` | T3c — установка через **apk** + data-plane против реальных сервисов (dnsmasq-full/https-dns-proxy) | ~5-8мин | да (apk) |
+| `make qemu-smoke` | T3a — hermetic smoke движка: ubus-методы, граница доверия, rootpass→session.login, family, NAT-зона+nft+teardown | ~2мин | нет* |
+| `make qemu-webui` | T3b — + uhttpd + HTTP/UI: раздача Svelte-бандла, ACL anon-vs-admin, session.login | ~3мин | да (apk add uhttpd-mod-ubus) |
+| `make qemu-install` | T3c — установка через **apk** + data-plane против реальных сервисов (dnsmasq-full/https-dns-proxy) | ~5-8мин | да (apk) |
 
 Все запускаются из корня репо. При падении автоматически выводят последние 60 строк
 serial-консоли VM и возвращают exit ≠ 0. (*первый запуск качает образ — дальше кэш.)
 
-### T3a — `smoke-v2.sh` (hermetic)
+### T3a — `smoke.sh` (hermetic)
 
 Деплоит движок **как пакет** (shim → `/usr/libexec/rpcd/cheburnet`, engine без `tests/` в
 `/usr/share/cheburnet`, ACL из реестра) и проверяет на живом OpenWrt то, что юниты и dry-run'ы
@@ -28,21 +28,21 @@ busybox-uci, NAT-зону + nft-цепочки + `--teardown` на реальн�
 
 T3a НЕ зовёт `apk`/`wget` к github — все файлы кладутся напрямую через ssh+cat, интернет не нужен.
 
-### T3b — `webui-v2.sh` (требует интернета)
+### T3b — `webui.sh` (требует интернета)
 
 Путь **браузера**, а не прямых ubus-вызовов: `uhttpd` + `uhttpd-mod-ubus` раздают собранный
 Svelte-бандл (`index.html` + hashed asset) и принимают JSON-RPC на `/ubus`. Проверяет:
 
 - ACL-инфорсмент: anon-сессия может читать (`status`/`install_progress`), но получает `code=6`
   (`PERMISSION_DENIED`) на `set_mode`/`service_restart`/`factory_reset`.
-- `install` гейтится install-токеном (см. [[../../docs/v2/architecture/reliability|reliability]]).
+- `install` гейтится install-токеном (см. [[../../docs/kb/architecture/reliability|reliability]]).
 - `session.login` — отказ на неверном пароле, успех на верном (root-пароль из `steps/rootpass`).
 - После входа admin-методы (`service_restart`) проходят; `factory_reset` с неверным `confirm`
   отдаёт доменную ошибку, не запускает reset.
 
 Ставит `uhttpd-mod-ubus` через `apk add` — **поэтому нужен интернет в VM**.
 
-### T3c — `install-v2.sh` (установка через apk, нужен интернет)
+### T3c — `install.sh` (установка через apk, нужен интернет)
 
 Ставит DEPENDS пакета из **реального apk-feed** на живой OpenWrt и гоняет data-plane против
 **настоящих** сервисов (а не подсунутых руками): проверяет, что `package/cheburnet/Makefile`
@@ -52,7 +52,7 @@ dnsmasq-full перечитывает наш nftset); `doh`-шаг (реальн
 vendored-инсталлятором, что и на роутере**, и модуль грузится в ядро — проверка vermagic, которая
 раньше жила только на железе. Реальный handshake с VPN-сервером и Wi-Fi-радио — вне охвата QEMU,
 проверяются на железе (см.
-[docs/v2/meta/release-checklist.md](../../docs/v2/meta/release-checklist.md)).
+[docs/kb/meta/release-checklist.md](../../docs/kb/meta/release-checklist.md)).
 
 ## Что НЕ покрывает
 
@@ -91,8 +91,8 @@ vendored-инсталлятором, что и на роутере**, и мод�
 
 2. Проверить, что у [awg-openwrt](https://github.com/Slava-Shchipunov/awg-openwrt/releases)
    есть релиз `v<версия>`: `kmod-amneziawg` собирается под конкретную сборку ядра, и без него
-   `make qemu-install-v2` упадёт на установке AmneziaWG (это и есть смысл проверки).
-3. Прогнать `make qemu-v2`, `make qemu-install-v2`, `make qemu-reality-v2` локально.
+   `make qemu-install` упадёт на установке AmneziaWG (это и есть смысл проверки).
+3. Прогнать `make qemu-smoke`, `make qemu-install`, `make qemu-reality` локально.
 4. Только после этого менять цифры в `lib.sh` — одним коммитом с результатом прогона.
 
 Снапшот при этом не забыт: джоб `qemu-snapshot-canary` (`.github/workflows/test.yml`) раз в
@@ -102,9 +102,9 @@ upstream, который **не блокирует** релиз.
 ## Архитектура
 
 - `lib.sh` — общая инфра: paths, deps, image-prep, qemu-launch, serial+ssh helpers, boot+setup, deploy. Source-only.
-- `smoke-v2.sh` — T3a-asserts поверх lib.sh.
-- `webui-v2.sh` — T3b: HTTP/JSON-RPC asserts поверх lib.sh.
-- `install-v2.sh` — T3c: DEPENDS + data-plane на реальных сервисах.
+- `smoke.sh` — T3a-asserts поверх lib.sh.
+- `webui.sh` — T3b: HTTP/JSON-RPC asserts поверх lib.sh.
+- `install.sh` — T3c: DEPENDS + data-plane на реальных сервисах.
 
 При падении — лог serial-консоли в `.work/serial.log`. Trap EXIT гарантированно убивает qemu и
 чистит fifo, даже на Ctrl+C.

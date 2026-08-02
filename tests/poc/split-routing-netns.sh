@@ -155,7 +155,7 @@ fi
 hdr "ИТОГ"
 echo "  PASS=$pass  FAIL=$fail"
 if [ "$fail" -eq 0 ]; then
-  printf '  \033[32mСтавка v2 подтверждена: split-routing работает без sing-box —\n'
+  printf '  \033[32mСтавка подтверждена: split-routing работает без sing-box —\n'
   printf '  и на голых примитивах (A), и из реального вывода генератора (B).\033[0m\n'
   exit 0
 else

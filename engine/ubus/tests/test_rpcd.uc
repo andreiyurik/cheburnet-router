@@ -75,7 +75,8 @@ test("list: дескриптор методов — JSON со всеми мет�
 	let d = json(out);
 	ok(type(d) == "object", "дескриптор — объект");
 	for (m in ["preflight", "status", "install", "install_progress", "factory_reset",
-	           "switch_to_reality", "switch_to_awg"])
+	           "switch_to_reality", "switch_to_hysteria2", "switch_to_awg",
+	           "replace_reality_conf", "replace_hysteria2_conf"])
 		ok(exists(d, m), "метод в дескрипторе: " + m);
 });
 
@@ -131,8 +132,8 @@ test("install: битая Reality-ссылка → адресная причин
 	put_token("T");
 	let r = rpc("install", { protocol: "reality", reality_conf: "мусор",
 		root_password: "12345678", token: "T" });
-	err_has(r, "ссылка Reality не разобрана", "битый reality");
-	ok(!access(STATE + "/reality-validate.txt"), "временный файл с секретом удалён");
+	err_has(r, "ссылка VLESS+Reality не разобрана", "битый reality");
+	ok(!access(STATE + "/tunnel-validate.txt"), "временный файл с секретом удалён");
 });
 
 test("install: пустой reality_conf → подсказка про vless://", () => {
@@ -141,6 +142,38 @@ test("install: пустой reality_conf → подсказка про vless://"
 	let r = rpc("install", { protocol: "reality", reality_conf: "   ",
 		root_password: "12345678", token: "T" });
 	err_has(r, "vless://", "пустой reality-конфиг");
+});
+
+test("install: битая hysteria2-ссылка → причина из парсера, а не генерик", () => {
+	reset_sb();
+	put_token("T");
+	// Порт вне диапазона — типовая опечатка. Причина обязана называть, ЧТО не так.
+	let r = rpc("install", { protocol: "hysteria2", hysteria2_conf: "hysteria2://pw@h.example.com:99999",
+		root_password: "12345678", token: "T" });
+	err_has(r, "Hysteria2", "битый hysteria2 — имя протокола в сообщении");
+	err_has(r, "диапазон портов", "названа конкретная причина");
+	ok(!access(STATE + "/tunnel-validate.txt"), "временный файл с секретом удалён");
+	ok(!access(STATE + "/pid"), "фон не стартовал");
+});
+
+test("install: пустой hysteria2_conf → подсказка именно про hysteria2://", () => {
+	reset_sb();
+	put_token("T");
+	let r = rpc("install", { protocol: "hysteria2", hysteria2_conf: "  ",
+		root_password: "12345678", token: "T" });
+	err_has(r, "hysteria2://", "подсказка соответствует выбранному протоколу");
+});
+
+test("install: конфиг чужого протокола не подменяет нужный (берём по conf_key)", () => {
+	reset_sb();
+	put_token("T");
+	// protocol=hysteria2, а прислали reality_conf: валидная vless-ссылка НЕ должна проехать как
+	// hysteria2-конфиг — иначе установка ушла бы в фон с пустым туннель-конфигом.
+	let r = rpc("install", { protocol: "hysteria2",
+		reality_conf: "vless://u@h.example.com:443?security=reality&pbk=k&sni=s",
+		root_password: "12345678", token: "T" });
+	err_has(r, "hysteria2://", "чужое поле проигнорировано, спрошен нужный формат");
+	ok(!access(STATE + "/pid"), "фон не стартовал");
 });
 
 // === взаимное исключение длинных операций (PID-файл) ===
@@ -261,9 +294,35 @@ test("switch_to_reality: битая ссылка → синхронный отк
 	reset_sb();
 	put_cfg({ protocol: "awg" });
 	let r = rpc("switch_to_reality", { reality_conf: "мусор" }, { with_singbox: true });
-	err_has(r, "ссылка Reality не разобрана", "битая ссылка");
+	err_has(r, "ссылка VLESS+Reality не разобрана", "битая ссылка");
 	let cfg = json(readfile(ETC + "/install.json"));
 	eq(cfg.protocol, "awg", "protocol не переключён при отказе");
+	ok(!access(ETC + "/install.json.prev"), ".prev не создан — до свитча не дошло");
+});
+
+// Hysteria2 идёт теми же импурными путями (switch_tunnel), поэтому проверяем не логику заново,
+// а что гейты РАБОТАЮТ и для него: третий протокол не должен получить «дырку» в границе.
+test("switch_to_hysteria2: без sing-box → та же подсказка про Full-тир", () => {
+	if (length(trim(sh("command -v sing-box"))) > 0) return; // на хосте с бинарём ветка недостижима
+	reset_sb();
+	put_cfg({ protocol: "awg" });
+	let r = rpc("switch_to_hysteria2", { hysteria2_conf: "x" });
+	err_has(r, "sing-box не установлен", "нет бинаря");
+});
+
+test("switch_to_hysteria2: уже hysteria2 → отсылка к замене конфига", () => {
+	reset_sb();
+	put_cfg({ protocol: "hysteria2" });
+	let r = rpc("switch_to_hysteria2", { hysteria2_conf: "x" }, { with_singbox: true });
+	err_has(r, "уже используется Hysteria2", "повторный свитч");
+});
+
+test("switch_to_hysteria2: битая ссылка → отказ, protocol не тронут (даже reality→hysteria2)", () => {
+	reset_sb();
+	put_cfg({ protocol: "reality" });
+	let r = rpc("switch_to_hysteria2", { hysteria2_conf: "мусор" }, { with_singbox: true });
+	err_has(r, "ссылка Hysteria2 не разобрана", "битая ссылка");
+	eq(json(readfile(ETC + "/install.json")).protocol, "reality", "protocol не переключён при отказе");
 	ok(!access(ETC + "/install.json.prev"), ".prev не создан — до свитча не дошло");
 });
 
@@ -303,6 +362,24 @@ test("replace_reality_conf: активен awg → отказ (защита жи
 	put_cfg({ protocol: "awg" });
 	let r = rpc("replace_reality_conf", { reality_conf: "x" });
 	err_has(r, "AmneziaWG", "не тот активный туннель");
+});
+
+// КЛЮЧЕВОЕ для трёх протоколов: два Full-протокола делят config.json, поэтому «замена сервера»
+// одного при активном ДРУГОМ обязана быть отбита. Иначе replace подменил бы конфиг на другой
+// протокол мимо switch_to_* — то есть мимо переприменения data-plane и мимо автооткатa.
+test("replace_hysteria2_conf: активен reality → отказ (замена ≠ смена протокола)", () => {
+	reset_sb();
+	put_cfg({ protocol: "reality" });
+	let r = rpc("replace_hysteria2_conf", { hysteria2_conf: "x" });
+	err_has(r, "VLESS+Reality", "назван активный туннель");
+	err_has(r, "Hysteria2", "и куда переключаться, если это нужно");
+});
+
+test("replace_reality_conf: активен hysteria2 → отказ (зеркальный случай)", () => {
+	reset_sb();
+	put_cfg({ protocol: "hysteria2" });
+	let r = rpc("replace_reality_conf", { reality_conf: "x" });
+	err_has(r, "Hysteria2", "назван активный туннель");
 });
 
 // === install_full_tier ===

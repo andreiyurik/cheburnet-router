@@ -4,9 +4,9 @@
 ucode: на вход — домены и опции, на выход — строки конфигов и команды. Ни роутера, ни
 сети при генерации не нужно → юнит-тестируется за секунды.
 
-> Концепции, на которых стоит модуль: [split-routing](../../docs/v2/concepts/split-routing.md),
-> [dnsmasq-nftset](../../docs/v2/concepts/dnsmasq-nftset.md),
-> [policy-routing](../../docs/v2/concepts/policy-routing.md).
+> Концепции, на которых стоит модуль: [split-routing](../../docs/kb/concepts/split-routing.md),
+> [dnsmasq-nftset](../../docs/kb/concepts/dnsmasq-nftset.md),
+> [policy-routing](../../docs/kb/concepts/policy-routing.md).
 
 ## Что генерируется
 
@@ -46,7 +46,7 @@ ucode: на вход — домены и опции, на выход — стр�
 ## Режимы и hook
 
 - **mode** `home` (split) / `travel` (full tunnel: dnsmasq и ip rule пусты, остаются только
-  объявления сетов) — см. [home-travel-modes](../../docs/v2/concepts/home-travel-modes.md).
+  объявления сетов) — см. [home-travel-modes](../../docs/kb/concepts/home-travel-modes.md).
 - **hook** `prerouting` (по умолчанию — форвард-трафик LAN-клиентов на роутере) /
   `output` (локально-сгенерированный трафик). `output` нужен для прогона в network namespace,
   где пакеты рождаются локально и не проходят prerouting — это путь e2e-теста, не прод.

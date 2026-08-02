@@ -12,11 +12,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── T3a-v2: hermetic VM smoke ДВИЖКА v2 (ucode) ─────────────────────────────
-  # Главный «живой» гейт v2: ucode-handler через rpcd, 13 ubus-методов, граница
+  # ── T3a: hermetic VM smoke ДВИЖКА (ucode) ─────────────────────────────
+  # Главный «живой» гейт: ucode-handler через rpcd, 13 ubus-методов, граница
   # доверия, NAT-зона + nft + teardown на реальном fw4, rootpass + session.login.
   # Интернет НЕ нужен (движок кладётся через ssh+cat, apk не зовётся). ~2 мин с KVM.
-  qemu-v2-smoke:
+  qemu-smoke:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -37,24 +37,24 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm 2>/dev/null || echo "(KVM недоступен — ожидаем TCG-fallback)"
 
-      - name: T3a-v2 — hermetic VM smoke движка v2
-        run: make qemu-v2
+      - name: T3a — hermetic VM smoke движка
+        run: make qemu-smoke
 
       - name: Upload serial-лог при падении
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: qemu-v2-serial-log
+          name: qemu-smoke-serial-log
           path: tests/qemu/.work/serial.log
           retention-days: 7
 
-  # ── T3c-v2: install зависимостей через apk + data-plane против РЕАЛЬНЫХ сервисов
+  # ── T3c: install зависимостей через apk + data-plane против РЕАЛЬНЫХ сервисов
   # Единственная проверка DEPENDS пакета и DoH/DNS-провайдера на живом
   # https-dns-proxy. Нужен интернет (apk update/add). Release-gate, не PR-gate.
-  qemu-install-v2:
+  qemu-install:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    needs: qemu-v2-smoke
+    needs: qemu-smoke
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -74,14 +74,14 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm 2>/dev/null || echo "(KVM недоступен — ожидаем TCG-fallback)"
 
-      - name: T3c-v2 — DEPENDS + data-plane на реальных сервисах
-        run: make qemu-install-v2
+      - name: T3c — DEPENDS + data-plane на реальных сервисах
+        run: make qemu-install
 
       - name: Upload install-лог при падении
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: qemu-install-v2-logs
+          name: qemu-install-logs
           path: |
             tests/qemu/.work/serial.log
             /tmp/install-test*.log
@@ -130,12 +130,12 @@ jobs:
           echo "sha=$SHA"       >> "$GITHUB_OUTPUT"
           echo "snapshot: $SHA"
 
-      - name: T3a-v2 smoke на snapshot (ранний сигнал)
+      - name: T3a smoke на snapshot (ранний сигнал)
         env:
           OPENWRT_VERSION: snapshot
           IMG_URL: ${{ steps.snap.outputs.url }}
           IMG_SHA256: ${{ steps.snap.outputs.sha }}
-        run: make qemu-v2
+        run: make qemu-smoke
 
       - name: Upload serial-лог при падении
         if: failure()

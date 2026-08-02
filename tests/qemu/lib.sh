@@ -29,11 +29,15 @@
 #   1. взять хеш из upstream-файла sha256sums рядом с образом (а не «что скачалось»);
 #   2. убедиться, что у awg-openwrt есть релиз vX.Y.Z под эту версию — иначе install-тест
 #      упадёт на AWG (это и есть смысл проверки, а не повод её ослабить);
-#   3. прогнать qemu-v2, qemu-install-v2 и qemu-reality-v2 локально;
+#   3. прогнать qemu-smoke, qemu-install и qemu-reality локально;
 #   4. только потом менять цифры здесь, одним коммитом с результатом прогона.
 : "${OPENWRT_VERSION:=25.12.5}"
 : "${IMG_URL:=https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/x86/64/openwrt-$OPENWRT_VERSION-x86-64-generic-ext4-combined.img.gz}"
 : "${IMG_SHA256:=23e2538e8ab0eb52dfed1c65d608ecdb71ffd432dd54885da138ae67cd9e4461}"
+# Если qemu говорит «Could not set up host forwarding rule 'tcp::2222-:22'» — порт держит НЕ другой
+# прогон, а хост. На WSL2/Windows Hyper-V резервирует целые диапазоны TCP, и bind падает с
+# «Address already in use», при том что `ss -lnt` внутри WSL пуст (он не видит Windows-сторону).
+# Лечится сменой порта: SSH_PORT=18022 HTTP_PORT=18080 make qemu-… (проверено: <2256 занят, 18022+ свободен).
 : "${SSH_PORT:=2222}"
 : "${HTTP_PORT:=8080}"      # для smoke-http (port-forward 8080→80)
 : "${VM_RAM_MB:=512}"
@@ -282,4 +286,54 @@ vm_boot_and_setup() {
         sleep 2
     done
     echo "  ✓ SSH OK ($(vm_ssh 'uname -smr'))"
+}
+
+# vm_start_firewall() — поднять fw4 в VM с ПОСТОЯННЫМ ssh-правилом.
+#
+# ЗАЧЕМ ОБЯЗАТЕЛЬНО. vm_boot_and_setup глушит firewall, чтобы не потерять ssh через slirp. Но на
+# роутере firewall запущен ВСЕГДА, и это не мелочь: с остановленным fw4 тесты Full-тира годами
+# показывали «зелено», пока TCP через туннель у пользователя не работал вовсе (input у fw4 —
+# policy drop, TUN не в зоне; поймано 2026-07-31, фикс — stack=gvisor в steps/singbox).
+# Любой тест, который трогает туннель или data-plane, обязан звать это ПЕРЕД проверками —
+# иначе он проверяет условия, которых не бывает.
+#
+# ssh страхуем uci-правилом, а не разовой nft-инъекцией: реальные шаги делают `fw4 reload`,
+# который инъекцию стирает, а uci-правило переживает и reload, и перезагрузку.
+vm_start_firewall() {
+    echo "→ Поднимаю fw4 (условия реального роутера) + постоянное ssh-правило"
+    vm_ssh 'uci -q delete firewall.qemu_ssh 2>/dev/null || true
+            uci set firewall.qemu_ssh=rule
+            uci set firewall.qemu_ssh.name="qemu-ssh"
+            uci set firewall.qemu_ssh.src="*"
+            uci set firewall.qemu_ssh.proto="tcp"
+            uci set firewall.qemu_ssh.dest_port="22"
+            uci set firewall.qemu_ssh.target="ACCEPT"
+            uci commit firewall
+            /etc/init.d/firewall enable >/dev/null 2>&1
+            /etc/init.d/firewall start >/dev/null 2>&1; sleep 3
+            nft list table inet fw4 >/dev/null' \
+        || { echo "  ✗ fw4 не поднялся"; vm_ssh 'logread | tail -15' || true; exit 1; }
+    vm_ssh true || { echo "  ✗ ssh потерян после старта fw4"; exit 1; }
+    echo "  ✓ fw4 работает, ssh жив"
+}
+
+# vm_check_dns() — nslookup в VM или exit 1. Без интернета apk update/add бессмысленны.
+vm_check_dns() {
+    echo "→ Проверяю интернет в VM"
+    vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
+        || { echo "✗ DNS не работает в VM — apk update не пройдёт"; exit 1; }
+    echo "  ✓ DNS работает"
+}
+
+# apk_try CMD — до 10 попыток по 10с, тихо; код возврата честный.
+# 10×10с (было 5×3с): фильтрующая сеть рвёт отдельные файлы посреди передачи с высокой частотой,
+# и пакет с несколькими новыми deps перемножает вероятность — 5 коротких попыток дважды красили
+# тест на живом зеркале.
+apk_try() {
+    local cmd="$1"
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        if vm_ssh "$cmd" >/dev/null 2>&1; then return 0; fi
+        sleep 10
+    done
+    return 1
 }

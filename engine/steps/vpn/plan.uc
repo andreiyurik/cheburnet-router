@@ -1,9 +1,6 @@
-// plan.uc — CLI чистого VPN-шага: .conf (stdin) → uci-операции (НЕ применяет).
+// plan.uc — CLI чистого VPN-шага: .conf (stdin, сырой текст, не JSON) → uci-операции (НЕ применяет).
 //
-//   cat awg0.conf | ucode -R plan.uc            # показать план
-//   cat awg0.conf | ucode -R plan.uc --json     # план машинно
-//
-// Вход — сырой текст AmneziaWG .conf (не JSON): так удобнее пользователю и тестам.
+//   cat awg0.conf | ucode -R plan.uc [--json]
 
 import { stdin } from "fs";
 import { parse_awg_conf, build_vpn_plan } from "./vpn.uc";

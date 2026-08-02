@@ -1,36 +1,22 @@
 // firewall.uc — data-plane шаг: пометка direct-трафика, policy routing и kill-switch.
-//
-// Это production-применение split-routing на роутере (форвард-трафик LAN-клиентов):
-//   • наша prerouting-цепочка метит пакеты с daddr ∈ direct  → [[policy-routing]]
-//   • ip rule/route разводят помеченное в WAN, остальное в туннель
-//   • kill-switch роняет непрямой трафик, утекающий в WAN мимо туннеля → [[kill-switch]]
-//
-// НАШИ ЦЕПОЧКИ/СЕТЫ ЖИВУТ В /etc/nftables.d/10-cheburnet.nft — файле, который fw4 включает в
-// table inet fw4 при КАЖДОМ reload. Это критично: ручная инъекция `nft add` теряла правила при
-// ЛЮБОМ fw4 reload (hotplug awg0, установка пакета, правка LuCI, ребут) — kill-switch тихо
-// умирал (поймано живым прогоном на роутере, QEMU это не показал). Через nftables.d fw4 сам
-// восстанавливает наши правила при каждой пересборке — reload из врага становится союзником.
-//
-// ЧИСТОЕ ЯДРО: build_firewall_plan(routing_plan, opts) → { nft_file (содержимое), ip-команды,
-// uci NAT }. Запись файла + reload + ip — в apply.uc (импурно, QEMU). ip rule/route fw4 reload
-// не трогает; их сбрасывает лишь network restart (реже) — отдельная забота (hotplug), не здесь.
+// build_firewall_plan(routing_plan, opts) → чистый план (nft-файл, ip- и uci-команды);
+// apply.uc применяет на роутере. Подробно: [[policy-routing]], [[kill-switch]]. Тесты: tests/.
 
 import { render_iprules } from "../../routing/routing.uc";
 
 const NFT_PATH = "/etc/nftables.d/10-cheburnet.nft";
+// ИНВАРИАНТ: наши цепочки/сеты живут в /etc/nftables.d/, не инъекцией `nft add` — fw4 включает
+// файл в table inet fw4 при каждом reload, поэтому reload их не стирает. Подробно: [[kill-switch]].
+const HOTPLUG_PATH = "/etc/hotplug.d/iface/99-cheburnet";
 
-// Свои hooked-цепочки в inet fw4 (объявляются в nftables.d-файле). Сеты — тоже в файле: fw4
-// пересоздаёт их пустыми при reload, dnsmasq пере-наполняет на резолве (адреса эфемерны).
 const FW_DEFAULTS = {
-	mark_chain: "cheburnet_mark", // type filter hook prerouting priority mangle
-	ks_chain: "cheburnet_ks",     // type filter hook forward   priority filter
+	mark_chain: "cheburnet_mark",
+	ks_chain: "cheburnet_ks",
 	killswitch: true,
-	// NAT-зона туннеля (uci firewall): masq на awg0 + forwarding lan→vpn. Без неё LAN-трафик
-	// уходит в туннель без SNAT/forwarding и не возвращается (роутер «зелёный, но не везёт»).
-	nat: true,
+	nat: true, // зона masq на awg0 + forwarding lan→vpn, см. build_nat_ops
 	tunnel_if: "awg0", // интерфейс туннеля (совпадает с vpn-шагом)
-	lan_zone: "lan",   // имя LAN-зоны fw4 (стандартное); forwarding по ИМЕНИ зоны, не по CIDR
-	vpn_zone: "vpn",   // имя создаваемой зоны туннеля
+	lan_zone: "lan",   // имя LAN-зоны fw4; forwarding по ИМЕНИ зоны, не по CIDR
+	vpn_zone: "vpn",
 };
 
 function resolve_opts(opts) {
@@ -40,20 +26,18 @@ function resolve_opts(opts) {
 	return o;
 }
 
-// build_nat_ops(opts) → { teardown, setup } — uci firewall: зона туннеля (masq + mtu_fix) и
-// forwarding lan→vpn. Именованные секции (cheburnet_<zone>) → идемпотентность через delete-before-set
-// (как peer-секция в vpn-шаге). Это ЧИСТЫЙ uci-конфиг: откатывается snapshot'ом (firewall ∈
-// CLEAN_CONFIGS), в отличие от nft/ip ниже. Применять ДО nft-инъекции: fw4 reload пересобирает
-// таблицу inet fw4 и стёр бы наши цепочки, если бы шёл после них (см. apply.uc).
-//   masq=1   — SNAT трафика LAN-клиентов, ушедшего в awg0 (без него обратный путь не находится);
-//   mtu_fix=1 — MSS-clamp под MTU туннеля; input REJECT — извне в роутер по туннелю не лезут.
+// build_nat_ops(opts) → { teardown, setup }: uci-зона туннеля (masq+mtu_fix) + forwarding lan→vpn.
+// Именованные секции, идемпотентно (delete-before-set). Чистый uci-конфиг (∈ CLEAN_CONFIGS,
+// откатывается snapshot'ом), в отличие от nft/ip ниже — применять ДО nft-инъекции (apply.uc).
+//   masq=1 — SNAT LAN→awg0 (без него обратный путь не находится); mtu_fix=1 — MSS-clamp под MTU
+//   туннеля; input REJECT — снаружи по туннелю в роутер не лезут.
 function build_nat_ops(opts) {
 	let o = opts ?? {};
 	let tif  = o.tunnel_if ?? "awg0";
 	let lan  = o.lan_zone ?? "lan";
 	let zone = o.vpn_zone ?? "vpn";
-	let zsect = "cheburnet_" + zone;            // именованная секция zone
-	let fsect = "cheburnet_" + lan + "_" + zone; // именованная секция forwarding
+	let zsect = "cheburnet_" + zone;
+	let fsect = "cheburnet_" + lan + "_" + zone;
 
 	let teardown = [
 		sprintf("delete firewall.%s", zsect),
@@ -100,14 +84,12 @@ function render_nft_file(routing_plan, o) {
 	}
 	push(L, "}");
 
-	// kill-switch (forward/filter). ct state new: рубим только новые соединения наружу мимо
-	// туннеля; established (обратный трафик) проходит. AWG-handshake — output роутера, не
-	// forward, поэтому kill-switch его не задевает. drop в base-chain финализирует пакет,
-	// так что порядок относительно fw4-forward неважен.
+	// kill-switch (forward/filter): ct state new рубит только новые соединения мимо туннеля,
+	// established проходит. AWG-handshake — output роутера, не forward, поэтому не задет.
 	let ks = [];
 	if (o.killswitch && wan) {
 		if (ro.mode == "travel")
-			push(ks, sprintf("oifname \"%s\" ct state new drop", wan)); // всё в WAN → drop
+			push(ks, sprintf("oifname \"%s\" ct state new drop", wan));
 		else
 			push(ks, sprintf("oifname \"%s\" meta mark != %s ct state new drop", wan, mark));
 		push(L, sprintf("chain %s {", o.ks_chain));
@@ -120,10 +102,31 @@ function render_nft_file(routing_plan, o) {
 	return { content: join("\n", L) + "\n", killswitch: ks };
 }
 
-// build_firewall_plan(routing_plan, opts) → структурный план.
-// wan_if берётся из routing_plan.opts (его кладёт gather/preflight) и НЕ хардкодится — это
-// прямой урок v1: хардкод LAN/WAN = тихо-дырявый kill-switch на нестандартной подсети.
-// kill-switch ключуется по oifname WAN, а не по LAN-CIDR → вообще не зависит от подсети.
+// render_hotplug() → текст hotplug-хука (POSIX sh, busybox-ash).
+// ШРАМ: ip-часть data-plane (policy routing) живёт только в ядре и не переживает ребут — split
+// молча уходит в туннель, панель остаётся зелёной. Хук зовёт reapply.uc на ifup ЛЮБОГО
+// интерфейса (имя WAN-логики в netifd не гарантировано) и ждёт ОБА артефакта (правило И маршрут
+// в таблице direct) — иначе гейт «есть правило» закрывает починку навсегда после половинчатого
+// первого ifup. Подробно: [[0004-multi-protocol-tiers]] (п.2). Номер таблицы — из плана, не зашит.
+function render_hotplug(table) {
+	return join("\n", [
+		"#!/bin/sh",
+		"# cheburnet: вернуть ip-часть data-plane (policy-routing) — она живёт только в ядре.",
+		"# Файл создаёт шаг firewall; правки перезапишутся при следующем применении.",
+		'[ "$ACTION" = "ifup" ] || exit 0',
+		"# Оба артефакта на месте — выходим сразу (дешёвый путь на каждый ifup).",
+		sprintf("if ip rule show 2>/dev/null | grep -q fwmark && \\"),
+		sprintf("   ip route show table %d 2>/dev/null | grep -q default; then", table),
+		"\texit 0",
+		"fi",
+		"ucode -R /usr/share/cheburnet/engine/install/reapply.uc >/dev/null 2>&1",
+		"exit 0",
+	]) + "\n";
+}
+
+// build_firewall_plan(routing_plan, opts) → структурный план (nft/ip/uci).
+// ИНВАРИАНТ: kill-switch ключуется по oifname WAN, не по LAN-CIDR (хардкод CIDR — тихо-дырявый
+// kill-switch на нестандартной подсети, урок v1). wan_if — из routing_plan.opts, не хардкод.
 function build_firewall_plan(routing_plan, opts) {
 	let o = resolve_opts(opts);
 	let ro = routing_plan.opts;
@@ -151,9 +154,8 @@ function build_firewall_plan(routing_plan, opts) {
 	// NAT-зона туннеля (uci firewall, чистый откат). Выключаемо через fw_opts.nat=false.
 	let nat = o.nat ? build_nat_ops(o) : { teardown: [], setup: [] };
 
-	// fw4 reload вычищает ПРАВИЛА, но чужие цепочки/сеты в inet fw4 не удаляет (поймано
-	// smoke-v2): после unlink nftables.d-файла остаются пустые hooked-цепочки. Снимаем явно.
-	// Всегда все четыре имени, независимо от текущих opts: прошлая установка могла их создать.
+	// ШРАМ (smoke): fw4 reload не удаляет чужие цепочки/сеты из inet fw4 — после unlink файла
+	// остаются пустые hooked-цепочки. Снимаем явно, все 4 имени (могла создать прошлая установка).
 	let nft_teardown = [
 		sprintf("delete chain inet fw4 %s", o.mark_chain),
 		sprintf("delete chain inet fw4 %s", o.ks_chain),
@@ -168,6 +170,8 @@ function build_firewall_plan(routing_plan, opts) {
 		uci_setup: nat.setup,
 		nft_path: NFT_PATH,
 		nft_file: nft.content,
+		hotplug_path: HOTPLUG_PATH,
+		hotplug_file: render_hotplug(ro.table),
 		nft_teardown: nft_teardown,
 		ip_teardown: ip_teardown,
 		ip_setup: ip_setup,
@@ -175,4 +179,4 @@ function build_firewall_plan(routing_plan, opts) {
 	};
 }
 
-export { NFT_PATH, build_nat_ops, render_nft_file, build_firewall_plan };
+export { NFT_PATH, HOTPLUG_PATH, build_nat_ops, render_nft_file, render_hotplug, build_firewall_plan };

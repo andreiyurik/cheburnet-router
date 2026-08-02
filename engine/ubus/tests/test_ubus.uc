@@ -17,7 +17,7 @@ test("list_descriptor: все методы реестра присутствую
 	ok(exists(d, "install"), "install в дескрипторе");
 	ok(exists(d, "set_mode"), "set_mode в дескрипторе");
 	// install объявляет свои аргументы; типы — образцы (string→"", array→[], object→{})
-	deep_eq(d.install, { protocol: "", awg_conf: "", reality_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, accept_risk: false, token: "" }, "сигнатура install");
+	deep_eq(d.install, { protocol: "", awg_conf: "", reality_conf: "", hysteria2_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, accept_risk: false, token: "" }, "сигнатура install");
 	deep_eq(d.set_mode, { mode: "" }, "сигнатура set_mode");
 	deep_eq(d.preflight, {}, "preflight без аргументов");
 });
@@ -145,7 +145,7 @@ test("validate: update_list — url необязателен", () => {
 
 // --- валидация: admin-методы Фазы B ---
 
-test("validate: service_restart — только v2-сервисы (без podkop/adblock)", () => {
+test("validate: service_restart — только сервисы (без podkop/adblock)", () => {
 	eq(validate_request("service_restart", { service: "vpn" }).ok, true, "vpn ок");
 	eq(validate_request("service_restart", { service: "doh" }).ok, true, "doh ок");
 	eq(validate_request("service_restart", { service: "podkop" }).ok, false, "podkop вырезан в v2");
@@ -163,6 +163,15 @@ test("validate: switch_to_reality — admin, reality_conf обязателен, 
 	eq(validate_request("switch_to_reality", { reality_conf: "vless://…" }).ok, true);
 	eq(validate_request("switch_to_reality", {}).ok, false, "reality_conf обязателен");
 	eq(requires_token("switch_to_reality"), false, "admin-метод — токен не нужен");
+});
+
+test("validate: switch_to_hysteria2 — admin, hysteria2_conf обязателен, без токена", () => {
+	eq(validate_request("switch_to_hysteria2", { hysteria2_conf: "hysteria2://pw@h:443" }).ok, true);
+	eq(validate_request("switch_to_hysteria2", {}).ok, false, "hysteria2_conf обязателен");
+	// Имя аргумента = имя формата: reality_conf в hysteria2-метод не подсунуть (и наоборот).
+	eq(validate_request("switch_to_hysteria2", { reality_conf: "vless://x" }).ok, false,
+		"чужое поле не подменяет обязательное");
+	eq(requires_token("switch_to_hysteria2"), false, "admin-метод — токен не нужен");
 });
 
 test("validate: switch_to_awg — admin, awg_conf обязателен, без токена (обратный свитч)", () => {
@@ -190,6 +199,8 @@ test("validate: replace_awg_conf/replace_reality_conf и factory_reset — об�
 	eq(validate_request("replace_awg_conf", {}).ok, false, "awg_conf обязателен");
 	eq(validate_request("replace_reality_conf", { reality_conf: "vless://…" }).ok, true);
 	eq(validate_request("replace_reality_conf", {}).ok, false, "reality_conf обязателен");
+	eq(validate_request("replace_hysteria2_conf", { hysteria2_conf: "hy2://pw@h:443" }).ok, true);
+	eq(validate_request("replace_hysteria2_conf", {}).ok, false, "hysteria2_conf обязателен");
 	eq(validate_request("factory_reset", { confirm: "RESET" }).ok, true);
 	eq(validate_request("factory_reset", {}).ok, false, "confirm обязателен");
 });
@@ -223,7 +234,19 @@ test("acl_split: тиры выведены из реестра", () => {
 	ok(index(s.admin.write, "install") >= 0, "install тоже доступен admin");
 	ok(index(s.admin.write, "service_restart") >= 0, "service_restart в admin write");
 	ok(index(s.admin.write, "factory_reset") >= 0, "factory_reset в admin write");
-	deep_eq(s.admin.read, [ "preflight", "status", "check_lan_conflict", "install_progress" ], "admin read = все read");
+	deep_eq(s.admin.read, [ "preflight", "status", "check_lan_conflict", "install_progress", "diagnostics" ],
+		"admin read = все read");
+	// install_token — write, а не read: метод ВЫПУСКАЕТ токен, если его нет. Классифицировать
+	// создание состояния как чтение было бы нечестно по отношению к ACL.
+	ok(index(s.admin.write, "install_token") >= 0, "install_token в admin write (он создаёт состояние)");
+	ok(index(s.admin.read, "install_token") < 0, "install_token НЕ числится чтением");
+	// Диагностика — ТОЛЬКО admin: даже с вырезанными секретами она раскрывает топологию сети и
+	// содержимое логов, поэтому соседу по LAN недоступна (в anon-тир попасть не должна).
+	ok(index(s.unauth.read, "diagnostics") < 0, "diagnostics недоступна без входа");
+	// Выдача install-токена — тем более: токен и есть признак «это владелец» на пути установки.
+	// Попади метод в anon-тир, любой в LAN выписал бы себе право пройти мастер на чужом роутере.
+	ok(index(s.unauth.read, "install_token") < 0, "install_token недоступен без входа (read)");
+	ok(index(s.unauth.write, "install_token") < 0, "install_token недоступен без входа (write)");
 });
 
 test("rpcd-acl.json синхронен с реестром (build_acl)", () => {

@@ -5,7 +5,7 @@ name: engine
 # Юнит-тесты — чистая логика, гоняются за секунды, но нужен интерпретатор ucode (в CI его нет
 # готового — собираем из исходников, кэшируем).
 # Сборка пакета через SDK — ручная/по тегу (матрица arch, package-build ниже); реальная установка
-# и data-plane проверяются в CI отдельно — см. qemu-v2-smoke/qemu-install-v2 в test.yml.
+# и data-plane проверяются в CI отдельно — см. qemu-smoke/qemu-install в test.yml.
 
 on:
   push:
@@ -104,7 +104,7 @@ jobs:
                NETNS_REQUIRE=1 make test-netns
 
   # ── Сборка пакета через OpenWrt SDK (матрица arch) ──────────────────────────
-  # Ручная/по тегу. Реальная установка и data-plane проверяются в QEMU (qemu-install-v2 в
+  # Ручная/по тегу. Реальная установка и data-plane проверяются в QEMU (qemu-install в
   # test.yml); здесь — только что пакет собирается под каждую arch.
   package-build:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')

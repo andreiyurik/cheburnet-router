@@ -113,7 +113,7 @@ test("evaluate: кастомные пороги через req", () => {
 test("default_requirements: пороги калиброваны по фактам (RAM 112, флеш 16)", () => {
 	let r = default_requirements();
 	eq(r.min_ram_mb, 112, "128 отказывал ЛЮБОЙ 128-МБ плате: MemTotal там 118–124");
-	eq(r.min_flash_mb, 16, "16 МБ — цифра docs/v2/reference/hardware-requirements.md для Light");
+	eq(r.min_flash_mb, 16, "16 МБ — цифра docs/kb/reference/hardware-requirements.md для Light");
 });
 
 test("evaluate: реальный роутер со 128 МБ RAM и 32-МБ флешем проходит", () => {
@@ -226,14 +226,14 @@ test("valid_lan_ip: только 192.168.X.Y, октеты в диапазоне
 	ok(!valid_lan_ip(null), "null");
 });
 
-// --- evaluate_tiers: гейтинг Full-тира (VLESS+Reality) ---
+// --- evaluate_tiers: гейтинг Full-тира (VLESS+Reality и Hysteria2 — один гейт на оба) ---
 
-// Мощное железо, потянет Full: AES-arch, RAM/флеш с запасом, sing-box ставится.
+// Мощное железо, потянет Full: AES-arch, RAM/флеш с запасом, предпочтительная сборка ставится.
 function full_facts() {
 	let f = good_facts();
 	f.flash_free_mb = 200;
 	f.ram_total_mb = 512;
-	f.deps_installable["sing-box"] = true;
+	f.deps_installable["sing-box-tiny"] = true;
 	return f;
 }
 
@@ -282,13 +282,34 @@ test("supports_full_hw: 256-МБ плата по MemTotal (245) → кнопка
 	ok(!supports_full_hw("aarch64", 200, 200, null), "192-МБ плата всё ещё не тянет Full");
 });
 
-test("evaluate_tiers: sing-box не ставится → full недоступен, перечислен", () => {
-	let f = full_facts(); f.deps_installable["sing-box"] = false;
+test("evaluate_tiers: ни одна сборка не ставится → full недоступен, перечислена причина", () => {
+	let f = full_facts();
+	f.deps_installable["sing-box-tiny"] = false;
+	f.deps_installable["sing-box"] = false;
 	let rep = evaluate_tiers(f, null);
 	ok(!rep.full);
 	let c = full_check(rep, "full_dep");
 	ok(!c.ok);
 	ok(index(c.detail, "sing-box") >= 0);
+});
+
+// Сборки взаимозаменяемы (tiny объявляет PROVIDES:=sing-box и ставит тот же бинарь). Гейт обязан
+// проходить по ЛЮБОЙ доступной — иначе Full-железу отказали бы из-за отсутствия одной конкретной.
+test("evaluate_tiers: нет tiny, но есть полная сборка → full доступен (фолбэк)", () => {
+	let f = full_facts();
+	f.deps_installable["sing-box-tiny"] = false;
+	f.deps_installable["sing-box"] = true;
+	let rep = evaluate_tiers(f, null);
+	ok(rep.full, "полная сборка закрывает Full-тир");
+	let c = full_check(rep, "full_dep");
+	ok(c.ok);
+	ok(index(c.detail, "sing-box ставится") >= 0, "в отчёте видно, КАКАЯ сборка поедет: " + c.detail);
+});
+
+test("evaluate_tiers: доступна tiny → в отчёте именно она (предпочтение видно владельцу)", () => {
+	let c = full_check(evaluate_tiers(full_facts(), null), "full_dep");
+	ok(c.ok);
+	ok(index(c.detail, "sing-box-tiny") >= 0, "предпочтительная сборка названа: " + c.detail);
 });
 
 // full_installed (opt-in): «железо потянет» (full) ≠ «sing-box стоит» (full_installed).
@@ -313,11 +334,12 @@ test("evaluate_tiers: full_installed=true даже когда железо сл�
 // --- supports_full_hw: лёгкий гейт железа для видимости кнопки (m_status, каждый поллинг) ---
 test("supports_full_hw: годная arch + RAM/флеш ≥ порогов → true", () => {
 	ok(supports_full_hw("aarch64", 512, 200, null));
-	ok(supports_full_hw("x86_64", 240, 56, null), "ровно пороги 240/56 проходят");
+	ok(supports_full_hw("x86_64", 240, 44, null), "ровно пороги 240/44 проходят");
 });
 
 test("supports_full_hw: RAM ниже порога / слабая arch → false", () => {
 	ok(!supports_full_hw("aarch64", 239, 200, null), "239 < 240 — не тянет");
+	ok(!supports_full_hw("aarch64", 512, 43, null), "43 < 44 — флеша не хватает под бинарь");
 	ok(!supports_full_hw("mipsel", 512, 200, null), "нет AES-arch");
 	ok(!supports_full_hw("armv7l", 1024, 200, null), "armv7 без AES-гарантии — отсекаем");
 });
@@ -329,11 +351,11 @@ test("supports_full_hw: mram строкой и мусором (приходит 
 	ok(!supports_full_hw("", 512, 200, null), "пустая arch → false");
 });
 
-// Флеш в гейте КНОПКИ панели: sing-box ~42 МБ (замер qemu-reality-v2), а раньше кнопка флеш не
-// смотрела и обещала то, что валилось на apk «No space left».
+// Флеш в гейте КНОПКИ панели: бинарь Full-тира весит десятки МБ (замер qemu-hysteria), а
+// раньше кнопка флеш не смотрела и обещала то, что валилось на apk «No space left».
 test("full_hw_missing: не хватает флеша → 'flash' в причинах, кнопка не обещает лишнего", () => {
 	deep_eq(full_hw_missing("aarch64", 512, 20, null), [ "flash" ]);
-	deep_eq(full_hw_missing("aarch64", 512, 56, null), [], "ровно порог проходит");
+	deep_eq(full_hw_missing("aarch64", 512, 44, null), [], "ровно порог проходит");
 });
 
 test("full_hw_missing: перечисляет ВСЁ, чего не хватает (панель объясняет причину)", () => {
@@ -365,8 +387,8 @@ test("evaluate_tiers: кастомные пороги Full через req.full",
 test("full_requirements: дефолты Full-тира", () => {
 	let r = full_requirements();
 	eq(r.min_ram_mb, 240, "240 = плата на 256 МБ по MemTotal, а не паспортные 256");
-	eq(r.min_flash_mb, 56, "56 = замеренные ~42 МБ sing-box + запас (было 128 «на глаз»)");
-	eq(r.dep, "sing-box");
+	eq(r.min_flash_mb, 44, "44 = замер веса sing-box-tiny + запас (qemu-hysteria сверяет)");
+	deep_eq(r.pkgs, [ "sing-box-tiny", "sing-box" ], "tiny первым — она легче на 4.5 МБ скачивания");
 	ok(index(r.arch, "aarch64") >= 0);
 	ok(index(r.arch, "mipsel") < 0, "mips исключён из Full");
 });

@@ -42,7 +42,7 @@ while IFS= read -r f; do
         '#!/usr/bin/env bash'|'#!/bin/bash'|'#!/usr/bin/bash')
             BASH_FILES+=("$f") ;;
     esac
-done < <(find tests/qemu -type f,l -not -path 'tests/qemu/.work/*' 2>/dev/null | sort -u)
+done < <(find tests/qemu tests/vps -type f,l -not -path 'tests/qemu/.work/*' 2>/dev/null | sort -u)
 
 # === Цветовой helper ===
 if [ -t 1 ]; then

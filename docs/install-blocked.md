@@ -7,8 +7,8 @@ wget: Failed to send request: Operation not permitted
 apk update: download failed
 ```
 
-Это **DPI у твоего провайдера** режет `downloads.openwrt.org`. Типично в РФ
-в 2024–2026. Cheburnet сам это обойти не может — он ещё не установлен.
+Это **DPI у твоего провайдера** режет `downloads.openwrt.org`. Cheburnet сам это обойти не
+может — он ещё не установлен.
 
 **Решение:** на 10 минут установки подними интернет через стороннее
 устройство с VPN, и используй его как WAN роутера. После установки

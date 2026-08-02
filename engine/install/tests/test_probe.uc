@@ -1,22 +1,22 @@
-// test_probe.uc — host-тест connectivity-пробы reality (install/probe.uc) через фейки.
+// test_probe.uc — host-тест connectivity-пробы Full-тира (install/probe.uc) через фейки.
 //
-// Проба — гейт commit'а у run.uc и replace_reality.uc; её инварианты:
+// Проба — гейт commit'а у run.uc и replace_singbox.uc; её инварианты:
 //   • нет процесса sing-box → false БЕЗ сетевых действий (быстрый гейт);
 //   • пин host-route не подтвердился → fetch НЕ запускается (иначе успешный fetch через WAN
 //     соврал бы «туннель работает» — fail-safe);
 //   • host-route снимается ВСЕГДА, и на успехе, и на провале (не оставляем липкий маршрут).
-// reality_connectivity — функция, а не CLI: гоняем через одноразовую обёртку в sandbox.
+// tunnel_connectivity — функция, а не CLI: гоняем через одноразовую обёртку в sandbox.
 
 import { test, eq, ok, summary } from "../../lib/assert.uc";
 import { writefile } from "fs";
 import { mk_sandbox, run_uc, calls, cleanup, ENGINE } from "./harness.uc";
 
-// probe(sb) → { rc, out } — вывод "OK"/"NO" от reality_connectivity("singtun0").
+// probe(sb) → { rc, out } — вывод "OK"/"NO" от tunnel_connectivity("singtun0").
 function probe(sb) {
 	let wrapper = sb.root + "/probe-wrapper.uc";
 	writefile(wrapper,
-		sprintf('import { reality_connectivity } from "%s/install/probe.uc";\n', ENGINE) +
-		'print(reality_connectivity("singtun0") ? "OK" : "NO");\n');
+		sprintf('import { tunnel_connectivity } from "%s/install/probe.uc";\n', ENGINE) +
+		'print(tunnel_connectivity("singtun0") ? "OK" : "NO");\n');
 	return run_uc(sb, wrapper);
 }
 

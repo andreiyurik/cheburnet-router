@@ -1,13 +1,7 @@
-// apply.uc — применение DoH-шага на роутере (импурно, router-side).
-//
-//   ucode -R apply.uc               # прочитать текущее состояние из uci и применить
-//   ucode -R apply.uc --dry-run     # только показать план
-//
-// Читает текущие https-dns-proxy секции и dnsmasq server из uci, строит план (чистое ядро
-// doh.uc), применяет: delete секций (|| true) → uci batch (резолверы + dnsmasq server) →
-// commit → перезапуск https-dns-proxy + reload dnsmasq. Проверяется в QEMU.
-//
-// Зависит от dnsmasq noresolv='1' (его ставит DNS-шаг): без него dnsmasq утечёт в ISP-resolv.conf.
+// apply.uc — применение DoH-шага на роутере (импурно): читает текущее состояние из uci, строит
+// план (doh.uc), применяет и перезапускает https-dns-proxy + dnsmasq. Зависит от dnsmasq
+// noresolv='1' (ставит DNS-шаг) — без него dnsmasq утечёт в ISP-resolv.conf.
+//   ucode -R apply.uc [--dry-run]
 
 import { stdin, popen } from "fs";
 import { uci_batch } from "../../lib/proc.uc";
@@ -53,6 +47,7 @@ if (dry) {
 	for (let i = 0; i < length(plan.hdp_teardown); i++) print("  " + plan.hdp_teardown[i] + "\n");
 	for (let i = 0; i < length(plan.hdp_setup); i++)    print("  " + plan.hdp_setup[i] + "\n");
 	for (let i = 0; i < length(plan.dnsmasq_ops); i++)  print("  " + plan.dnsmasq_ops[i] + "\n");
+	for (let i = 0; i < length(plan.dnsmasq_cleanup ?? []); i++) print("  " + plan.dnsmasq_cleanup[i] + "\n");
 	exit(0);
 }
 
@@ -61,15 +56,17 @@ for (let i = 0; i < length(plan.hdp_teardown); i++) {
 	if (p) p.close();
 }
 
-// Код ОБЯЗАТЕЛЬНО проверяем: иначе сбой uci (нет секции/пакета https-dns-proxy)
-// проглатывается, и шаг отчитывается успехом без применённого резолвера. Сам процесс
-// `uci batch` выходит 0 даже на ошибках — общий uci_batch (lib/proc.uc) ловит их по выводу.
+// Платформенный квирк: `uci batch` выходит 0 даже на ошибках — uci_batch (lib/proc.uc) ловит их
+// по выводу. rc ОБЯЗАТЕЛЬНО проверяем, иначе сбой (нет пакета https-dns-proxy) отчитается успехом.
 let rc = uci_batch(plan.hdp_setup, "https-dns-proxy");
 if (rc != 0)
 	die(sprintf("doh/apply: uci batch (https-dns-proxy) не прошёл (код %d; установлен ли пакет?)", rc));
 let rc2 = uci_batch(plan.dnsmasq_ops, "dhcp");
 if (rc2 != 0)
 	die(sprintf("doh/apply: uci batch (dhcp upstream) не прошёл (код %d)", rc2));
+// Своим батчем, rc игнорируется осознанно: отсутствие ключей — норма (повторное применение).
+// Зачем уборка — см. doh.uc (пакет иначе восстанавливает сток из своих backup-ключей).
+uci_batch(plan.dnsmasq_cleanup ?? [], "dhcp");
 
 sh("/etc/init.d/https-dns-proxy restart >/dev/null 2>&1");
 sh("/etc/init.d/dnsmasq reload >/dev/null 2>&1 || /etc/init.d/dnsmasq restart >/dev/null 2>&1");

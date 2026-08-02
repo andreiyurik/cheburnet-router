@@ -10,7 +10,7 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { writefile, readfile, access } from "fs";
-import { mk_sandbox, run_uc, calls, cleanup } from "./harness.uc";
+import { mk_sandbox, with_singbox, run_uc, calls, cleanup } from "./harness.uc";
 
 // seed_cfg(sb, extra) — install.json «до этой попытки» (то, что пишет m_install до исхода).
 function seed_cfg(sb, name, obj) {
@@ -154,6 +154,38 @@ test("reality без sing-box: провал догрузки = чистый abor
 	ok(!access(sb.snap), "снимка нет — роутер не тронут (откатывать нечего)");
 	ok(!access(sb.etc + "/install.json"), "фантомный installed снят");
 	eq(trim(readfile(sb.state) ?? ""), "singbox-download", "прогресс показывал догрузку");
+	cleanup(sb);
+});
+
+// Гейт догрузки ветвится по uses_singbox, а не по имени «reality» — иначе выбор Hysteria2 на
+// системе без бинаря дошёл бы до шагов и упал бы уже ПОСЛЕ снимка, с невнятной причиной.
+test("hysteria2 без sing-box: тот же чистый abort ДО снимка (гейт по шагу, не по имени)", () => {
+	let sb = mk_sandbox();
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "hysteria2", hysteria2_conf: "hysteria2://pw@h:443",
+		domains: [], routing_opts: {} });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 1, "exit 1");
+	eq(trim(readfile(sb.reason) ?? ""), "singbox-download", "адресный reason");
+	ok(!access(sb.snap), "снимка нет — роутер не тронут");
+	ok(!access(sb.etc + "/install.json"), "фантомный installed снят");
+	cleanup(sb);
+});
+
+// Ключ конфига выбирается по протоколу (conf_key): если бы run.uc продолжал читать reality_conf,
+// hysteria2-установка ушла бы в singbox-шаг с ПУСТЫМ stdin и упала бы «непонятно почему».
+test("hysteria2: конфиг доезжает до singbox-шага по conf_key (dry-run печатает hysteria2-outbound)", () => {
+	let sb = mk_sandbox();
+	with_singbox(sb); // бинарь «есть» → догрузка пропускается
+	let r = run_uc(sb, "install/run.uc", "--dry-run", sprintf("%J", {
+		protocol: "hysteria2",
+		hysteria2_conf: "hysteria2://HY2PASS@203.0.113.5:8443?sni=example.com",
+		domains: [], routing_opts: {},
+	}));
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(r.out, "\"type\": \"hysteria2\"") >= 0, "singbox-шаг получил hy2-ссылку: " + r.out);
+	ok(index(r.out, "HY2PASS") >= 0, "пароль из ссылки доехал в конфиг");
+	ok(index(r.out, "singtun") >= 0, "маршрут в общий TUN-интерфейс");
 	cleanup(sb);
 });
 

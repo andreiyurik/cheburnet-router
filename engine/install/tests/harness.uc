@@ -1,5 +1,5 @@
 // harness.uc — sandbox + фейковые системные команды для host-тестов ИМПУРНОГО слоя движка
-// (run.uc / replace_vpn.uc / replace_reality.uc / reset.uc / probe.uc). Не тест — библиотека.
+// (run.uc / replace_vpn.uc / replace_singbox.uc / reset.uc / probe.uc). Не тест — библиотека.
 //
 // Приём — тот же, что tests/install-singbox-test.sh («изоляция через фейки»): реальные .uc
 // гоняются как subprocess, PATH подменяет системные команды стабами, а пути состояния уходят
@@ -9,8 +9,9 @@
 //
 // Поведение стабов задают файлы в <sandbox>/fake/:
 //   apk.rc, nslookup.rc, pgrep.rc, fetch.rc      — код выхода (нет файла → дефолт)
-//   awg.out, route_get.out                       — stdout awg show / ip route get
+//   awg.out, route_get.out, route_default.out     — stdout awg show / ip route get / ip route show default
 //   board.json, wan.json, lan.json               — ответы ubus (дефолты пишет mk_sandbox)
+// Артефакты, которые шаги пишут в /etc, уезжают в sandbox через CHEB_NFT_PATH/CHEB_HOTPLUG_PATH.
 
 import { writefile, readfile, mkdir } from "fs";
 import { sh } from "../../lib/proc.uc";
@@ -45,6 +46,8 @@ function mk_sandbox() {
 		config: root + "/config",     // UCI_CONFIG_DIR (снимок/восстановление)
 		snap:   root + "/snap",       // SNAPSHOT_DIR
 		sbconf: root + "/sing-box-config.json", // SB_CONFIG
+		nft:    root + "/10-cheburnet.nft",     // CHEB_NFT_PATH (в sandbox нет /etc/nftables.d)
+		hotplug: root + "/99-cheburnet",        // CHEB_HOTPLUG_PATH
 		state:  root + "/state",      // STATE_FILE
 		reason: root + "/reason",     // REASON_FILE
 		calls:  root + "/calls.log",
@@ -58,6 +61,7 @@ function mk_sandbox() {
 		'{"l3_device":"eth0","route":[{"target":"0.0.0.0","mask":0,"nexthop":"192.0.2.1"}],' +
 		'"ipv4-address":[{"address":"203.0.113.7","mask":24}]}\n');
 	writefile(sb.fake + "/lan.json", '{"ipv4-address":[{"address":"192.168.1.1","mask":24}]}\n');
+	writefile(sb.fake + "/route_default.out", "default via 192.0.2.1 dev eth0 proto static\n");
 
 	write_stub(sb.bin, "ubus",
 		'case "$*" in\n' +
@@ -81,8 +85,14 @@ function mk_sandbox() {
 	write_stub(sb.bin, "df",
 		'if [ -f "$FAKE_DIR/df.out" ]; then cat "$FAKE_DIR/df.out"; exit 0; fi\n' +
 		'for p in /usr/bin/df /bin/df; do [ -x "$p" ] && exec "$p" "$@"; done\nexit 1');
+	// ip: два запроса, которые реально читает движок. `route show default` — предусловие Full-тира
+	// (sing-box выбирает по нему интерфейс до сервера); дефолт в песочнице = «обычный роутер с WAN»,
+	// сценарий про пропавший маршрут обнуляет route_default.out.
 	write_stub(sb.bin, "ip",
-		'case "$*" in\n  "route get"*) cat "$FAKE_DIR/route_get.out" 2>/dev/null ;;\nesac\nexit 0');
+		'case "$*" in\n' +
+		'  *"route show default"*) cat "$FAKE_DIR/route_default.out" 2>/dev/null ;;\n' +
+		'  *"route get"*) cat "$FAKE_DIR/route_get.out" 2>/dev/null ;;\n' +
+		'esac\nexit 0');
 	for (let name in ["nft", "ifup", "ifdown", "wifi", "passwd", "logger"])
 		write_stub(sb.bin, name, "exit 0");
 	// sleep: мгновенный — health-циклы (15×2с) и ретраи не тянут время теста.
@@ -99,17 +109,21 @@ function with_singbox(sb) {
 function env_prefix(sb) {
 	return sprintf(
 		"PATH=%s:$PATH CALLS=%s FAKE_DIR=%s UCI_CONFIG_DIR=%s SNAPSHOT_DIR=%s " +
-		"ETC_CHEBURNET=%s SB_CONFIG=%s STATE_FILE=%s REASON_FILE=%s SB_SLEEP=0 SB_RETRIES=2",
+		"ETC_CHEBURNET=%s SB_CONFIG=%s STATE_FILE=%s REASON_FILE=%s SB_SLEEP=0 SB_RETRIES=2 " +
+		// Артефакты, которые шаг firewall пишет в /etc: в sandbox таких каталогов нет.
+		"CHEB_NFT_PATH=%s CHEB_HOTPLUG_PATH=%s",
 		sb.bin, sb.calls, sb.fake, sb.config, sb.snap,
-		sb.etc, sb.sbconf, sb.state, sb.reason);
+		sb.etc, sb.sbconf, sb.state, sb.reason, sb.nft, sb.hotplug);
 }
 
-// run_uc(sb, rel, args?, stdin_text?) → { rc, out } — запустить engine/<rel> в sandbox
-// (rel с ведущим «/» — абсолютный путь, для тестовых обёрток вне engine/).
+// run_uc(sb, rel, args?, stdin_text?, extra_env?) → { rc, out } — запустить engine/<rel> в sandbox
+// (rel с ведущим «/» — абсолютный путь, для тестовых обёрток вне engine/). extra_env — строка
+// «VAR=val …» перед командой: ею подменяют то, что иначе пришлось бы держать в проде (например
+// ENGINE_DIR, чтобы подставить шаг-заглушку).
 // stdout+stderr вместе: тесты проверяют и сообщения об откате (warn).
-function run_uc(sb, rel, args, stdin_text) {
+function run_uc(sb, rel, args, stdin_text, extra_env) {
 	let path = (substr(rel, 0, 1) == "/") ? rel : ENGINE + "/" + rel;
-	let cmd = sprintf("%s ucode -R %s%s 2>&1", env_prefix(sb), path,
+	let cmd = sprintf("%s %s ucode -R %s%s 2>&1", env_prefix(sb), extra_env ?? "", path,
 		args ? " " + args : "");
 	if (stdin_text != null)
 		cmd = sprintf("printf '%%s' %s | %s", shq(stdin_text), cmd);
