@@ -22,6 +22,8 @@
 - **[install-no-ssh.md](install-no-ssh.md)** — установка через браузер (LuCI), без SSH.
 - **[install-blocked.md](install-blocked.md)** — что делать, если провайдер блокирует загрузку
   пакетов при установке.
+- **[uninstall.md](uninstall.md)** — снять настройку или удалить cheburnet целиком (и что из
+  зависимостей трогать нельзя).
 
 ## Справочные
 
