@@ -5,7 +5,7 @@ aliases: [troubleshooting, диагностика, отладка]
 updated: 2026-06-08
 ---
 
-# 🔧 Troubleshooting — куда смотреть
+# Troubleshooting — куда смотреть
 
 > [!tip] TL;DR
 > 90% жалоб «нет интернета» решаются тремя командами: статус [[amneziawg|туннеля]], статус

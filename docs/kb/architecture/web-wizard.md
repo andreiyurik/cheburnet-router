@@ -5,7 +5,7 @@ aliases: [web-wizard, веб-мастер, svelte, ui]
 updated: 2026-06-08
 ---
 
-# 🪄 Веб-мастер на Svelte
+# Веб-мастер на Svelte
 
 > [!tip] TL;DR
 > Статический SPA на **Svelte**, отдаётся прямо с роутера, общается с [[engine-ucode|движком]]

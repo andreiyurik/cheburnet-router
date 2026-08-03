@@ -5,7 +5,7 @@ aliases: [policy-routing, ip-rule, fwmark]
 updated: 2026-06-08
 ---
 
-# 🧭 Policy routing — как ядро разводит трафик
+# Policy routing — как ядро разводит трафик
 
 > [!tip] TL;DR
 > У Linux может быть **несколько таблиц маршрутизации**, и `ip rule` выбирает, какую применить

@@ -5,7 +5,7 @@ aliases: [engine-ucode, движок, ucode]
 updated: 2026-06-08
 ---
 
-# ⚙️ Движок на ucode
+# Движок на ucode
 
 > [!tip] TL;DR
 > Вся логика управления (preflight, шаги установки, генерация конфигов, ubus-обработчик) —

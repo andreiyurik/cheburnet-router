@@ -5,7 +5,7 @@ aliases: [home-travel-modes, home, travel, режимы]
 updated: 2026-06-08
 ---
 
-# 🏠✈️ Режимы HOME и TRAVEL
+# Режимы HOME и TRAVEL
 
 > [!tip] TL;DR
 > **HOME** — split: домены из direct-списка напрямую, остальное в туннель. **TRAVEL** —

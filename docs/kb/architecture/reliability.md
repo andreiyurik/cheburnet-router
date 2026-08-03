@@ -5,7 +5,7 @@ aliases: [reliability, надёжность, preflight, idempotency, rollback]
 updated: 2026-06-08
 ---
 
-# 🛡 Надёжность — три кирпича
+# Надёжность — три кирпича
 
 > [!tip] TL;DR
 > Сознательно **не** строим generic desired-state движок (это путь Ansible — годы и команды,

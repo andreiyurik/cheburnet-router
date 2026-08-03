@@ -5,7 +5,7 @@ aliases: [bootstrap, distribution, feed, apk]
 updated: 2026-06-08
 ---
 
-# 📦 Bootstrap и дистрибуция
+# Bootstrap и дистрибуция
 
 > [!tip] TL;DR
 > Установка = одна команда. Тонкий shell-bootstrap ставит **kmod-amneziawg** (arch/ядро-

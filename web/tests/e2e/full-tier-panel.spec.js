@@ -144,3 +144,40 @@ test('догрузка не скачалась: прежний совет про
   await page.getByRole('button', { name: 'Установить компонент' }).click();
   await expect(page.getByText('Не удалось скачать компонент', { exact: false })).toBeVisible({ timeout: 15_000 });
 });
+
+// Реальная жалоба: «после установки не видел выбора протоколов». Блок #tunnel-group свёрнут по
+// умолчанию и раньше раскрывался сам только когда что-то СЛОМАНО (hero='down') — на рабочем
+// туннеле человек не находил ни кнопку догрузки, ни переключение вовсе. Проверяем, что теперь
+// прямо в сводке (без раскрытия панели вручную) есть ссылка-вход, и что она реально раскрывает блок.
+test('здоровый AWG, компонент не докачан: в сводке видна ссылка «другие протоколы»', async ({ page, request }) => {
+  await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: true, fullInstalled: false });
+
+  await expect(page.locator('#tunnel-group')).toHaveJSProperty('open', false);
+  const row = page.locator('ul.status li', { hasText: 'Туннель' });
+  const link = row.getByRole('link', { name: 'другие протоколы' });
+  await expect(link).toBeVisible();
+
+  await link.click();
+  await expect(page.locator('#tunnel-group')).toHaveJSProperty('open', true);
+  await expect(page.getByRole('heading', { name: /Запасные туннели/ })).toBeVisible();
+});
+
+test('здоровый Reality, компонент уже стоит: в сводке видна ссылка «сменить»', async ({ page, request }) => {
+  await openPanel(page, request, { installed: true, protocol: 'reality', fullCapable: true, fullInstalled: true });
+
+  const row = page.locator('ul.status li', { hasText: 'Туннель' });
+  const link = row.getByRole('link', { name: 'сменить' });
+  await expect(link).toBeVisible();
+
+  await link.click();
+  await expect(page.locator('#tunnel-group')).toHaveJSProperty('open', true);
+  await expect(page.getByRole('heading', { name: 'Сменить туннель' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /Протокол: VLESS\+Reality/ })).toHaveCount(0); // текущий — не свой же предлагать
+});
+
+test('слабое железо: в сводке нет ссылки на протоколы, которых всё равно нет', async ({ page, request }) => {
+  await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: false, fullInstalled: false });
+
+  const row = page.locator('ul.status li', { hasText: 'Туннель' });
+  await expect(row.getByRole('link')).toHaveCount(0);
+});

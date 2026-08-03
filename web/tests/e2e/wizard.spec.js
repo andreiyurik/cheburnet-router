@@ -120,6 +120,36 @@ test('мастер на Full-железе: выбор по симптому, д�
   expect('reality_conf' in args).toBe(false);
 });
 
+// Пограничное железо (дефолт мока: RAM хватает на Light, не хватает на Full) — самый частый
+// реальный случай жалобы «не мог выбрать протокол»: строки VLESS+Reality/Hysteria2 не спрятаны,
+// а честно задизейблены, и раньше единственным сигналом была мелкая серая подпись — на глаз не
+// отличить от рабочей строки. Проверяем, что сейчас есть явный бейдж и что клик по замку не выбирает.
+test('мастер на пограничном железе: Full-протоколы задизейблены с явным бейджем «недоступно»', async ({ page }) => {
+  await page.goto('/cheburnet/?token=TESTTOKEN');
+  await page.getByRole('button', { name: 'Продолжить' }).click();
+
+  // Дефолт при недоступном Full — AmneziaWG, единственный доступный вариант.
+  await expect(page.getByRole('radio', { name: /Роутер слабый или хочется максимально быстро/ })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /Роутер слабый или хочется максимально быстро/ })).toBeEnabled();
+
+  const reality = page.getByRole('radio', { name: /Интернет через VPN вообще не открывается/ });
+  const hysteria = page.getByRole('radio', { name: /Интернет открывается, но тормозит/ });
+  await expect(reality).toBeDisabled();
+  await expect(hysteria).toBeDisabled();
+
+  // Бейдж — видимый сигнал у самой строки, а не только мелкий текст под ней.
+  await expect(page.locator('.badge-locked')).toHaveCount(2);
+  await expect(page.getByText('недоступно', { exact: true })).toHaveCount(2);
+
+  // Причина недоступности напечатана явно (движок отдал её из preflight.tiers.full_checks).
+  await expect(page.getByText('RAM ≈ 120 МБ', { exact: false })).toBeVisible();
+
+  // Клик по задизейбленной строке не переключает выбор — форма остаётся на AmneziaWG.
+  await reality.click({ force: true }).catch(() => {});
+  await expect(page.getByRole('radio', { name: /Роутер слабый или хочется максимально быстро/ })).toBeChecked();
+  await expect(reality).not.toBeChecked();
+});
+
 test('мастер: health-check не прошёл → адресная диагностика «VPN-сервер не ответил»', async ({ page, request }) => {
   // Мок переключается в режим «движок откатился по health» — UI должен сказать про VPN-сервер
   // и подписку, а не безликое «установка не удалась» (главная находка UX-ревью).

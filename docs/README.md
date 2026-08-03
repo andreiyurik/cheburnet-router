@@ -1,10 +1,10 @@
-# 📚 Документация cheburnet-router
+# Документация cheburnet-router
 
 ## Архитектура и база знаний
 
-- 📐 **[architecture.md](architecture.md)** — полный дизайн-документ: лёгкий split-tunnel
+- **[architecture.md](architecture.md)** — полный дизайн-документ: лёгкий split-tunnel
   на примитивах ядра, движок на ucode, дистрибуция через GitHub Releases + apk.
-- 🧠 **[База знаний (Obsidian-vault)](kb/README.md)** — образовательная документация «от первых
+- **[База знаний (Obsidian-vault)](kb/README.md)** — образовательная документация «от первых
   принципов»: как работает [split-routing](kb/concepts/split-routing.md),
   [DNS и маршрутизация](kb/concepts/dns-and-routing.md),
   [policy routing](kb/concepts/policy-routing.md), и почему приняты ключевые

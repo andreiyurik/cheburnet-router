@@ -5,7 +5,7 @@ aliases: [release-checklist, релиз-чеклист]
 updated: 2026-07-10
 ---
 
-# 🚀 Release checklist — что проверить перед тегом
+# Release checklist — что проверить перед тегом
 
 Автоматика (`make lint`, `make test-engine`, CI-джобы `qemu-smoke`/`qemu-install`) ловит
 регрессии в логике и на живом busybox-окружении в QEMU. Этот список — то, что автоматика

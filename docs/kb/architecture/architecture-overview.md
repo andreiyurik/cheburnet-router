@@ -5,7 +5,7 @@ aliases: [architecture-overview, обзор-архитектуры]
 updated: 2026-06-08
 ---
 
-# 🏗 Архитектура — обзор слоёв
+# Архитектура — обзор слоёв
 
 > [!tip] TL;DR
 > Четыре слоя: тонкий [[bootstrap|bootstrap]] (shell) → [[engine-ucode|движок]] (ucode) →

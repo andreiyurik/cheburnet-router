@@ -5,7 +5,7 @@ aliases: [kill-switch, killswitch, защита-от-утечки]
 updated: 2026-06-08
 ---
 
-# 🛡 Kill-switch — защита от утечки
+# Kill-switch — защита от утечки
 
 > [!tip] TL;DR
 > Если [[amneziawg|туннель]] упал, трафик, который должен идти в VPN, **не должен утечь

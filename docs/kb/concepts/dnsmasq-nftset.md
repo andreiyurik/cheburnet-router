@@ -5,7 +5,7 @@ aliases: [dnsmasq-nftset, nftset]
 updated: 2026-06-08
 ---
 
-# 🏷 dnsmasq-nftset — как DNS помечает адреса
+# dnsmasq-nftset — как DNS помечает адреса
 
 > [!tip] TL;DR
 > dnsmasq умеет: «если резолвится домен из списка — положи полученный IP в nftables-множество».

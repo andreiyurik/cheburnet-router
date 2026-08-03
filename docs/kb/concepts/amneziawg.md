@@ -5,7 +5,7 @@ aliases: [amneziawg, awg, awg0, туннель]
 updated: 2026-06-08
 ---
 
-# 🔐 AmneziaWG — VPN-туннель
+# AmneziaWG — VPN-туннель
 
 > [!tip] TL;DR
 > AmneziaWG — это WireGuard с **обфускацией**: добавляет случайные байты и параметризует

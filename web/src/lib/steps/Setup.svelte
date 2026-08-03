@@ -113,7 +113,7 @@
     {@const locked = p.full && !fullAvailable}
     <label class="radio" class:disabled={locked}>
       <input type="radio" bind:group={protocol} value={p.id} disabled={locked} />
-      <span><strong>{p.symptom}</strong> — {p.why}
+      <span><strong>{p.symptom}</strong>{#if locked}<span class="badge-locked">недоступно</span>{/if} — {p.why}
         <!-- &nbsp; намеренно: Svelte срезает ведущий пробел внутри {#if}, и получалось
              «VLESS+Reality· недоступен». -->
         <br /><small class="muted">Протокол: {p.name}{#if locked}&nbsp;· недоступен на этом роутере{/if}</small></span>
@@ -181,7 +181,6 @@
       <label>
         <span>Скорость отдачи (Мбит/с)</span>
         <input type="number" min="1" max="10000" bind:value={speedUp} />
-        <small class="muted">У домашнего интернета отдача обычно в несколько раз меньше приёма.</small>
       </label>
     {/if}
   {/if}
@@ -193,9 +192,8 @@
       rows="3"
       placeholder="ru&#10;example.com"
     ></textarea>
-    <small class="muted">Эти сайты идут напрямую, остальное — через туннель. Запись зоны
-      (<code>ru</code>) покрывает все сайты в ней; остальные — своей строкой. Можно оставить
-      как есть.</small>
+    <small class="muted">Остальное — через туннель. Запись зоны (<code>ru</code>) покрывает все
+      сайты в ней; отдельные — своей строкой.</small>
   </label>
 
   <h3>Пароль роутера</h3>
@@ -221,7 +219,7 @@
     <label>
       <span>Пароль Wi-Fi</span>
       <input type="password" bind:value={wifiKey} autocomplete="new-password" placeholder="минимум {WIFI_KEY_MIN} символов" />
-      <small class="muted">WPA2/WPA3 (если доступно). Минимум {WIFI_KEY_MIN} символов.</small>
+      <small class="muted">WPA2/WPA3 (если доступно).</small>
     </label>
     {#if wirelessPresent === null}
       <small class="muted">Не удалось узнать, есть ли у роутера Wi-Fi — заполните, если он есть; иначе оставьте пустым.</small>
@@ -237,7 +235,7 @@
           <option value={p.id}>{p.name} — {p.description}</option>
         {/each}
       </select>
-      <small class="muted">«Семейный» провайдер дополнительно блокирует сайты 18+ и форсит безопасный поиск. Менять можно позже.</small>
+      <small class="muted">«Семейный» провайдер дополнительно блокирует сайты 18+ и форсит безопасный поиск.</small>
     </label>
   {/if}
 
@@ -245,7 +243,6 @@
     <label>
       <span>Код установки</span>
       <input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
-      <small class="muted">Он печатается в терминале сразу после команды установки — вставьте его сюда.</small>
     </label>
   {:else}
     <p class="muted small">✓ Код установки получен из ссылки.

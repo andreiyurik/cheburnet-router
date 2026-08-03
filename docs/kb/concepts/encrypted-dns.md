@@ -5,7 +5,7 @@ aliases: [encrypted-dns, doh, https-dns-proxy]
 updated: 2026-06-08
 ---
 
-# 🔒 Зашифрованный DNS (DoH)
+# Зашифрованный DNS (DoH)
 
 > [!tip] TL;DR
 > Обычный DNS идёт открытым текстом — провайдер видит, какие сайты ты резолвишь, и может
