@@ -57,6 +57,21 @@
 **Проект не привязан к провайдеру.** Подойдёт любой стандартный AmneziaWG-конфиг (`.conf`): свой
 сервер на VPS (стек Amnezia открытый, документация публичная) или готовая подписка.
 
+### Свой сервер: выберите протокол и поднимите за 10–15 минут
+
+Нужен любой чистый VPS (Debian/Ubuntu, от ~$4–5/мес) — дальше по официальному гайду конкретного
+протокола. Выбирайте по тому же принципу, что и в [«Три протокола»](#три-протокола): не знаете,
+что нужно — берите AmneziaWG.
+
+| Протокол | Насколько просто | Официальный гайд |
+|---|---|---|
+| **AmneziaWG** (по умолчанию) | Без терминала: приложение AmneziaVPN само ставит сервер — вводите IP и пароль от SSH, остальное автоматически | [docs.amnezia.org →](https://docs.amnezia.org/documentation/instructions/install-vpn-on-server) |
+| **VLESS+Reality** | Одна команда в терминале VPS ставит веб-панель **3x-ui**, дальше всё в браузере | [3x-ui на GitHub →](https://github.com/MHSanaei/3x-ui) |
+| **Hysteria2** | Одна команда ставит сервер как сервис, но конфиг (пароль, сертификат) пишете сами по примеру из документации — без домена нужен свой сертификат | [Hysteria2 docs →](https://v2.hysteria.network/docs/getting-started/Server-Installation-Script/) |
+
+Готовую ссылку или `.conf` из любого гайда вставляете в мастер cheburnet-router на шаге 4
+[установки](#установка).
+
 <div align="center">
 
 ### [Amnezia Premium — от 325 ₽/мес, скидка 15% по промокоду CHEBURNET15 →](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15)
