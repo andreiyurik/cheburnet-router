@@ -2,3 +2,6 @@
 links.env
 # Клиентский конфиг AmneziaWG со стенда — приватный ключ, тоже не коммитим.
 awg-client.conf
+# Ручные sing-box клиентские конфиги для проверки Reality/Hysteria2 со стенда — те же credentials.
+reality-client.json
+hysteria2-client.json
