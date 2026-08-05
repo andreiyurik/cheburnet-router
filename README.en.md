@@ -46,7 +46,7 @@ Requires a router running OpenWrt 25.12+ (≥128 MB RAM, ≥16 MB free flash) an
 from your own VPS or any compatible provider.
 
 ```sh
-ssh root@192.168.1.1
+ssh-keygen -R 192.168.1.1; ssh root@192.168.1.1
 ```
 ```sh
 wget -O /tmp/cheburnet.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh
