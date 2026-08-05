@@ -244,6 +244,8 @@
       <span>Код установки</span>
       <input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
     </label>
+    <small class="muted">Проще: откройте в браузере всю ссылку из терминала (начинается на
+      http://192.168.1.1/cheburnet/?token=…) — код уже в ней, вводить вручную не придётся.</small>
   {:else}
     <p class="muted small">✓ Код установки получен из ссылки.
       <button class="linklike" type="button" onclick={() => (tokenEditable = true)}>Изменить</button>
