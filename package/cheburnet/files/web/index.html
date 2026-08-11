@@ -4,8 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>cheburnet — мастер настройки</title>
-    <script type="module" crossorigin src="./assets/index-DSq0oBYv.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-C7EBAmqD.css">
+    <script>
+      // Явно выбранная тема — до первой отрисовки, иначе кадр системной темы мигает при загрузке.
+      var t = localStorage.getItem('cheburnet-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    </script>
+    <script type="module" crossorigin src="./assets/index-CAhmLPBF.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CaiRvW6G.css">
   </head>
   <body>
     <div id="app"></div>
