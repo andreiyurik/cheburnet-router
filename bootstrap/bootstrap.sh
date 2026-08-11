@@ -32,7 +32,8 @@ PKG_FILE="${CHEBURNET_PKG:-cheburnet.apk}"
 # а не master awg-openwrt: воспроизводимость и один origin доверия. Обновление копии — vendor/README.md.
 AWG_INSTALL_URL="${CHEBURNET_AWG_INSTALL_URL:-$SRC_BASE/vendor/amneziawg-install.sh}"
 
-ETC="/etc/cheburnet"
+# env-override только для тестов (tests/bootstrap-test.sh) — в проде всегда дефолт.
+ETC="${CHEBURNET_ETC:-/etc/cheburnet}"
 
 log()  { echo "→ $*"; }
 die()  { echo "✗ $*" >&2; exit 1; }

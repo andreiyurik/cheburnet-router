@@ -35,6 +35,7 @@ test-engine:
 # выхода install-singbox.sh (кнопка Full-тира) — самое глючеопасное место.
 test-shell:
 	@bash tests/install-singbox-test.sh
+	@bash tests/bootstrap-test.sh
 
 # T2.5 — поведение split-routing на живом ядре БЕЗ роутера/QEMU/VPN (форвард-путь в netns):
 # direct→WAN, остальное→туннель, kill-switch антиутечка при мёртвом туннеле — для awg0 и singtun0.
