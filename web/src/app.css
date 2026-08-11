@@ -1,31 +1,78 @@
-:root {
-  --bg: #0f1419;
-  --card: #1a212b;
-  --fg: #e6edf3;
-  --muted: #8b97a6;
-  --accent: #4c8dff;
-  --ok: #3fb950;
-  --bad: #f85149;
-  --attn: #d29922; /* «впритык, но можно» — между ok и bad (soft-провалы preflight) */
-  --line: #2a333f;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color-scheme: dark;
+/* Тема «плёнка-1969»: тона сняты пипеткой с кадров мультфильма, контраст каждой пары
+   роль×фон проверен по WCAG (≥4.5 текст, ≥3 UI) — источники, метод и таблица пар:
+   docs/kb/architecture/web-theme.md. Заголовочный шрифт вшит (25 КБ, OFL — см. assets/fonts). */
+@font-face {
+  font-family: "Nunito";
+  font-weight: 800;
+  font-display: swap;
+  src: url("./assets/fonts/nunito-800-cyrillic.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Nunito";
+  font-weight: 800;
+  font-display: swap;
+  src: url("./assets/fonts/nunito-800-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* Светлая тема — следуем системной настройке устройства (та же палитра ролей). */
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f4f6f9;
-    --card: #ffffff;
-    --fg: #1c2530;
-    --muted: #5c6875;
-    --accent: #2f6fe4;
-    --ok: #1a7f37;
-    --bad: #c93c37;
-    --attn: #9a6700;
-    --line: #d9dfe7;
-    color-scheme: light;
+/* Светлая тема — дефолт («бумага»): крем и войлочный коричневый, функциональный акцент —
+   бирюза фонов фильма (горчичный на креме не тянет контраст — только декор). */
+:root {
+  --bg: #f5eedc;
+  --card: #fdf9ee;
+  --fg: #2a2014;
+  --muted: #6c5f49;
+  --accent: #33695a;
+  --accent-fg: #ffffff; /* текст на залитом акцентом (primary-кнопка, segmented active) */
+  --ok: #5a7018; /* оливковый «кожи Гены», затемнён до 4.5:1 */
+  --bad: #a63220; /* кирпичный «сюртука Гены» */
+  --bad-fg: #ffffff;
+  --attn: #95590c; /* «впритык, но можно» — между ok и bad (soft-провалы preflight) */
+  --line: rgb(42 32 20 / 0.16);
+  --radius: 0.8rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-display: "Nunito", system-ui, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+
+/* Тёмная тема («вечерний войлок») — зеркальная: акцент переходит бирюза → горчичный, потому
+   что на тёмном горчичный контрастен (8:1), а на креме — нет; текст на нём — тёмный, не белый.
+   Дефолт — системная настройка; явный выбор (ThemeToggle) ставит data-theme на <html> и
+   перебивает её в обе стороны. Оба тёмных блока обязаны совпадать — сторожит theme.test.js. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1c1610;
+    --card: #281f16;
+    --fg: #f2e7ce;
+    --muted: #b5a385;
+    --accent: #d9b23d;
+    --accent-fg: #241b10;
+    --ok: #9cb05c;
+    --bad: #e5705b;
+    --bad-fg: #241b10;
+    --attn: #e29a55;
+    --line: rgb(242 231 206 / 0.13);
+    color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #1c1610;
+  --card: #281f16;
+  --fg: #f2e7ce;
+  --muted: #b5a385;
+  --accent: #d9b23d;
+  --accent-fg: #241b10;
+  --ok: #9cb05c;
+  --bad: #e5705b;
+  --bad-fg: #241b10;
+  --attn: #e29a55;
+  --line: rgb(242 231 206 / 0.13);
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -44,7 +91,7 @@ main {
 }
 
 header { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 1.25rem; }
-header h1 { margin: 0; font-size: 1.8rem; letter-spacing: 0.5px; }
+header h1 { margin: 0; font-family: var(--font-display); font-size: 1.8rem; letter-spacing: 0.5px; }
 header .sub { margin: 0; color: var(--muted); }
 header .logo { flex: none; }
 
@@ -62,22 +109,30 @@ header .logo { flex: none; }
 .stepper .dot.active { background: var(--accent); }
 .stepper-label { margin-left: 0.4rem; color: var(--muted); font-size: 0.85rem; }
 
-section {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 1.25rem;
+h2 { margin: 0 0 0.75rem; font-family: var(--font-display); font-size: 1.25rem; }
+/* Eyebrow-лейбл раздела, а не подзаголовок: маленький размер + разделительная линия дают чёткую
+   границу между смысловыми блоками формы — крупные ЗАГЛАВНЫЕ h3 (как раньше) спорили по весу
+   с обычным текстом и не читались как разбивка на группы. */
+h3 {
+  margin: 1.75rem 0 0.6rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
-
-h2 { margin: 0 0 0.75rem; font-size: 1.25rem; }
-h3 { margin: 1.25rem 0 0.5rem; font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+h4 { margin: 1rem 0 0.4rem; font-size: 0.85rem; font-weight: 600; color: var(--fg); }
 
 .muted { color: var(--muted); }
+.ok-hint { color: var(--ok); } /* живой вердикт «формат похож на правду» (ConfCheck) */
 .small { font-size: 0.85rem; }
 .warn { color: var(--bad); }
 .ok-msg { color: var(--ok); font-weight: 600; }
 
 label { display: block; margin: 0.9rem 0; }
+input[type="checkbox"] { width: 1.05rem; height: 1.05rem; accent-color: var(--accent); cursor: pointer; }
 label > span { display: block; margin-bottom: 0.3rem; font-weight: 600; }
 label em { color: var(--muted); font-weight: 400; }
 label.file > span { font-weight: 400; color: var(--muted); }
@@ -100,32 +155,47 @@ label.radio.disabled { cursor: not-allowed; opacity: 0.6; }
   white-space: nowrap;
 }
 
-textarea, input[type="text"], input[type="password"], input[type="number"], select {
+/* text/password/number/select теперь всегда идут через Input.svelte/Select.svelte (свои
+   scoped-стили) — здесь остаётся только textarea, для которой отдельного компонента нет. */
+textarea {
   width: 100%;
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0.6rem;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.9rem;
+  resize: vertical;
+  transition: border-color 0.15s;
 }
-textarea { resize: vertical; }
-/* Числовое поле на всю ширину выглядело бы полем для длинного значения — а тут 2–4 цифры. */
-input[type="number"] { width: 8rem; }
+textarea:hover:not(:disabled) { border-color: var(--muted); }
+textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+/* Квирк iOS Safari: фокус на контроле со шрифтом < 16px принудительно зумит всю страницу —
+   на мобильных держим поля ввода на 1rem (то же в Input.svelte и Select.svelte). */
+@media (max-width: 640px) {
+  textarea { font-size: 1rem; }
+}
+
+/* Виновное поле валидации: validateSetup возвращает field, Setup подсвечивает label и
+   прокручивает к нему — текст ошибки у кнопки «Установить» был за два экрана от поля. */
+label.field-invalid input,
+label.field-invalid textarea,
+label.field-invalid select { border-color: var(--bad); }
 
 button {
   background: var(--card);
   color: var(--fg);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0.6rem 1.1rem;
   font-size: 0.95rem;
   cursor: pointer;
 }
 button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
 
 .row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }
 .row button { flex: 1; min-width: 140px; }
@@ -138,10 +208,20 @@ ul.checks li.bad .mark { color: var(--bad); }
 /* Soft-провал («!») — жёлтый: человек должен ВИДЕТЬ разницу между «нельзя» и «можно с оговоркой». */
 ul.checks li.soft .mark { color: var(--attn); font-weight: 700; }
 ul.checks .fix { color: var(--muted); font-size: 0.85rem; }
+/* Чеклист установки (Installing): будущие шаги приглушены, текущий — спиннер, пройденные — ✓. */
+ul.checks li.pending { color: var(--muted); }
 
 /* Разбор одного soft-провала: чем грозит и что сделать вместо риска. */
 .risk-item { border-left: 3px solid var(--attn); padding-left: 0.75rem; margin: 0.9rem 0; }
-.risk-item h3 { margin: 0 0 0.25rem; font-size: 0.95rem; color: var(--fg); text-transform: none; letter-spacing: 0; }
+.risk-item h3 {
+  margin: 0 0 0.25rem;
+  padding-bottom: 0;
+  border-bottom: none;
+  font-size: 0.95rem;
+  color: var(--fg);
+  text-transform: none;
+  letter-spacing: 0;
+}
 .risk-item ul { margin: 0.3rem 0 0; padding-left: 1.1rem; color: var(--muted); }
 
 /* Согласие на риск: галочка обязательна, иначе красная кнопка неактивна. */
@@ -159,7 +239,7 @@ ul.status li.bad strong { color: var(--bad); }
 pre.log {
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0.6rem;
   max-height: 260px;
   overflow: auto;
@@ -176,7 +256,7 @@ details summary { cursor: pointer; color: var(--muted); margin-top: 0.75rem; }
    спрятанный журнал — иначе человек не догадается, что внутри есть действия. */
 details.group {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 0 0.9rem 0.2rem;
   margin-top: 1.25rem;
 }
@@ -195,12 +275,12 @@ details.more ul { margin: 0.4rem 0 0; padding-left: 1.1rem; color: var(--muted);
 /* Режим работы: видно ТЕКУЩЕЕ состояние, а не то, куда переключит кнопка. */
 .segmented { display: flex; gap: 0; margin-top: 0.5rem; }
 .segmented button { flex: 1; border-radius: 0; }
-.segmented button:first-child { border-radius: 8px 0 0 8px; }
-.segmented button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.segmented button:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.segmented button:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; margin-left: -1px; }
 .segmented button.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
   font-weight: 600;
 }
 .segmented button.active:disabled { opacity: 1; }
@@ -225,17 +305,17 @@ details.more ul { margin: 0.4rem 0 0; padding-left: 1.1rem; color: var(--muted);
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .banner {
-  background: rgba(248, 81, 73, 0.12);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
   border: 1px solid var(--bad);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0.6rem 0.8rem;
   font-size: 0.9rem;
 }
 /* Нейтральная информационная подсказка (не тревога) — приглушённая рамка акцента. */
 .note {
-  background: rgba(76, 141, 255, 0.10);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0.6rem 0.8rem;
   font-size: 0.9rem;
 }
@@ -243,11 +323,11 @@ details.more ul { margin: 0.4rem 0 0; padding-left: 1.1rem; color: var(--muted);
 em.req { color: var(--accent); font-weight: 600; font-style: normal; }
 
 button.danger { border-color: var(--bad); color: var(--bad); }
-button.danger:hover:not(:disabled) { background: var(--bad); color: #fff; }
+button.danger:hover:not(:disabled) { background: var(--bad); color: var(--bad-fg); }
 /* Кнопка «на свой страх и риск»: во всю ширину внизу экрана и залита красным, КАК ТОЛЬКО
    согласие получено — до галочки она приглушена (button:disabled) и кликом не отвечает. */
 button.danger.wide { display: block; width: 100%; margin-top: 0.75rem; padding: 0.8rem; font-weight: 600; }
-button.danger.wide:not(:disabled) { background: var(--bad); color: #fff; }
+button.danger.wide:not(:disabled) { background: var(--bad); color: var(--bad-fg); }
 h3.danger-h { color: var(--bad); }
 
 button.linklike {
@@ -263,7 +343,7 @@ button.linklike {
 .modal-back {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgb(28 20 12 / 0.55); /* тёплое затемнение вместо нейтрально-чёрного */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -272,7 +352,7 @@ button.linklike {
 .modal {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 1.25rem;
   width: min(92vw, 380px);
 }
@@ -281,7 +361,7 @@ button.linklike {
 .support {
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0.75rem 1rem;
   font-size: 0.9rem;
 }
