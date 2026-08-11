@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MIN_PASS, SSID_MAX, WIFI_KEY_MIN, WIFI_KEY_MAX,
-  parseDomains, validateSetup, explainFail, STEP_LABELS,
+  parseDomains, validateSetup, explainFail, STEP_LABELS, installPlan,
   endpoint, tunnelSummary, dnsLabel, hs,
   softRisks, canOverride, SOFT_RISK, FORCED_LABELS,
   heroKind, tunnelFallback, switchTargets, tunnelRowText, fullReasons, explainFullTierFail,
@@ -640,5 +640,49 @@ describe('fullMissingText — почему кнопки Full-тира нет', (
     expect(fullMissingText(['ram', 'flash'])).toContain('; ');
     expect(fullMissingText([])).toBe('');
     expect(fullMissingText(undefined)).toBe('');
+  });
+});
+
+// Чеклист установки: план шагов зависит от протокола и наличия Wi-Fi — и обязан совпадать
+// по порядку с движком, иначе «пройденные» шаги будут врать.
+describe('installPlan — план шагов для чеклиста Installing', () => {
+  it('awg без Wi-Fi: ни догрузки sing-box, ни шага wifi', () => {
+    expect(installPlan({ protocol: 'awg' }).map((s) => s.id)).toEqual(
+      ['preflight', 'snapshot', 'vpn', 'dns', 'doh', 'firewall', 'health-check']);
+  });
+
+  it('reality с Wi-Fi: singbox-download до snapshot, wifi между doh и firewall', () => {
+    expect(installPlan({ protocol: 'reality', ssid: 'Home' }).map((s) => s.id)).toEqual(
+      ['preflight', 'singbox-download', 'snapshot', 'singbox', 'dns', 'doh', 'wifi', 'firewall', 'health-check']);
+  });
+
+  it('у каждого шага плана есть человеческая подпись из STEP_LABELS', () => {
+    for (const s of installPlan({ protocol: 'hysteria2', ssid: 'x' })) expect(s.label).toBeTruthy();
+  });
+});
+
+// Подсветка виновного поля: каждая ошибка validateSetup называет field — Setup по нему
+// подсвечивает и прокручивает. Ошибка без field молча оставит человека искать поле самому.
+describe('validateSetup — field называет виновное поле', () => {
+  it.each([
+    ['conf', { confs: { awg: '' } }],
+    ['rootPass', { rootPass: 'short' }],
+    ['rootPass2', { rootPass2: 'другой-пароль-9' }],
+    ['ssid', { showWifi: true, wifiRequired: true, ssid: ' ', wifiKey: 'wifi-pass-1' }],
+    ['wifiKey', { showWifi: true, ssid: 'Home', wifiKey: 'short' }],
+    ['token', { token: '  ' }],
+  ])('%s', (field, patch) => {
+    const r = validateSetup(fields(patch));
+    expect(r.error).toBeTruthy();
+    expect(r.field).toBe(field);
+  });
+
+  it('speed — при кривых цифрах ручного режима Hysteria2', () => {
+    const r = validateSetup(fields({
+      protocol: 'hysteria2', fullAvailable: true,
+      confs: { hysteria2: 'hy2://pw@h:443' },
+      declareSpeed: true, speedDown: 0, speedUp: 10,
+    }));
+    expect(r.field).toBe('speed');
   });
 });

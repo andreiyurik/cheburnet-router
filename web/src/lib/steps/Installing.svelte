@@ -2,7 +2,9 @@
   import { onDestroy } from 'svelte';
   import mascot from '../../assets/cheburashka.png';
   import { cheburnet } from '../ubus.js';
-  import { STEP_LABELS, explainFail, SUPPORT } from '../logic.js';
+  import { STEP_LABELS, installPlan, explainFail, SUPPORT } from '../logic.js';
+  import Card from '../ui/Card.svelte';
+  import Button from '../ui/Button.svelte';
 
   // args — { awg_conf, root_password, [ssid, wifi_key], domains, token } для метода install.
   // onDone — установка завершилась успешно. onRetry — вернуться на Setup при ошибке.
@@ -20,6 +22,14 @@
   });
 
   const stepLabel = $derived(STEP_LABELS[step] ?? step ?? '…');
+  // Чеклист шагов: видно, сколько пройдено и сколько осталось, — одна меняющаяся строка на
+  // 1–3 минуты без интернета читалась как «зависло».
+  const plan = installPlan(args);
+  const planIdx = $derived(plan.findIndex((p) => p.id === step));
+  // Подряд неудачные опросы прогресса = страница потеряла роутер (обычно включился новый Wi-Fi
+  // и устройство ушло из сети роутера). Это штатно — объясняем, как вернуться, и продолжаем поллить.
+  let pollFails = $state(0);
+  const lostContact = $derived(pollFails >= 4);
   let error = $state('');
   let advice = $state(null); // { title, items[] } — адресная диагностика по reason
   let timer = null;
@@ -49,6 +59,7 @@
   async function poll() {
     try {
       const p = await cheburnet('install_progress');
+      pollFails = 0;
       step = p.step ?? '';
       log = p.log ?? '';
       if (p.done) {
@@ -71,9 +82,10 @@
           applyFail(p.reason ?? null);
         }
       }
-    } catch (e) {
-      // единичный сбой поллинга не валим — следующий тик повторит
-      step = `(ошибка опроса: ${e.message})`;
+    } catch {
+      // сбой поллинга не валим — следующий тик повторит; после нескольких подряд
+      // покажется подсказка «страница потеряла роутер» (lostContact)
+      pollFails += 1;
     }
   }
 
@@ -138,13 +150,29 @@
   start();
 </script>
 
-<section>
-  <h2>Установка</h2>
-
+<Card title="Установка">
   {#if phase === 'starting'}
     <p class="muted">Запускаю…</p>
   {:else if phase === 'running'}
-    <p><span class="spinner"></span> <strong>{stepLabel}</strong></p>
+    {#if planIdx >= 0}
+      <ul class="checks">
+        {#each plan as p, i}
+          <li class:ok={i < planIdx} class:pending={i > planIdx}>
+            <span class="mark">{#if i < planIdx}✓{:else if i === planIdx}<span class="spinner"></span>{:else}·{/if}</span>
+            <span>{p.label}</span>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <p><span class="spinner"></span> <strong>{stepLabel}</strong></p>
+    {/if}
+    {#if lostContact}
+      <p class="note"><strong>Страница потеряла связь с роутером — это ожидаемо</strong>, когда
+        включается новая сеть. Установка продолжается на самом роутере.
+        {#if args.ssid}Подключитесь к Wi-Fi «{args.ssid}» и вернитесь сюда — страница
+        подхватит прогресс сама.{:else}Переподключитесь к сети роутера (кабель или Wi-Fi) —
+        страница подхватит прогресс сама.{/if}</p>
+    {/if}
     <p class="note">
       Интернет и Wi-Fi сейчас пропадут — это нормально. <strong>Не выключайте роутер и не
       закрывайте страницу.</strong>
@@ -156,9 +184,9 @@
     {#if log}
       <pre class="log live" bind:this={logEl}>{log}</pre>
     {/if}
-    <button disabled={cancelling} onclick={cancel}>
+    <Button disabled={cancelling} onclick={cancel}>
       {cancelling ? 'Отменяю…' : 'Отменить установку'}
-    </button>
+    </Button>
   {:else if phase === 'ok'}
     <div class="done">
       <img src={mascot} alt="" width="84" height="84" />
@@ -177,10 +205,10 @@
       </div>
     {/if}
     <div class="row">
-      <button class="primary" onclick={onRetry}>{advice?.action ?? 'Изменить данные и повторить'}</button>
+      <Button variant="primary" onclick={onRetry}>{advice?.action ?? 'Изменить данные и повторить'}</Button>
       {#if log}
-        <button onclick={copyLog}>{copied ? '✓ Скопировано' : 'Копировать журнал'}</button>
-        <button onclick={downloadLog}>Скачать журнал</button>
+        <Button onclick={copyLog}>{copied ? '✓ Скопировано' : 'Копировать журнал'}</Button>
+        <Button onclick={downloadLog}>Скачать журнал</Button>
       {/if}
     </div>
     <!-- Куда писать — именно здесь: это единственный экран, где человек уже упёрся и ещё не ушёл.
@@ -198,4 +226,4 @@
       <pre class="log">{log}</pre>
     </details>
   {/if}
-</section>
+</Card>

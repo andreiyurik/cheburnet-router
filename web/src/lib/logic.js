@@ -260,7 +260,10 @@ export function canOverride(report) {
   return report?.passed !== true && report?.overridable === true;
 }
 
-// validateSetup(f) → { error } | { args } — проверка полей Setup и сборка аргументов install.
+// validateSetup(f) → { error, field } | { args } — проверка полей Setup и сборка аргументов
+// install. field называет виновное поле (conf|speed|rootPass|rootPass2|ssid|wifiKey|token) —
+// Setup подсвечивает его и прокручивает к нему: на длинной форме текст ошибки у кнопки
+// «Установить» оказывался за два экрана от самого поля.
 // f: { protocol, fullAvailable, confs: {awg, reality, hysteria2}, declareSpeed, speedDown, speedUp,
 //      rootPass, rootPass2, showWifi, wifiRequired, ssid, wifiKey, dnsProvider, domainsText,
 //      token, acceptRisk }.
@@ -271,23 +274,23 @@ export function validateSetup(f) {
   const info = protocolInfo(proto);
   let conf = (f.confs?.[proto] ?? '').trim();
   const confError = checkConf(proto, conf);
-  if (confError) return { error: confError };
+  if (confError) return { error: confError, field: 'conf' };
 
   // Скорость канала для Brutal — только когда владелец включил ручной режим (иначе BBR).
   if (proto === 'hysteria2' && f.declareSpeed) {
     const d = Number(f.speedDown), u = Number(f.speedUp);
     if (!Number.isInteger(d) || !Number.isInteger(u) || d <= 0 || u <= 0)
-      return { error: 'Скорость канала — целые числа Мбит/с больше нуля (или выключите ручной режим).' };
+      return { error: 'Скорость канала — целые числа Мбит/с больше нуля (или выключите ручной режим).', field: 'speed' };
     if (d > SPEED_MAX || u > SPEED_MAX)
-      return { error: `Скорость канала — не больше ${SPEED_MAX} Мбит/с.` };
+      return { error: `Скорость канала — не больше ${SPEED_MAX} Мбит/с.`, field: 'speed' };
     conf = withDeclaredSpeed(conf, d, u);
   }
 
   // Пароль НЕ обрезаем (в нём могут быть значимые пробелы) — сравниваем как есть.
   if (f.rootPass.length < MIN_PASS)
-    return { error: `Пароль роутера — минимум ${MIN_PASS} символов.` };
+    return { error: `Пароль роутера — минимум ${MIN_PASS} символов.`, field: 'rootPass' };
   if (f.rootPass !== f.rootPass2)
-    return { error: 'Пароли роутера не совпадают.' };
+    return { error: 'Пароли роутера не совпадают.', field: 'rootPass2' };
 
   // Wi-Fi: собираем только если секция показана и (обязательна ИЛИ хоть одно поле заполнено).
   // Пароль Wi-Fi НЕ обрезаем (значимые пробелы); SSID — да (крайние пробелы — частая опечатка).
@@ -297,15 +300,15 @@ export function validateSetup(f) {
     const wifiFilled = ssidTrim.length > 0 || f.wifiKey.length > 0;
     if (f.wifiRequired || wifiFilled) {
       if (ssidTrim.length < 1 || ssidTrim.length > SSID_MAX)
-        return { error: `Имя Wi-Fi (SSID) — от 1 до ${SSID_MAX} символов.` };
+        return { error: `Имя Wi-Fi (SSID) — от 1 до ${SSID_MAX} символов.`, field: 'ssid' };
       if (f.wifiKey.length < WIFI_KEY_MIN || f.wifiKey.length > WIFI_KEY_MAX)
-        return { error: `Пароль Wi-Fi — от ${WIFI_KEY_MIN} до ${WIFI_KEY_MAX} символов.` };
+        return { error: `Пароль Wi-Fi — от ${WIFI_KEY_MIN} до ${WIFI_KEY_MAX} символов.`, field: 'wifiKey' };
       wifiArgs = { ssid: ssidTrim, wifi_key: f.wifiKey };
     }
   }
 
   if (f.token.trim().length === 0)
-    return { error: 'Введите код установки — он напечатан в терминале после команды установки.' };
+    return { error: 'Введите код установки — он напечатан в терминале после команды установки.', field: 'token' };
 
   return {
     args: {
@@ -338,6 +341,19 @@ export const STEP_LABELS = {
   firewall: 'Firewall и kill-switch',
   'health-check': 'Проверка связи (поднятие туннеля, до ~30 сек)',
 };
+
+// installPlan(args) → [{ id, label }] — ожидаемая последовательность шагов этой установки
+// для чеклиста Installing: singbox-download только у Full-протоколов, wifi — только при SSID.
+// ИНВАРИАНТ: порядок повторяет последовательность шагов движка (как в STEP_LABELS).
+export function installPlan(args) {
+  const full = requiresFull(args?.protocol);
+  const ids = ['preflight'];
+  if (full) ids.push('singbox-download');
+  ids.push('snapshot', full ? 'singbox' : 'vpn', 'dns', 'doh');
+  if (args?.ssid) ids.push('wifi');
+  ids.push('firewall', 'health-check');
+  return ids.map((id) => ({ id, label: STEP_LABELS[id] }));
+}
 
 // explainFail(reason) → { error, advice } — адресная диагностика по машинному коду исхода
 // (install_progress.reason). error=null у генерик-ветки: компонент сохраняет свой текст

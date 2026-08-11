@@ -4,6 +4,12 @@
   import { hs, FORCED_LABELS, heroKind, tunnelFallback, switchTargets, tunnelRowText,
            explainFullTierFail, fullMissingText, protocolInfo, checkConf, BRUTAL_WARNING,
            withDeclaredSpeed, SPEED_DEFAULTS, SUPPORT } from '../logic.js';
+  import Card from '../ui/Card.svelte';
+  import Button from '../ui/Button.svelte';
+  import Input from '../ui/Input.svelte';
+  import Radio from '../ui/Radio.svelte';
+  import Select from '../ui/Select.svelte';
+  import ConfCheck from '../ui/ConfCheck.svelte';
 
   // onReinstall — запустить мастер заново (с preflight).
   let { onReinstall } = $props();
@@ -434,30 +440,26 @@
      Поле не голое сознательно: завышенная цифра делает связь ХУЖЕ и молча (см. ADR 0004). -->
 {#snippet speedFields()}
   <h4>Скорость канала</h4>
-  <label class="radio">
-    <input type="radio" bind:group={declareSpeed} value={false} disabled={busy} />
-    <span><strong>Подбирать автоматически</strong> — рекомендуем.</span>
-  </label>
-  <label class="radio">
-    <input type="radio" bind:group={declareSpeed} value={true} disabled={busy} />
-    <span><strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями.</span>
-  </label>
+  <Radio bind:group={declareSpeed} value={false} disabled={busy}>
+    <strong>Подбирать автоматически</strong> — рекомендуем.
+  </Radio>
+  <Radio bind:group={declareSpeed} value={true} disabled={busy}>
+    <strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями.
+  </Radio>
   {#if declareSpeed}
     <p class="warn">{BRUTAL_WARNING}</p>
     <label>
       <span>Скорость приёма (Мбит/с)</span>
-      <input type="number" min="1" max="10000" bind:value={speedDown} disabled={busy} />
+      <Input type="number" min="1" max="10000" bind:value={speedDown} disabled={busy} />
     </label>
     <label>
       <span>Скорость отдачи (Мбит/с)</span>
-      <input type="number" min="1" max="10000" bind:value={speedUp} disabled={busy} />
+      <Input type="number" min="1" max="10000" bind:value={speedUp} disabled={busy} />
     </label>
   {/if}
 {/snippet}
 
-<section>
-  <h2>Состояние</h2>
-
+<Card title="Состояние">
   {#if error}<p class="warn">{error}</p>{/if}
 
   {#if s}
@@ -581,29 +583,29 @@
          Отступ обязателен — иначе подпись слипается с абзацем про режимы и читается как его хвост. -->
     <p class="muted small action-hint">Подтянуть готовый список популярных сайтов прямого доступа.</p>
     <div class="row">
-      <button disabled={busy} onclick={updateList}>Обновить список сайтов</button>
+      <Button disabled={busy} onclick={updateList}>Обновить список сайтов</Button>
     </div>
     {@render actionNote('manage')}
 
     <h3>Перезапуск сервисов</h3>
     <div class="row">
-      <button disabled={busy} onclick={() => restart('vpn', 'туннель')}>Туннель</button>
-      <button disabled={busy} onclick={() => restart('dns', 'DNS')}>DNS</button>
-      <button disabled={busy} onclick={() => restart('doh', 'шифрованный DNS')}>Шифрованный DNS</button>
+      <Button disabled={busy} onclick={() => restart('vpn', 'туннель')}>Туннель</Button>
+      <Button disabled={busy} onclick={() => restart('dns', 'DNS')}>DNS</Button>
+      <Button disabled={busy} onclick={() => restart('doh', 'шифрованный DNS')}>Шифрованный DNS</Button>
     </div>
     {@render actionNote('restart')}
 
     <h3>Фильтрация (DNS)</h3>
     <label>
       <span>Блокировка рекламы / взрослого контента</span>
-      <select bind:value={providerSel} disabled={busy}>
+      <Select bind:value={providerSel} disabled={busy}>
         {#each s.dns_providers ?? [] as p}
           <option value={p.id}>{p.name} — {p.description}</option>
         {/each}
-      </select>
+      </Select>
     </label>
     <div class="row">
-      <button disabled={busy || !providerSel || providerSel === s.dns_provider} onclick={setProvider}>Применить</button>
+      <Button disabled={busy || !providerSel || providerSel === s.dns_provider} onclick={setProvider}>Применить</Button>
     </div>
     <p class="muted small">«Семейный» провайдер блокирует сайты 18+ и форсит безопасный поиск.</p>
     {@render actionNote('dns')}
@@ -621,6 +623,7 @@
       <span>{active.confLabel}</span>
       <textarea bind:value={replaceConf} rows="5" disabled={busy}
         placeholder={active.placeholder}></textarea>
+      <ConfCheck id={active.id} text={replaceConf} />
     </label>
     {#if active.file}
       <label class="file">
@@ -630,9 +633,9 @@
     {/if}
     {#if active.id === 'hysteria2'}{@render speedFields()}{/if}
     <div class="row">
-      <button disabled={busy || replaceConf.trim().length === 0} onclick={replaceTunnel}>
+      <Button disabled={busy || replaceConf.trim().length === 0} onclick={replaceTunnel}>
         {replacePhase === 'running' ? 'Применяю…' : 'Заменить конфиг'}
-      </button>
+      </Button>
     </div>
     {#if replacePhase === 'running'}
       <p><span class="spinner"></span> Применяю новый конфиг — при сбое прежний вернётся автоматически.</p>
@@ -661,9 +664,9 @@
             Переключиться можно потом, когда появится ссылка от сервера, и так же вернуться назад.</p>
         </details>
         <div class="row">
-          <button disabled={busy || fullPhase === 'running'} onclick={enableFullTier}>
+          <Button disabled={busy || fullPhase === 'running'} onclick={enableFullTier}>
             {fullPhase === 'running' ? 'Устанавливаю…' : 'Установить компонент'}
-          </button>
+          </Button>
         </div>
         {#if fullPhase === 'running'}
           <p><span class="spinner"></span> Скачиваю компонент — это может занять минуту.</p>
@@ -697,16 +700,16 @@
       <p class="muted small">Сейчас активен <strong>{active.name}</strong>. Сайты, DNS и режим
         сохранятся, мастер проходить не нужно. Не поднимется — прежний вернётся сам.</p>
       {#each targets as p}
-        <label class="radio">
-          <input type="radio" bind:group={switchPick} value={p.id} disabled={busy} />
-          <span><strong>{p.symptom}</strong> — {p.why}
-            <br /><small class="muted">Протокол: {p.name}</small></span>
-        </label>
+        <Radio bind:group={switchPick} value={p.id} disabled={busy}>
+          <strong>{p.symptom}</strong> — {p.why}
+          <br /><small class="muted">Протокол: {p.name}</small>
+        </Radio>
       {/each}
       <label>
         <span>{pick.confLabel}</span>
         <textarea bind:value={switchConfs[switchPick]} rows="4" disabled={busy}
           placeholder={pick.placeholder}></textarea>
+        <ConfCheck id={pick.id} text={switchConfs[switchPick]} />
       </label>
       {#if pick.file}
         <label class="file">
@@ -716,9 +719,9 @@
       {/if}
       {#if switchPick === 'hysteria2'}{@render speedFields()}{/if}
       <div class="row">
-        <button disabled={busy || (switchConfs[switchPick] ?? '').trim().length === 0} onclick={() => switchTo(pick)}>
+        <Button disabled={busy || (switchConfs[switchPick] ?? '').trim().length === 0} onclick={() => switchTo(pick)}>
           {switchPhase === 'running' && switchTarget === switchPick ? 'Переключаю…' : `Переключиться на ${pick.name}`}
-        </button>
+        </Button>
       </div>
       {#if switchPhase === 'running'}
         <p><span class="spinner"></span> Поднимаю {protocolInfo(switchTarget).name} — при сбое
@@ -744,11 +747,11 @@
       <strong>Пароли и ключи вырезаются</strong> — файл вы увидите здесь до отправки, сам он
       никуда не уходит.</p>
     <div class="row">
-      <button disabled={busy || diagPhase === 'running'} onclick={collectDiagnostics}>
+      <Button disabled={busy || diagPhase === 'running'} onclick={collectDiagnostics}>
         {diagPhase === 'running' ? 'Собираю…' : 'Собрать диагностику'}
-      </button>
+      </Button>
       {#if diagPhase === 'ok'}
-        <button onclick={downloadDiagnostics}>Скачать файл</button>
+        <Button onclick={downloadDiagnostics}>Скачать файл</Button>
       {/if}
     </div>
     {@render actionNote('support')}
@@ -769,7 +772,7 @@
     <details class="group danger-group" id="danger-group" bind:open={dangerOpen}>
     <summary>Опасная зона</summary>
     {#if !resetArmed}
-      <button class="danger" disabled={busy} onclick={() => (resetArmed = true)}>Сбросить настройку cheburnet…</button>
+      <Button variant="danger" disabled={busy} onclick={() => (resetArmed = true)}>Сбросить настройку cheburnet…</Button>
     {:else}
       <!-- Честно перечисляем и то, что останется: «сбросить всё» люди читают как «удалить
            программу», а это не так — и обнаружить расхождение постфактум хуже, чем прочитать
@@ -783,13 +786,13 @@
         сброса. Удалить полностью — <code>apk del cheburnet</code> по SSH.</p>
       <label>
         <span>Введите слово <code>RESET</code> для подтверждения</span>
-        <input type="text" bind:value={resetWord} placeholder="RESET" />
+        <Input type="text" bind:value={resetWord} placeholder="RESET" />
       </label>
       <div class="row">
-        <button disabled={busy} onclick={() => { resetArmed = false; resetWord = ''; }}>Отмена</button>
-        <button class="danger" disabled={busy || !resetOk} onclick={factoryReset}>
+        <Button disabled={busy} onclick={() => { resetArmed = false; resetWord = ''; }}>Отмена</Button>
+        <Button variant="danger" disabled={busy || !resetOk} onclick={factoryReset}>
           Подтвердить сброс
-        </button>
+        </Button>
       </div>
     {/if}
     {#if resetPhase === 'running'}
@@ -815,7 +818,7 @@
   {/if}
 
   <hr />
-  <button onclick={reinstall}>Настроить заново</button>
+  <Button onclick={reinstall}>Настроить заново</Button>
   <!-- Подпись обязательна: кнопка стоит сразу под «Опасной зоной» и без неё читается как второй
        способ всё стереть. -->
   <p class="muted small">Пройти мастер заново. Текущая настройка работает до конца установки.</p>
@@ -828,7 +831,7 @@
         <p class="muted small">Пароль администратора роутера (root) — тот, что задан при установке.</p>
         <label>
           <span>Пароль</span>
-          <input
+          <Input
             type="password"
             bind:value={loginPass}
             autocomplete="current-password"
@@ -837,14 +840,14 @@
         </label>
         {#if loginError}<p class="warn">{loginError}</p>{/if}
         <div class="row">
-          <button onclick={() => (loginOpen = false)}>Отмена</button>
-          <button
-            class="primary"
+          <Button onclick={() => (loginOpen = false)}>Отмена</Button>
+          <Button
+            variant="primary"
             disabled={loginPass.length === 0}
             onclick={doLogin}
-          >Войти</button>
+          >Войти</Button>
         </div>
       </div>
     </div>
   {/if}
-</section>
+</Card>
