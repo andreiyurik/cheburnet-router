@@ -417,8 +417,9 @@ function m_install_progress() {
 		done = true; result = "crashed";
 	}
 
-	// Хвост лога (~12 КБ): держим в окне строку «шаг X упал» + причину (как v1).
-	let log = sh(sprintf("tail -c 12000 %s 2>/dev/null", LOG_FILE));
+	// Хвост лога 64 КБ: покрывает целиком даже шумный лог (ретраи apk на плохой сети) — иначе
+	// «Скачать журнал» в мастере молча отдавал бы обрезанное начало.
+	let log = sh(sprintf("tail -c 64000 %s 2>/dev/null", LOG_FILE));
 	// Код исхода (run.uc пишет через REASON_FILE): есть → UI различает причину провала.
 	let resp = { step: step, running: running, done: done, result: result, log: log };
 	let reason = trim(readfile(REASON_FILE) ?? "");

@@ -111,6 +111,10 @@
 
   let cancelling = $state(false);
   let copied = $state(false);
+  let logExpanded = $state(false); // живая консоль: полоска 180px ↔ полная высота
+  // Кнопка разворачивания появляется, только когда лог реально не влезает в полоску
+  // (~9 строк на 180px) — на коротком логе она обещала бы то, чего нет.
+  const logOverflows = $derived(log.split('\n').length > 9);
 
   // Копировать журнал: главное, что нужно приложить к вопросу о сбое.
   // ВАЖНО: navigator.clipboard работает только на https, а мастер живёт на http://192.168.1.1 —
@@ -182,7 +186,12 @@
       {/if}
     </p>
     {#if log}
-      <pre class="log live" bind:this={logEl}>{log}</pre>
+      <pre class="log live" class:expanded={logExpanded} bind:this={logEl}>{log}</pre>
+      {#if logOverflows || logExpanded}
+        <p class="small"><Button variant="link" type="button" onclick={() => (logExpanded = !logExpanded)}>
+          {logExpanded ? 'Свернуть журнал' : 'Развернуть журнал'}
+        </Button></p>
+      {/if}
     {/if}
     <Button disabled={cancelling} onclick={cancel}>
       {cancelling ? 'Отменяю…' : 'Отменить установку'}

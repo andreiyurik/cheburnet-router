@@ -40,6 +40,9 @@ try {
     await page.getByRole('button', { name: 'Установить' }).click();
     await page.getByText('Шаг 3 из 4').waitFor();
     await page.getByRole('button', { name: 'Установить' }).click();
+    // Чеклист установки на самом информативном моменте — health-check: всё выше уже ✓.
+    await page.getByText('Идёт самый долгий шаг', { exact: false }).waitFor({ timeout: 15_000 });
+    await page.screenshot({ path: `${OUT}/installing-${scheme}.png`, fullPage: true });
     await page.getByText('Готово! Роутер настроен').waitFor({ timeout: 15_000 });
     await page.getByRole('heading', { name: 'Состояние' }).waitFor({ timeout: 10_000 });
     await sleep(400);
