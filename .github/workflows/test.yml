@@ -12,6 +12,36 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ── Веб-мастер: юниты (vitest) + e2e (playwright против герметичного мок-роутера) ──
+  # e2e гоняют СОБРАННЫЙ бандл из package/files/web — ловят и поломку сборки в пакете.
+  # Сеть нужна только npm ci и chromium; сами тесты герметичны. ~3 мин.
+  web:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E (playwright + mock-router)
+        run: npx playwright test
+
   # ── T3a: hermetic VM smoke ДВИЖКА (ucode) ─────────────────────────────
   # Главный «живой» гейт: ucode-handler через rpcd, 13 ubus-методов, граница
   # доверия, NAT-зона + nft + teardown на реальном fw4, rootpass + session.login.
