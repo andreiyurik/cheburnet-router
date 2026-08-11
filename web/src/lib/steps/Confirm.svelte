@@ -3,13 +3,13 @@
   // onBack — вернуться поправить; onConfirm — запустить установку. dnsProviders — каталог для метки.
   // Разбор конфигов и метки — чистые tunnelSummary/dnsLabel (logic.js, под vitest).
   import { tunnelSummary, dnsLabel } from '../logic.js';
+  import Card from '../ui/Card.svelte';
+  import Button from '../ui/Button.svelte';
 
   let { args, onBack, onConfirm, dnsProviders = [] } = $props();
 </script>
 
-<section>
-  <h2>Проверьте перед установкой</h2>
-
+<Card title="Проверьте перед установкой">
   <ul class="status">
     <li><span>Туннель</span><strong>{tunnelSummary(args)}</strong></li>
     <li><span>Пароль роутера</span><strong>задан</strong></li>
@@ -35,7 +35,7 @@
   </p>
 
   <div class="row">
-    <button onclick={onBack}>Назад — поправить</button>
-    <button class="primary" onclick={onConfirm}>Установить</button>
+    <Button onclick={onBack}>Назад — поправить</Button>
+    <Button variant="primary" onclick={onConfirm}>Установить</Button>
   </div>
-</section>
+</Card>

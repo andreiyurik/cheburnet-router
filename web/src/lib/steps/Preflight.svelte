@@ -1,6 +1,8 @@
 <script>
   import { cheburnet } from '../ubus.js';
   import { softRisks, canOverride, fullReasons } from '../logic.js';
+  import Card from '../ui/Card.svelte';
+  import Button from '../ui/Button.svelte';
 
   // onReady(fullCapable, acceptRisk, fullWhyNot) — вызвать, когда можно идти дальше. fullCapable = tiers.full
   // (железо ПОТЯНЕТ Full: AES-arch + RAM/флеш + бинарь sing-box ставится по apk --simulate), НЕ
@@ -38,15 +40,14 @@
   run();
 </script>
 
-<section>
-  <h2>Проверка роутера</h2>
+<Card title="Проверка роутера">
   <p class="muted">Сначала убедимся, что роутер подходит, — до любых изменений на нём.</p>
 
   {#if loading}
     <p class="muted">Проверяю…</p>
   {:else if error}
     <p class="warn">Не удалось выполнить проверку: {error}</p>
-    <button onclick={run}>Повторить</button>
+    <Button onclick={run}>Повторить</Button>
   {:else if report}
     <ul class="checks">
       {#each report.checks as c}
@@ -67,7 +68,7 @@
 
     {#if report.passed}
       <p class="ok-msg">Роутер подходит — все {report.total} проверок пройдены.</p>
-      <button class="primary" onclick={() => onReady(report.tiers?.full === true, false, fullReasons(report))}>Продолжить</button>
+      <Button variant="primary" onclick={() => onReady(report.tiers?.full === true, false, fullReasons(report))}>Продолжить</Button>
     {:else if overridable}
       <!-- Все провалы — «железо впритык»: установка возможна, но с оговорками. Сначала честно
            объясняем каждый пункт и что можно сделать вместо риска, только потом красная кнопка. -->
@@ -104,18 +105,18 @@
       <!-- Рискованное действие — отдельной большой кнопкой ВНИЗУ, а не рядом с безопасной:
            случайный клик мимо «Перепроверить» не должен запускать установку. -->
       <div class="row">
-        <button onclick={run}>Перепроверить</button>
+        <Button onclick={run}>Перепроверить</Button>
       </div>
-      <button class="danger wide" disabled={!riskAccepted}
+      <Button variant="danger" wide disabled={!riskAccepted}
               onclick={() => onReady(report.tiers?.full === true, true, fullReasons(report))}>
         Всё равно установить
-      </button>
+      </Button>
     {:else}
       <p class="warn">Пока установить нельзя: не пройдено {report.failed} из {report.total} проверок.
         Ничего на роутере не менялось.</p>
       <p>Строки с ✗ выше показывают, что не так и как это исправить. Исправили — нажмите
         «Перепроверить».</p>
-      <button onclick={run}>Перепроверить</button>
+      <Button onclick={run}>Перепроверить</Button>
     {/if}
   {/if}
-</section>
+</Card>

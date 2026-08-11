@@ -1,5 +1,8 @@
 <script>
   import { cheburnet } from '../ubus.js';
+  import Card from '../ui/Card.svelte';
+  import Button from '../ui/Button.svelte';
+  import Input from '../ui/Input.svelte';
 
   // info — ответ check_lan_conflict: { lan_cidr, wan_cidr, suggest_ip }.
   // onSkip — продолжить без смены (preflight всё равно отметит конфликт).
@@ -30,9 +33,7 @@
   }
 </script>
 
-<section>
-  <h2>Конфликт подсетей</h2>
-
+<Card title="Конфликт подсетей">
   {#if applied}
     <p class="ok-msg">✓ Новый адрес применён. Сеть роутера перезапускается…</p>
     <ol>
@@ -57,17 +58,17 @@
 
     <label>
       <span>Код установки</span>
-      <input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
+      <Input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
       <small class="muted">Смена адреса рвёт соединения — поэтому требует код владельца роутера.</small>
     </label>
 
     {#if error}<p class="warn">{error}</p>{/if}
 
     <div class="row">
-      <button disabled={busy} onclick={onSkip}>Продолжить без смены</button>
-      <button class="primary" disabled={busy} onclick={apply}>
+      <Button disabled={busy} onclick={onSkip}>Продолжить без смены</Button>
+      <Button variant="primary" disabled={busy} onclick={apply}>
         {busy ? 'Применяю…' : `Сменить LAN-адрес на ${info.suggest_ip}`}
-      </button>
+      </Button>
     </div>
   {/if}
-</section>
+</Card>
