@@ -80,9 +80,9 @@ command -v apk >/dev/null 2>&1 \
 # как на роутере что-то изменилось. Урок ревью: kmod-до-проверки-пакета оставлял полуустановку.
 log "скачиваю установочные файлы"
 retry 3 2 fetch "$AWG_INSTALL_URL" "$WORK/awg-install.sh" \
-    || die "не скачать awg-инсталлятор ($AWG_INSTALL_URL) — проверьте доступ к сети/зеркалу"
+    || die "не скачать awg-инсталлятор ($AWG_INSTALL_URL). Частая причина: у самого РОУТЕРА нет интернета — проверьте, что кабель провайдера в порту WAN и интернет через роутер работает. Если интернет есть — сервер недоступен из вашей сети, см. docs/install-blocked.md"
 retry 3 2 fetch "$RELEASE_BASE/$PKG_FILE" "$WORK/cheburnet.apk" \
-    || die "не скачать пакет ($RELEASE_BASE/$PKG_FILE)"
+    || die "не скачать пакет ($RELEASE_BASE/$PKG_FILE). Частая причина: у самого РОУТЕРА нет интернета (кабель провайдера — в порт WAN). Если интернет есть — см. docs/install-blocked.md"
 
 # --- 2. kmod-amneziawg + amneziawg-tools через awg-openwrt (packages-only) ------------------------
 # -n: НЕ настраивать awg-интерфейс (его поднимет движок cheburnet из .conf юзера — иначе конфликт).
