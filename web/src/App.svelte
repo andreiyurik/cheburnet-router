@@ -1,6 +1,7 @@
 <script>
   import logo from './assets/cheburashka.png';
   import { cheburnet } from './lib/ubus.js';
+  import ThemeToggle from './lib/ui/ThemeToggle.svelte';
   import Preflight from './lib/steps/Preflight.svelte';
   import LanConflict from './lib/steps/LanConflict.svelte';
   import Setup from './lib/steps/Setup.svelte';
@@ -101,6 +102,7 @@
            которых там нет (и именно этот экран уходит в README скриншотом). -->
       <p class="sub">{step === 'status' ? 'панель управления роутером' : 'мастер настройки роутера'}</p>
     </div>
+    <ThemeToggle />
   </header>
 
   {#if wizardIndex >= 0}

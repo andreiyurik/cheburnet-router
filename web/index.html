@@ -4,6 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>cheburnet — мастер настройки</title>
+    <script>
+      // Явно выбранная тема — до первой отрисовки, иначе кадр системной темы мигает при загрузке.
+      var t = localStorage.getItem('cheburnet-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    </script>
   </head>
   <body>
     <div id="app"></div>
