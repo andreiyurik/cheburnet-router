@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/vps/fetch-links.sh — забрать ссылки поднятого стенда с VPS в tests/vps/links.env.
 #
-#     bash tests/vps/fetch-links.sh root@147.45.172.86 [путь-к-ssh-ключу]
+#     bash tests/vps/fetch-links.sh root@<ip-вашего-vps> [путь-к-ssh-ключу]
 #
 # links.env содержит credentials сервера и поэтому НЕ коммитится (.gitignore). Отдельный скрипт,
 # а не «скопируйте руками», по одной причине: ссылки нужны и `make qemu-live-vps`, и панели, и
