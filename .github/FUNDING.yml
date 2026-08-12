@@ -1,0 +1,4 @@
+# Кнопка «Sponsor» на странице репозитория (GitHub рендерит её из этого файла).
+# github: <логин> можно добавить после включения GitHub Sponsors на аккаунте.
+custom:
+  - "https://pay.cloudtips.ru/p/61fe8ef3"
