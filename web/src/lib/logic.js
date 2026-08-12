@@ -22,6 +22,7 @@ export const SUPPORT = {
   telegram: '@industrialprofi',
   telegramUrl: 'https://t.me/industrialprofi',
   page: 'https://github.com/andreiyurik/cheburnet-router',
+  donateUrl: 'https://pay.cloudtips.ru/p/61fe8ef3',
 };
 
 // --- Каталог туннельных протоколов (три оси покрытия, ADR 0004) ---

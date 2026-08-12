@@ -59,6 +59,7 @@ test('слабое железо: объяснения → галочка → у�
   expect(sent.accept_risk).toBe(true);
 
   // Панель помнит решение — это же первое, что видно на скриншоте статуса при разборе жалоб.
+  await page.getByRole('button', { name: 'Открыть панель управления' }).click();
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('установлено по вашему решению', { exact: false })).toBeVisible();
 });

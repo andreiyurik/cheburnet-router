@@ -740,8 +740,10 @@
     <!-- Поддержка. Стоит ПЕРЕД опасной зоной и НЕ свёрнута осознанно: человек, у которого не
          работает, должен найти путь «спросить» раньше, чем кнопку «сбросить всё». -->
     <h3 id="support">Если что-то не работает</h3>
-    <p class="muted small">Напишите мне в Telegram — <a href={SUPPORT.telegramUrl} target="_blank"
-      rel="noreferrer">{SUPPORT.telegram}</a>. Проект и документация:
+    <p class="muted small">Что-то сломалось — или есть идея, как сделать лучше? Напишите мне в
+      Telegram — <a href={SUPPORT.telegramUrl} target="_blank"
+      rel="noreferrer">{SUPPORT.telegram}</a>: отвечаю всем, и каждое сообщение превращается
+      в правку. Проект и документация:
       <a href={SUPPORT.page} target="_blank" rel="noreferrer">на GitHub</a>.</p>
     <p class="muted small">Приложите диагностику: логи, состояние сети, версии.
       <strong>Пароли и ключи вырезаются</strong> — файл вы увидите здесь до отправки, сам он

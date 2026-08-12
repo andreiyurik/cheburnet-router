@@ -371,4 +371,13 @@ button.linklike {
 
 hr { border: none; border-top: 1px solid var(--line); margin: 1.5rem 0 1rem; }
 
-footer { text-align: center; margin-top: 1.5rem; }
+/* Ссылки — акцентом темы: дефолтный браузерный синий торчит из тёплой палитры. */
+a { color: var(--accent); }
+
+footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  text-align: center;
+  margin-top: 1.5rem;
+}

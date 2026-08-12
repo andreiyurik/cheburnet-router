@@ -48,6 +48,7 @@ try {
   await page.getByText('Шаг 3 из 4').waitFor();
   await page.getByRole('button', { name: 'Установить' }).click();
   await page.getByText('Готово! Роутер настроен').waitFor({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Открыть панель управления' }).click();
   await page.getByRole('heading', { name: 'Состояние' }).waitFor({ timeout: 10_000 });
   await sleep(400); // дорисовка статусных строк
   await page.screenshot({ path: `${OUT}/web-mgmt.png`, fullPage: true });

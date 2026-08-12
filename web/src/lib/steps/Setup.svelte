@@ -176,6 +176,11 @@
       placeholder={active.placeholder}
     ></textarea>
     <ConfCheck id={active.id} text={confs[active.id]} hint={active.confHint} />
+    {#if !(confs[active.id] ?? '').trim()}
+      <small class="muted">Нет ни подписки, ни сервера?
+        <a href="https://github.com/andreiyurik/cheburnet-router#что-нужно-и-сколько-стоит"
+          target="_blank" rel="noreferrer">Как получить — за 10–15 минут</a></small>
+    {/if}
   </label>
   {#if active.file}
     <label class="file">

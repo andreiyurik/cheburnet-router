@@ -65,9 +65,9 @@
       if (p.done) {
         stop();
         if (p.result === 'ok') {
+          // Экран успеха НЕ убегает в панель сам: это момент прочитать «готово», благодарность
+          // и контакт — дальше человек уходит кнопкой.
           phase = 'ok';
-          // короткая пауза, чтобы пользователь увидел «готово», затем — панель
-          setTimeout(onDone, 800);
         } else if (p.result === 'cancelled') {
           phase = 'fail';
           error = 'Установка отменена — изменения откатаны.';
@@ -197,10 +197,20 @@
       {cancelling ? 'Отменяю…' : 'Отменить установку'}
     </Button>
   {:else if phase === 'ok'}
-    <div class="done">
-      <img src={mascot} alt="" width="84" height="84" />
-      <p class="ok-msg">Готово! Роутер настроен. Открываю панель…</p>
+    <div class="done-hero">
+      <div class="confetti" aria-hidden="true">
+        {#each Array(10) as _, i}<i style="--i:{i}"></i>{/each}
+      </div>
+      <img src={mascot} alt="" width="96" height="96" class="mascot-pop" />
+      <p class="ok-msg">Готово! Роутер настроен.</p>
+      <p class="muted">Wi-Fi уже раздаёт интернет — подключайте устройства.</p>
     </div>
+    <p class="small thanks">Если всё получилось и проект вам понравился — поблагодарить автора
+      можно <a href={SUPPORT.page} target="_blank" rel="noreferrer">звездой на GitHub</a> или
+      <a href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">донатом</a>. Не получилось
+      или есть идея — напишите в Telegram
+      <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a>.</p>
+    <Button variant="primary" wide onclick={onDone}>Открыть панель управления</Button>
   {:else if phase === 'fail'}
     <p class="warn">✗ {error}</p>
     {#if advice}
@@ -236,3 +246,45 @@
     </details>
   {/if}
 </Card>
+
+<style>
+  /* Экран успеха: маскот «выпрыгивает», сверху осыпаются войлочные конфетти цветами темы.
+     Всё чистый CSS, одноразовое (forwards), при prefers-reduced-motion — статика. */
+  .done-hero {
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+    padding: 1.1rem 0 0.4rem;
+  }
+  .done-hero .ok-msg { font-size: 1.2rem; margin: 0.7rem 0 0.15rem; }
+  .done-hero .muted { margin: 0; }
+  .mascot-pop { animation: pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  @keyframes pop {
+    from { transform: scale(0.3) rotate(-8deg); opacity: 0; }
+    to   { transform: scale(1) rotate(0); opacity: 1; }
+  }
+  .confetti { position: absolute; inset: 0; pointer-events: none; }
+  .confetti i {
+    position: absolute;
+    top: -8px;
+    left: calc(6% + var(--i) * 9%);
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0;
+    animation: fall 1.5s ease-in calc(var(--i) * 0.08s) 1 forwards;
+  }
+  .confetti i:nth-child(3n) { background: var(--attn); width: 6px; height: 6px; }
+  .confetti i:nth-child(4n) { background: var(--ok); }
+  .confetti i:nth-child(5n) { background: var(--bad); border-radius: 2px; }
+  @keyframes fall {
+    0%   { transform: translateY(0) rotate(0); opacity: 0; }
+    12%  { opacity: 0.9; }
+    100% { transform: translateY(190px) rotate(220deg); opacity: 0; }
+  }
+  .thanks { text-align: center; margin: 0.9rem 0; }
+  @media (prefers-reduced-motion: reduce) {
+    .mascot-pop { animation: none; }
+    .confetti { display: none; }
+  }
+</style>

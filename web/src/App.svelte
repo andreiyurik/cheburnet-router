@@ -1,6 +1,7 @@
 <script>
   import logo from './assets/cheburashka.png';
   import { cheburnet } from './lib/ubus.js';
+  import { SUPPORT } from './lib/logic.js';
   import ThemeToggle from './lib/ui/ThemeToggle.svelte';
   import Preflight from './lib/steps/Preflight.svelte';
   import LanConflict from './lib/steps/LanConflict.svelte';
@@ -131,7 +132,14 @@
     <Status onReinstall={() => (step = 'preflight')} />
   {/if}
 
+  <!-- Компактно: развёрнутые формулировки живут на экране успеха (благодарность) и в блоке
+       «Если что-то не работает» панели — футер лишь держит ссылки на виду на каждом экране. -->
   <footer>
     <span class="muted">Образовательный split-tunnel роутер на OpenWrt</span>
+    <span class="muted small">
+      <a href={SUPPORT.page} target="_blank" rel="noreferrer">GitHub</a> ·
+      <a href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">Поддержать</a> ·
+      <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a>
+    </span>
   </footer>
 </main>

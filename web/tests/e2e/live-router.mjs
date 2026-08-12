@@ -80,7 +80,12 @@ try {
     const done = await page.getByText('Готово! Роутер настроен').isVisible().catch(() => false);
     const failed = await page.locator('.warn').first().isVisible().catch(() => false);
     const statusPanel = await page.getByRole('heading', { name: 'Состояние' }).isVisible().catch(() => false);
-    if (done || statusPanel) { log('✅ установка завершилась успехом'); break; }
+    if (done || statusPanel) {
+      log('✅ установка завершилась успехом');
+      // Экран успеха не переходит в панель сам — жмём кнопку (шаг 5 снимает панель).
+      if (done) await page.getByRole('button', { name: 'Открыть панель управления' }).click().catch(() => {});
+      break;
+    }
     if (failed) {
       const err = await page.locator('.warn').first().textContent().catch(() => '');
       log(`⚠ возможная ошибка на экране: ${err}`);

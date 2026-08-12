@@ -44,6 +44,9 @@ try {
     await page.getByText('Идёт самый долгий шаг', { exact: false }).waitFor({ timeout: 15_000 });
     await page.screenshot({ path: `${OUT}/installing-${scheme}.png`, fullPage: true });
     await page.getByText('Готово! Роутер настроен').waitFor({ timeout: 15_000 });
+    // Кадр экрана успеха (конфетти уже осыпались — анимация одноразовая), затем в панель.
+    await page.screenshot({ path: `${OUT}/success-${scheme}.png`, fullPage: true });
+    await page.getByRole('button', { name: 'Открыть панель управления' }).click();
     await page.getByRole('heading', { name: 'Состояние' }).waitFor({ timeout: 10_000 });
     await sleep(400);
     await page.screenshot({ path: `${OUT}/panel-${scheme}.png`, fullPage: true });
