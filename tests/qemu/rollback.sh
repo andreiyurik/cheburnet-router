@@ -147,10 +147,10 @@ echo "→ ПРОВЕРКА 1: исход — откат по health-check, а н
     echo "  ✗ установка ОТРАПОРТОВАЛА УСПЕХ с мёртвым сервером — это худший исход:"
     echo "    пользователь получил бы роутер без интернета и «всё работает» в панели."
     echo "$LOG" | tail -20; exit 1; }
-[ "$REASON" = "health" ] || {
-    echo "  ✗ код исхода '$REASON', ожидался 'health' — панель покажет неверный диагноз"
+[ "$REASON" = "health:tunnel:fetch" ] || {
+    echo "  ✗ код исхода '$REASON', ожидался 'health:tunnel:fetch' — панель покажет неверный диагноз"
     echo "$LOG" | tail -20; exit 1; }
-echo "  ✓ откат по health-check (reason=health)"
+echo "  ✓ откат по health-check (reason=health:tunnel:fetch — адресный код, см. install.uc.decide_outcome)"
 
 echo "→ ПРОВЕРКА 2: шаг vpn РЕАЛЬНО применялся (иначе тест ничего не доказывает)"
 # Без этой проверки тест мог бы «зеленеть» на конфиге, который шаг вообще не принял: тогда откат
@@ -219,8 +219,8 @@ for _ in $(seq 1 60); do
 done
 [ "$done_ok" = "1" ] || { echo "  ✗ повторная установка не завершилась"; exit 1; }
 REASON2="$(vm_ssh 'cat /tmp/cheburnet/reason 2>/dev/null || true')"
-[ "$REASON2" = "health" ] \
-    || { echo "  ✗ повтор дал другой исход ('$REASON2' вместо 'health') — откат оставил мусор";
+[ "$REASON2" = "health:tunnel:fetch" ] \
+    || { echo "  ✗ повтор дал другой исход ('$REASON2' вместо 'health:tunnel:fetch') — откат оставил мусор";
          vm_ssh 'tail -20 /tmp/cheburnet/install.log'; exit 1; }
 vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \
     || { echo "  ✗ после второго откатa связь не восстановлена"; exit 1; }
