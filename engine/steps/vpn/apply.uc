@@ -1,7 +1,12 @@
 // apply.uc — применение VPN-шага на роутере (импурно): teardown → uci batch → перезапуск сети,
 // чтобы netifd поднял awg0. Логика плана — в vpn.uc (тесты: vpn/tests); битый .conf → plan.ok=false.
 //   cat awg0.conf | ucode -R apply.uc [--dry-run]
+//   cat awg0.conf | ucode -R apply.uc --no-arm     # применить, БЕЗ route_allowed_ips=1
+//   ucode -R apply.uc --arm             # довооружить (route_allowed_ips=1 + reload)
 //   ucode -R apply.uc --teardown        # снять awg0 (смена протокола на reality)
+//
+// --no-arm/--arm — та же логика, что у steps/singbox/apply.uc: только для первой установки
+// (run.uc), см. комментарий там и [[reliability]].
 
 import { stdin, popen } from "fs";
 import { sh, uci_batch } from "../../lib/proc.uc";
@@ -15,6 +20,21 @@ function dev_present(iface) {
 
 let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
 let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
+let no_arm   = (length(ARGV) > 0 && ARGV[0] == "--no-arm");
+let arm_only = (length(ARGV) > 0 && ARGV[0] == "--arm");
+
+// --arm: довооружить уже применённый (--no-arm) интерфейс — только route_allowed_ips=1 + reload,
+// без пересборки плана из stdin (его и не подать: соединение уже поднято под предыдущим конфигом).
+if (arm_only) {
+	let peersect = owned_sections({})[1];
+	let rc = uci_batch([ sprintf("set network.%s.route_allowed_ips='1'", peersect) ], "network");
+	if (rc != 0)
+		die(sprintf("vpn/apply: uci batch (arm) вернул %d", rc));
+	let p = popen("/etc/init.d/network reload >/dev/null 2>&1", "r");
+	if (p) p.close();
+	printf("vpn: маршрут вооружён (route_allowed_ips=1 на %s)\n", peersect);
+	exit(0);
+}
 
 // --teardown — снять awg0 (смена протокола awg→reality): ifdown + удалить наши секции network
 // (иначе awg0 держит свой default-маршрут и конфликтует с singtun0). Отсутствие секций — норма.
@@ -45,7 +65,7 @@ if (teardown) {
 }
 
 let conf = stdin.read("all") ?? "";
-let plan = build_vpn_plan(parse_awg_conf(conf), {});
+let plan = build_vpn_plan(parse_awg_conf(conf), no_arm ? { arm: false } : {});
 if (!plan.ok) {
 	for (let i = 0; i < length(plan.errors); i++)
 		warn("vpn: " + plan.errors[i] + "\n");
@@ -89,4 +109,5 @@ if (!up)
 	warn(sprintf("vpn: интерфейс %s не появился после reload+restart — health-check это поймает (см. logread)\n",
 		plan.interface));
 
-printf("vpn: применено — интерфейс %s, peer %s\n", plan.interface, plan.peer_section);
+printf("vpn: применено — интерфейс %s, peer %s%s\n", plan.interface, plan.peer_section,
+	no_arm ? " (маршрут ЕЩЁ НЕ вооружён, --no-arm)" : "");

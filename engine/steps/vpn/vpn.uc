@@ -6,6 +6,11 @@ const VPN_DEFAULTS = {
 	interface: "awg0",
 	mtu: "1420",
 	keepalive: "25",
+	// arm:false — только для первой установки (run.uc, apply.uc --no-arm): интерфейс поднимается
+	// и хендшейк возможен (WireGuard не смотрит на routing table), но route_allowed_ips остаётся
+	// '0' — дом не переключается на туннель, пока health-check его не подтвердит. Довооружает
+	// apply.uc --arm. См. [[reliability]].
+	arm: true,
 };
 
 // AWG-параметры обфускации: ключ .conf → uci-опция awg_<lc>. Все опциональны — пишем только
@@ -145,7 +150,9 @@ function build_vpn_plan(parsed, opts) {
 	// ИНВАРИАНТ: route_allowed_ips='1' — netifd держит default dev awg0 (туннель = дефолт для
 	// не-direct), direct уходит мимо через mark→table-100 (routing/firewall), конфликта нет
 	// (разные таблицы). fail-safe: промах direct-списка = трафик в туннель, а не мимо kill-switch'а.
-	push(setup, sprintf("set network.%s.route_allowed_ips='1'", peersect));
+	// o.arm=false (первая установка, до health-check) — временно '0': хендшейк не зависит от
+	// routing table, а дом не переключается на непроверенный туннель. Довооружает apply.uc --arm.
+	push(setup, sprintf("set network.%s.route_allowed_ips='%s'", peersect, o.arm ? "1" : "0"));
 
 	return {
 		ok: true, errors: [],

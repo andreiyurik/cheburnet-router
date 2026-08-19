@@ -1,8 +1,16 @@
 // apply.uc — применение sing-box шага на роутере (импурно, router-side).
 //
-//   cat vless.txt | ucode -R apply.uc              # применить
+//   cat vless.txt | ucode -R apply.uc              # применить (сразу вооружает half-routes)
 //   cat vless.txt | ucode -R apply.uc --dry-run    # только показать артефакты
+//   cat vless.txt | ucode -R apply.uc --no-arm     # применить, БЕЗ ifup — маршрут не вооружён
+//   ucode -R apply.uc --arm                        # довооружить (ifup) уже применённый шаг
 //   ucode -R apply.uc --teardown                   # снять (выключить сервис, убрать конфиг)
+//
+// --no-arm/--arm — только для первой установки (run.uc): health-check должен успеть
+// подтвердить туннель ДО того, как половину дома переключит на него (см. [[reliability]],
+// решение владельца проекта — окно ДО первого commit защищать нечем, дальше жить утечкам
+// нельзя). replace_singbox.uc/reapply.uc эти флаги не используют — там kill-switch уже
+// работает непрерывно с прошлой установки, откладывать нечего.
 //
 // Запись config.json → uci-включение сервиса → рестарт sing-box; маршрутизацию в TUN навешивает
 // firewall-шаг. Логика плана — юнит-тесты (singbox/tests); живой стек — QEMU/железо.
@@ -14,6 +22,8 @@ import { sh, uci_batch } from "../../lib/proc.uc";
 
 let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
 let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
+let no_arm   = (length(ARGV) > 0 && ARGV[0] == "--no-arm");
+let arm_only = (length(ARGV) > 0 && ARGV[0] == "--arm");
 
 // SB_CONFIG: env-override пути config.json, тот же читают run.uc и replace_singbox.uc —
 // все слои должны писать/бэкапить ОДИН файл. Без env — дефолт плана.
@@ -33,6 +43,14 @@ function writefile(path, text) {
 function svc(action, name) {
 	let p = popen(sprintf("/etc/init.d/%s %s >/dev/null 2>&1", name, action), "r");
 	if (p) p.close();
+}
+
+// --arm: только поднять netifd-интерфейс поверх УЖЕ применённого (--no-arm) шага. Не читает
+// stdin, не трогает config.json/сервис — та же строка, что раньше шла безусловно в конце файла.
+if (arm_only) {
+	sh(sprintf("ifup %s >/dev/null 2>&1", network_sections({})[0]));
+	printf("singbox: маршрут вооружён (%s)\n", network_sections({})[0]);
+	exit(0);
 }
 
 if (teardown) {
@@ -140,7 +158,11 @@ svc("restart", plan.service);
 
 // Поднять netifd-интерфейс поверх TUN: netifd поставит half-routes, как только sing-box создаст
 // устройство (и переустановит при пересоздании — рестарт sing-box). ifup идемпотентен.
-sh(sprintf("ifup %s >/dev/null 2>&1", plan.net_iface ?? "singtun"));
+// --no-arm: пропускаем — вызывающий (run.uc, первая установка) вооружит отдельно через --arm
+// ПОСЛЕ health-check, чтобы неудачный туннель не переключал дом на себя раньше подтверждения.
+if (!no_arm)
+	sh(sprintf("ifup %s >/dev/null 2>&1", plan.net_iface ?? "singtun"));
 
-printf("singbox: применено — конфиг %s, сервис %s, TUN %s, маршрут через netifd (%s)\n",
-	plan.config_path, plan.service, plan.tun, network_sections({})[0]);
+printf("singbox: применено — конфиг %s, сервис %s, TUN %s%s\n",
+	plan.config_path, plan.service, plan.tun,
+	no_arm ? ", маршрут ЕЩЁ НЕ вооружён (--no-arm)" : sprintf(", маршрут через netifd (%s)", network_sections({})[0]));

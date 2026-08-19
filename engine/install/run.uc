@@ -272,7 +272,12 @@ let results = [];
 for (let i = 0; i < length(steps); i++) {
 	let s = steps[i];
 	set_step(s.name); // веб-мастер покажет «Шаг: vpn/dns/doh/wifi/firewall»
-	let code = run_stdin(step_cmd(s.name, null), step_stdin(s, cfg));
+	// Туннель-шаг на ПЕРВОЙ установке — БЕЗ вооружения half-routes (--no-arm): дом не должен
+	// переключиться на непроверенный туннель раньше, чем health-check его подтвердит. Довооружаем
+	// (--arm) только на commit-пути ниже. См. [[reliability]], план: половина дома не должна
+	// терять интернет из-за сбоя, который выявится только через 30с health-check.
+	let extra = (s.name == tinfo.step) ? " --no-arm" : null;
+	let code = run_stdin(step_cmd(s.name, extra), step_stdin(s, cfg));
 	push(results, { name: s.name, ok: (code == 0) });
 	if (code != 0) {
 		warn(sprintf("install: шаг %s упал (код %d)\n", s.name, code));
@@ -292,6 +297,11 @@ let health = all_ok ? healthcheck(cfg, tunnel_applied) : null;
 // --- 5. решение: commit / rollback ---
 let outcome = decide_outcome({ preflight: preflight, steps: results, health: health });
 if (outcome.action == "commit") {
+	// Health-check подтвердил туннель — теперь, и только теперь, вооружаем half-routes
+	// (--arm), переключая дом на него. tunnel_applied=false (весь тоннель отключён владельцем) →
+	// вооружать нечего.
+	if (tunnel_applied)
+		run_stdin(step_cmd(tinfo.step, " --arm"), "");
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
 	// WAN нашли МЫ (детект выше), мастер его не знает — персистим в install.json: set_mode
 	// переприменяет firewall без run.uc, а без wan_if kill-switch не строится.

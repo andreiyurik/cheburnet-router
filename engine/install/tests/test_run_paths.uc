@@ -244,4 +244,106 @@ test("--dry-run: план напечатан, система не тронута
 	cleanup(sb);
 });
 
+// --- --no-arm/--arm: половина дома не переключается на непроверенный туннель (см. план в
+// docs/kb/architecture/reliability.md, инцидент 2026-08-19 — kill-switch срабатывал раньше
+// health-check и ронял интернет всему дому при провале). Сначала точечно на уровне apply.uc,
+// потом сквозь run.uc — что реально произойдёт при провале/успехе первой установки.
+
+const AWG_CONF =
+	"[Interface]\nPrivateKey = cHJpdmF0ZXByaXZhdGVwcml2YXRlcHJpdmF0ZXByaXZhdGUwMA==\n" +
+	"Address = 10.0.0.2/32\n\n[Peer]\nPublicKey = cHVibGljcHVibGljcHVibGljcHVibGljcHVibGljMDA=\n" +
+	"Endpoint = vpn.example.com:51820\n";
+const REALITY_CONF = "vless://uuid-x@203.0.113.9:443?security=reality&pbk=YQ&sni=example.com";
+
+test("vpn/apply.uc --no-arm: route_allowed_ips='0' в calls, интерфейс всё равно поднимается", () => {
+	let sb = mk_sandbox();
+	let r = run_uc(sb, "steps/vpn/apply.uc", "--no-arm", AWG_CONF);
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "route_allowed_ips='0'") >= 0, "маршрут НЕ вооружён");
+	ok(index(calls(sb), "route_allowed_ips='1'") < 0, "старое значение не просочилось");
+	cleanup(sb);
+});
+
+test("vpn/apply.uc --arm: только route_allowed_ips='1' + reload, конфиг не трогает", () => {
+	let sb = mk_sandbox();
+	let r = run_uc(sb, "steps/vpn/apply.uc", "--arm");
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "route_allowed_ips='1'") >= 0, "маршрут довооружён");
+	cleanup(sb);
+});
+
+test("singbox/apply.uc --no-arm: ifup НЕ вызывается", () => {
+	let sb = mk_sandbox();
+	with_singbox(sb);
+	let r = run_uc(sb, "steps/singbox/apply.uc", "--no-arm", REALITY_CONF);
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "ifup") < 0, "маршрут НЕ вооружён");
+	cleanup(sb);
+});
+
+test("singbox/apply.uc --arm: ifup singtun и только он", () => {
+	let sb = mk_sandbox();
+	let r = run_uc(sb, "steps/singbox/apply.uc", "--arm");
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "ifup singtun") >= 0, "маршрут довооружён");
+	cleanup(sb);
+});
+
+// --- Сквозь run.uc: главный регресс-тест инцидента ---
+test("первая установка (AWG), health провалился → half-routes НИ РАЗУ не вооружались", () => {
+	let sb = mk_sandbox();
+	// awg.out по умолчанию пуст (нет рукопожатия) → health-check не пройдёт.
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "awg", awg_conf: AWG_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 1, "exit 1: " + r.out);
+	eq(trim(readfile(sb.reason) ?? ""), "health:tunnel:fetch");
+	ok(index(calls(sb), "route_allowed_ips='1'") < 0,
+		"дом НЕ переключался на непроверенный туннель — раньше здесь была утечка/потеря интернета");
+	ok(index(calls(sb), "route_allowed_ips='0'") >= 0, "но интерфейс поднимался (--no-arm) — health-check мог его проверить");
+	cleanup(sb);
+});
+
+test("первая установка (AWG), health прошёл → half-routes вооружены (arm вызван)", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/awg.out", "pubkeyXXX\t5\n"); // свежее рукопожатие → up
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "awg", awg_conf: AWG_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "route_allowed_ips='1'") >= 0, "туннель подтверждён — теперь вооружён");
+	cleanup(sb);
+});
+
+test("первая установка (Reality), health провалился → ifup singtun НИ РАЗУ не вызывался", () => {
+	let sb = mk_sandbox();
+	with_singbox(sb);
+	// pgrep.rc по умолчанию 1 (процесса нет) → tunnel_connectivity=false сразу, health не пройдёт.
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "reality", reality_conf: REALITY_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 1, "exit 1: " + r.out);
+	ok(index(calls(sb), "ifup singtun") < 0,
+		"дом НЕ переключался на непроверенный туннель — раньше здесь была утечка/потеря интернета");
+	cleanup(sb);
+});
+
+test("первая установка (Reality), health прошёл → ifup singtun вызван (arm)", () => {
+	let sb = mk_sandbox();
+	with_singbox(sb);
+	writefile(sb.fake + "/pgrep.rc", "0");
+	writefile(sb.fake + "/route_get.out", "1.1.1.1 dev singtun0 src 10.9.0.2\n");
+	writefile(sb.fake + "/fetch.rc", "0");
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "reality", reality_conf: REALITY_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "ifup singtun") >= 0, "туннель подтверждён — теперь вооружён");
+	cleanup(sb);
+});
+
 exit(summary());

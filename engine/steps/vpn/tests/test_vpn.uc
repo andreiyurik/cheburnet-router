@@ -71,6 +71,20 @@ test("build_vpn_plan: route_allowed_ips='1' — туннель=дефолт (v2,
 		"netifd ставит default через awg0 + пинит endpoint; direct вытягивает policy-routing (fail-safe в туннель)");
 });
 
+// --- arm:false (первая установка, до health-check — см. [[reliability]]) ---
+test("build_vpn_plan: arm=false → route_allowed_ips='0', остальной план не меняется", () => {
+	let plan = build_vpn_plan(parse_awg_conf(CONF), { arm: false });
+	ok(has(plan.setup, "set network.awg0_peer.route_allowed_ips='0'"),
+		"дом не переключается на непроверенный туннель раньше health-check");
+	ok(has(plan.setup, "set network.awg0_peer.public_key='cHVibGljcHVibGljcHVibGljcHVibGljcHVibGljMDA='"),
+		"остальной план (ключи/endpoint) от arm не зависит");
+});
+
+test("build_vpn_plan: arm не задан → как раньше '1' (обратная совместимость replace_vpn/reapply)", () => {
+	let plan = build_vpn_plan(parse_awg_conf(CONF), {});
+	ok(has(plan.setup, "set network.awg0_peer.route_allowed_ips='1'"));
+});
+
 test("build_vpn_plan: peer — endpoint split, PSK, forced allowed_ips, keepalive", () => {
 	let plan = build_vpn_plan(parse_awg_conf(CONF), {});
 	ok(has(plan.setup, "set network.awg0_peer.public_key='cHVibGljcHVibGljcHVibGljcHVibGljcHVibGljMDA='"));

@@ -13,6 +13,12 @@ preflight → snapshot UCI → шаги по порядку → health-check →
 **firewall последним** — пометка/ip rule/kill-switch навешиваются поверх уже поднятого awg0 и
 готовой DNS-цепочки.
 
+**Первая установка — туннель применяется БЕЗ half-routes** (`apply.uc --no-arm`): интерфейс
+поднят, health-check может его проверить, но дом ещё не переключён. Half-routes вооружаются
+(`apply.uc --arm`) только на commit-пути, после подтверждённого health — см.
+[reliability](../../docs/kb/architecture/reliability.md#поверх-всего-fail-safe-направление).
+`replace_vpn.uc`/`replace_singbox.uc` это не касается — они всегда вооружают сразу.
+
 **Пароль root** (`steps/rootpass`) применяется НЕ как шаг реестра, а на **commit-пути** `run.uc`
 (после успешных шагов+health): смена пароля — всегда-безопасный runtime-акт, не транзакция; сбой
 `passwd` → warning, установка успешна.
