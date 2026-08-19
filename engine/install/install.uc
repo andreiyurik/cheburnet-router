@@ -138,9 +138,16 @@ function dirty_steps(steps) {
 }
 
 // decide_outcome(results) → { action, code, reason, failed }. action ∈ abort | rollback | commit.
-//   results = { preflight:{ok}, steps:[{name,ok}...], health:{ok}|null }
+//   results = { preflight:{ok}, steps:[{name,ok}...], health:{ok, dns_ok?, tun_ok?, tun_reason?}|null }
 // ИНВАРИАНТ (fail-safe): нет preflight → abort (ничего не трогали); упал шаг или health →
-// rollback; всё ок → commit. code — машинный код исхода для адресной диагностики в UI.
+// rollback; всё ок → commit. code — машинный код исхода для адресной диагностики в UI
+// (web/src/lib/logic.js: explainFail). health раскладывается на code, только если health
+// принёс dns_ok/tun_ok (run.uc.healthcheck) — иначе (старый/минимальный health-объект) остаётся
+// общий "health", это НЕ регресс: DNS и туннель — РАЗНЫЕ поломки с разным «что делать», а
+// туннель-причина (tun_reason: process/route/fetch) — приоритетнее DNS, если оба не встали
+// (мёртвый туннель обычно и есть причина, почему DNS через него тоже не резолвится). У AWG
+// (в отличие от Full-тира) стадий отказа нет — только «рукопожатия нет», tun_reason всегда null,
+// и дефолт "fetch" сознательно переиспользует текст «сервер не ответил» — он и для AWG верен.
 function decide_outcome(results) {
 	if (!results || !results.preflight || results.preflight.ok !== true)
 		return { action: "abort", code: "preflight", reason: "preflight не пройден — изменений нет", failed: [] };
@@ -153,8 +160,12 @@ function decide_outcome(results) {
 		return { action: "rollback", code: "step:" + failed[0],
 			reason: sprintf("шаги упали: %s", join(", ", failed)), failed: failed };
 
-	if (results.health && results.health.ok !== true)
-		return { action: "rollback", code: "health", reason: "health-check не пройден", failed: [] };
+	if (results.health && results.health.ok !== true) {
+		let h = results.health, code = "health";
+		if (h.tun_ok === false) code = "health:tunnel:" + (h.tun_reason ?? "fetch");
+		else if (h.dns_ok === false) code = "health:dns";
+		return { action: "rollback", code: code, reason: "health-check не пройден", failed: [] };
+	}
 
 	return { action: "commit", code: "ok", reason: "все фазы успешны", failed: [] };
 }

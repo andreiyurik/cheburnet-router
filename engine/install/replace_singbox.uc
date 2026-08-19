@@ -56,7 +56,7 @@ if (rc != 0) {
 let ok = false;
 for (let i = 0; i < 15; i++) {
 	sh("sleep 2");
-	if (tunnel_connectivity(iface)) { ok = true; break; }
+	if (tunnel_connectivity(iface).ok) { ok = true; break; }
 }
 
 // --- 4. commit / restore ---

@@ -151,15 +151,45 @@ test("decide: упавший шаг → rollback + список failed + code п
 	eq(d.code, "step:dns"); // адресная диагностика UI — по ПЕРВОМУ упавшему (fail-fast)
 });
 
-test("decide: все шаги ок, health провалился → rollback", () => {
+test("decide: все шаги ок, health провалился (старый/минимальный health) → rollback, code=health", () => {
 	let d = decide_outcome({
 		preflight: { ok: true },
 		steps: [ { name: "vpn", ok: true } ],
-		health: { ok: false },
+		health: { ok: false }, // нет dns_ok/tun_ok — не с чем адресовать точнее
 	});
 	eq(d.action, "rollback");
 	eq(d.code, "health"); // UI по этому коду говорит «VPN-сервер не ответил», не «упал шаг»
 	ok(index(d.reason, "health") >= 0);
+});
+
+// --- decide_outcome: адресный health-код (DNS и туннель — разные поломки, разный совет в UI) ---
+test("decide: упал только DNS (туннель ok) → code=health:dns", () => {
+	let d = decide_outcome({
+		preflight: { ok: true },
+		steps: [ { name: "singbox", ok: true } ],
+		health: { ok: false, dns_ok: false, tun_ok: true, tun_reason: null },
+	});
+	eq(d.code, "health:dns");
+});
+
+test("decide: упал туннель с reason → code=health:tunnel:<reason>, даже если DNS тоже упал", () => {
+	for (let reason in [ "process", "route", "fetch" ]) {
+		let d = decide_outcome({
+			preflight: { ok: true },
+			steps: [ { name: "singbox", ok: true } ],
+			health: { ok: false, dns_ok: false, tun_ok: false, tun_reason: reason },
+		});
+		eq(d.code, "health:tunnel:" + reason, "туннель-причина приоритетнее DNS — она обычно и есть корень");
+	}
+});
+
+test("decide: туннель упал без reason (awg: просто нет рукопожатия) → code=health:tunnel:fetch (дефолт)", () => {
+	let d = decide_outcome({
+		preflight: { ok: true },
+		steps: [ { name: "vpn", ok: true } ],
+		health: { ok: false, dns_ok: true, tun_ok: false, tun_reason: null },
+	});
+	eq(d.code, "health:tunnel:fetch");
 });
 
 test("decide: всё ок → commit", () => {

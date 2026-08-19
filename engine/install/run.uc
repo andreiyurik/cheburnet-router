@@ -56,13 +56,16 @@ function step_stdin(s, cfg) {
 	return "{}";
 }
 
-// tunnel_ok(cfg, iface) — одна проба готовности туннеля (без ожидания). Full-тир: connectivity-
-// probe (probe.uc). awg: latest-handshakes, готово только на "up" — "none" (awg0 только что
-// применялся, интерфейса ещё нет) НЕ считаем готовностью, иначе commit ловил бы мёртвую установку.
+// tunnel_ok(cfg, iface) → { ok, reason }. Одна проба готовности туннеля (без ожидания). Full-тир:
+// connectivity-probe (probe.uc) — reason у неё адресный (process/route/fetch). awg: latest-
+// handshakes, готово только на "up" — "none" (awg0 только что применялся, интерфейса ещё нет) НЕ
+// считаем готовностью, иначе commit ловил бы мёртвую установку; reason у awg всегда null — там
+// нет отдельных стадий отказа, только «рукопожатия нет».
 function tunnel_ok(cfg, iface) {
 	if (uses_singbox(cfg.protocol ?? default_protocol()))
 		return tunnel_connectivity(iface);
-	return handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) == "up";
+	let up = handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) == "up";
+	return { ok: up, reason: null };
 }
 
 // dns_ok() — ОДНА проба: резолвится ли имя через локальный dnsmasq (127.0.0.1).
@@ -70,19 +73,25 @@ function dns_ok() {
 	return trim(sh("nslookup openwrt.org 127.0.0.1 >/dev/null 2>&1; echo $?")) == "0";
 }
 
-// Health-check: DNS и туннель должны подняться ДО commit. Шрам: мгновенная проверка сразу после
-// шагов ловила тёплый старт сервисов (AWG-handshake ~5-15с, https-dns-proxy не мгновенен) и
-// откатывала рабочую установку — поэтому поллим ОБА в одном окне (~30с).
+// healthcheck(cfg, tunnel_applied) → { ok, dns_ok, tun_ok, tun_reason }. DNS и туннель должны
+// подняться ДО commit. Шрам: мгновенная проверка сразу после шагов ловила тёплый старт сервисов
+// (AWG-handshake ~5-15с, https-dns-proxy не мгновенен) и откатывала рабочую установку — поэтому
+// поллим ОБА в одном окне (~30с). Разбор по dns_ok/tun_ok/tun_reason — не для этой функции (она
+// только меряет), а для decide_outcome (install.uc), которая по ним строит адресный код для UI.
 function healthcheck(cfg, tunnel_applied) {
 	let iface = (cfg.routing_opts && cfg.routing_opts.tunnel_if) ? cfg.routing_opts.tunnel_if : "awg0";
-	let dns = false, tun = !tunnel_applied; // туннель-шаг не применялся → его здоровье не требуем
+	let dns = false, tun = !tunnel_applied, tun_reason = null; // туннель-шаг не применялся → его здоровье не требуем
 	for (let i = 0; i < 15; i++) {
 		if (!dns) dns = dns_ok();
-		if (!tun) tun = tunnel_ok(cfg, iface);
-		if (dns && tun) return true;
+		if (!tun) {
+			let t = tunnel_ok(cfg, iface);
+			tun = t.ok;
+			tun_reason = t.reason;
+		}
+		if (dns && tun) break;
 		sh("sleep 2");
 	}
-	return dns && tun;
+	return { ok: dns && tun, dns_ok: dns, tun_ok: tun, tun_reason: tun ? null : tun_reason };
 }
 
 // rollback_all(steps, cfg) — ЕДИНСТВЕННАЯ реализация отката: вернуть чистые конфиги из снимка
@@ -278,7 +287,7 @@ if (all_ok) set_step("health-check"); // поднятие туннеля+DNS —
 let tunnel_applied = false;
 for (let i = 0; i < length(steps); i++)
 	if (steps[i].name == tinfo.step) tunnel_applied = true;
-let health = all_ok ? { ok: healthcheck(cfg, tunnel_applied) } : null;
+let health = all_ok ? healthcheck(cfg, tunnel_applied) : null;
 
 // --- 5. решение: commit / rollback ---
 let outcome = decide_outcome({ preflight: preflight, steps: results, health: health });

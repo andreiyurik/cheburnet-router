@@ -128,16 +128,37 @@ test("шаг упал: rollback c reason=step:vpn, teardown грязных, inst
 	cleanup(sb);
 });
 
-test("health-провал: rollback с reason=health (роутер настроен, сервер молчит)", () => {
+test("health-провал (DNS): rollback с reason=health:dns (роутер настроен, DNS не поднялся)", () => {
 	let sb = mk_sandbox();
 	writefile(sb.fake + "/nslookup.rc", "1"); // DNS так и не поднялся за окно
 	seed_cfg(sb, "install.json", { routing_opts: {} });
+	// Все туннель/сетевые шаги выключены → tunnel_applied=false → tun_ok сразу true, падает
+	// ровно DNS — адресный код должен указывать именно на него, не на «сервер молчит».
 	let payload = sprintf("%J", { protocol: "awg", disable: ALL_STEPS,
 		domains: [], routing_opts: {} });
 	let r = run_uc(sb, "install/run.uc", null, payload);
 	eq(r.rc, 1, "exit 1");
-	eq(trim(readfile(sb.reason) ?? ""), "health", "reason=health — не «упал шаг»");
+	eq(trim(readfile(sb.reason) ?? ""), "health:dns", "reason адресный — DNS, не общий «сервер молчит»");
 	ok(!access(sb.etc + "/install.json"), "фантомный installed снят");
+	cleanup(sb);
+});
+
+test("health-провал (Full-тир, туннель): rollback с reason=health:tunnel:process", () => {
+	let sb = mk_sandbox();
+	with_singbox(sb); // бинарь «есть» — догрузка не блокирует
+	// pgrep.rc не пишем — дефолт «процесса нет» (см. test_probe.uc): singbox-шаг применился,
+	// но сам туннельный процесс не встал.
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", {
+		protocol: "reality",
+		reality_conf: "vless://uuid-x@203.0.113.9:443?security=reality&pbk=YQ&sni=example.com",
+		disable: [ "dns", "doh", "wifi", "firewall" ], // singbox остаётся включённым
+		domains: [], routing_opts: {},
+	});
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 1, "exit 1");
+	eq(trim(readfile(sb.reason) ?? ""), "health:tunnel:process",
+		"reason адресный — процесс не поднялся, не общий «сервер молчит»");
 	cleanup(sb);
 });
 

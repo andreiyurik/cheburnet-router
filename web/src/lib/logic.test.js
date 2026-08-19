@@ -441,6 +441,29 @@ describe('explainFail — адресная диагностика провала
     expect(ex.advice.action).toBe('Загрузить другой конфиг');
   });
 
+  it('health:tunnel:fetch — тот же текст, что health (это её конкретизация)', () => {
+    expect(explainFail('health:tunnel:fetch')).toEqual(explainFail('health'));
+  });
+
+  it('health:dns — не про сервер: явно снимает подозрение с VPN-конфига', () => {
+    const ex = explainFail('health:dns');
+    expect(ex.error).toMatch(/DNS/);
+    expect(ex.advice.items.join(' ')).toMatch(/конфиг тут ни при чём/);
+    expect(ex.advice.items.join(' ')).not.toMatch(/подписка/);
+  });
+
+  it('health:tunnel:process и health:tunnel:route — про роутер, не про сервер, зовут в саппорт', () => {
+    for (const reason of ['health:tunnel:process', 'health:tunnel:route']) {
+      const ex = explainFail(reason);
+      const text = ex.advice.title + ' ' + ex.advice.items.join(' ');
+      expect(text).toMatch(/на самом роутере/);
+      expect(text).toMatch(/Telegram/);
+      expect(text).not.toMatch(/подписка/);
+    }
+    expect(explainFail('health:tunnel:process').error).toMatch(/не запустилась/);
+    expect(explainFail('health:tunnel:route').error).toMatch(/не смог направить/);
+  });
+
   it('step:vpn: адресно про файл конфига', () => {
     const ex = explainFail('step:vpn');
     expect(ex.error).toMatch(/VPN-конфиг не принят/);
