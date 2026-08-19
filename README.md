@@ -76,6 +76,11 @@
 | **VLESS+Reality** | Одна команда в терминале VPS ставит веб-панель **3x-ui**, дальше всё в браузере | [3x-ui на GitHub →](https://github.com/MHSanaei/3x-ui) |
 | **Hysteria2** | Одна команда ставит сервер как сервис, но конфиг (пароль, сертификат) пишете сами по примеру из документации — без домена нужен свой сертификат | [Hysteria2 docs →](https://v2.hysteria.network/docs/getting-started/Server-Installation-Script/) |
 
+> **VLESS+Reality: сервер молчит на любой попытке подключения?** Актуальная версия xray-core
+> (≥26.7.11) в 3x-ui несовместима с нашим клиентом на роутере — известная проблема, чинится
+> откатом xray-core на сервере до v26.6.27. Подробности и команды:
+> [docs/kb/concepts/vless-reality.md](docs/kb/concepts/vless-reality.md#серверная-сторона).
+
 Готовую ссылку или `.conf` из любого гайда вставляете в мастер cheburnet-router на шаге 4
 [установки](#установка).
 

@@ -441,8 +441,21 @@ describe('explainFail — адресная диагностика провала
     expect(ex.advice.action).toBe('Загрузить другой конфиг');
   });
 
-  it('health:tunnel:fetch — тот же текст, что health (это её конкретизация)', () => {
+  it('health:tunnel:fetch без protocol — тот же текст, что health (это её конкретизация)', () => {
     expect(explainFail('health:tunnel:fetch')).toEqual(explainFail('health'));
+  });
+
+  it('health:tunnel:fetch + protocol=reality/hysteria2 — доп. совет про xray-core/3x-ui', () => {
+    for (const protocol of ['reality', 'hysteria2']) {
+      const ex = explainFail('health:tunnel:fetch', protocol);
+      expect(ex.advice.items.join(' ')).toMatch(/xray-core/);
+      expect(ex.advice.items.join(' ')).toMatch(/3x-ui/);
+    }
+  });
+
+  it('health:tunnel:fetch + protocol=awg — БЕЗ совета про xray-core (к AWG не относится)', () => {
+    const ex = explainFail('health:tunnel:fetch', 'awg');
+    expect(ex.advice.items.join(' ')).not.toMatch(/xray-core/);
   });
 
   it('health:dns — не про сервер: явно снимает подозрение с VPN-конфига', () => {
