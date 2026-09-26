@@ -21,9 +21,12 @@
 
 <sub><a href="README.en.md">English summary</a></sub>
 
-<a href="assets/web-mgmt.png"><img src="assets/web-mgmt.png" alt="Веб-панель управления роутером" width="720"></a>
+<a href="assets/web-mgmt.png"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/web-mgmt-dark.png">
+  <img src="assets/web-mgmt.png" alt="Веб-панель управления роутером" width="620">
+</picture></a>
 
-<sub>Веб-панель <code>/cheburnet/</code> — статус сервисов, переключение протоколов и режимов, семейный фильтр, замена VPN-конфига одним кликом</sub>
+<sub>Веб-панель <code>/cheburnet/</code> — с одного взгляда видно, работает ли туннель; режим «дома / в поездке» и свой список сайтов под рукой, перезапуск сервисов, семейный фильтр и смена протокола — в свёрнутых разделах</sub>
 
 </div>
 
@@ -176,7 +179,10 @@ sh /tmp/cheburnet.sh
 «Установить». Роутер всё сделает сам, прогресс виден в браузере.
 
 <div align="center">
-<img src="assets/web-installer.png" alt="Веб-мастер установки" width="600">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/web-installer-dark.png">
+  <img src="assets/web-installer.png" alt="Веб-мастер установки" width="560">
+</picture>
 <sub>Веб-мастер — загрузка <code>.conf</code> VPN-сервера</sub>
 </div>
 

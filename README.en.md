@@ -15,7 +15,10 @@ panel without reinstalling.
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12%2B-blue?logo=openwrt)](https://openwrt.org/)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
-<a href="assets/web-mgmt.png"><img src="assets/web-mgmt.png" alt="Web panel" width="720"></a>
+<a href="assets/web-mgmt.png"><picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/web-mgmt-dark.png">
+  <img src="assets/web-mgmt.png" alt="Web panel" width="620">
+</picture></a>
 
 </div>
 
