@@ -92,6 +92,14 @@ build_topology() {
 	sysctl -wq net.ipv4.ip_forward=1
 	sysctl -wq net.ipv4.conf.all.rp_filter=0
 
+	# КВИРК ХОСТА: строгий rp_filter (Arch/Fedora ставят 1 по умолчанию, новый netns наследует его
+	# из default) отбрасывает ПОМЕЧЕННЫЙ пакет: обратный путь для него ищется в таблице 100, где
+	# только `default dev wan0`, а пришёл он с vP. Симптом — direct-проба не доходит НИ до одного
+	# счётчика. На OpenWrt rp_filter=0, так что это свойство стенда, а не продукта.
+	for f in /proc/sys/net/ipv4/conf/all/rp_filter /proc/sys/net/ipv4/conf/default/rp_filter; do
+		echo 0 > "$f" 2>/dev/null || true
+	done
+
 	# Туннель и WAN — dummy: пакет дропается на xmit, но форвард-хук уже оценил oifname (нам хватит).
 	ip link add "$tun" type dummy; ip link set "$tun" up; ip addr add 10.88.0.1/24 dev "$tun"
 	ip link add wan0 type dummy;   ip link set wan0 up;   ip addr add 10.99.0.1/24 dev wan0
@@ -111,6 +119,12 @@ build_topology() {
 
 	# Счётчики-наблюдатели egress: priority 200 > kill-switch(filter=0) → drop сюда НЕ долетает,
 	# значит инкремент c_wan = трафик РЕАЛЬНО ушёл в WAN (утёк). Свои — тест их владелец, не движок.
+	# Интерфейсы, созданные до снятия default, несут старое значение — гасим поштучно
+	# (эффективный rp_filter = max(all, per-interface)).
+	for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
+		echo 0 > "$f" 2>/dev/null || true
+	done
+
 	nft add counter inet fw4 c_wan
 	nft add counter inet fw4 c_tun
 	nft -f - <<-NFTEOF
