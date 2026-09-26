@@ -1,8 +1,9 @@
 <script>
   import { cheburnet } from '../ubus.js';
-  import Card from '../ui/Card.svelte';
-  import Button from '../ui/Button.svelte';
-  import Input from '../ui/Input.svelte';
+  import * as Card from '$lib/components/ui/card/index.js';
+  import Button from '$lib/components/ui/button/button.svelte';
+  import Input from '$lib/components/ui/input/input.svelte';
+  import Field from '$lib/components/Field.svelte';
 
   // info — ответ check_lan_conflict: { lan_cidr, wan_cidr, suggest_ip }.
   // onSkip — продолжить без смены (preflight всё равно отметит конфликт).
@@ -33,42 +34,47 @@
   }
 </script>
 
-<Card title="Конфликт подсетей">
-  {#if applied}
-    <p class="ok-msg">✓ Новый адрес применён. Сеть роутера перезапускается…</p>
-    <ol>
-      <li>Подождите ~15 секунд, пока роутер перезапустит сеть.</li>
-      <li>Переподключитесь к роутеру (Wi-Fi/кабель): устройство получит адрес из новой подсети.
-        Если не получило — выключите и включите Wi-Fi (или переткните кабель).</li>
-      <li>Откройте мастер по новому адресу:
-        <strong><a href={`http://${applied}/cheburnet/`}>http://{applied}/cheburnet/</a></strong></li>
-    </ol>
-  {:else}
-    <p>
-      Подсеть LAN роутера (<code>{info.lan_cidr}</code>) пересекается с подсетью провайдера
-      (<code>{info.wan_cidr}</code>). Так бывает, когда роутер подключён за другим роутером с
-      той же подсетью. Маршрутизация в таком виде работать не будет — проверка на следующем
-      шаге установку не пропустит.
-    </p>
-    <p>
-      Решение: сменить адрес LAN на свободный — предлагаем
-      <strong>{info.suggest_ip}</strong>. После смены нужно переподключиться к роутеру по
-      новому адресу (гайд покажем).
-    </p>
+<Card.Root>
+  <Card.Header>
+    <Card.Title>Конфликт подсетей</Card.Title>
+  </Card.Header>
 
-    <label>
-      <span>Код установки</span>
-      <Input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
-      <small class="muted">Смена адреса рвёт соединения — поэтому требует код владельца роутера.</small>
-    </label>
+  <Card.Content>
+    {#if applied}
+      <p class="font-semibold text-success">✓ Новый адрес применён. Сеть роутера перезапускается…</p>
+      <ol class="flex list-decimal flex-col gap-2 pl-5">
+        <li>Подождите ~15 секунд, пока роутер перезапустит сеть.</li>
+        <li>Переподключитесь к роутеру (Wi-Fi/кабель): устройство получит адрес из новой подсети.
+          Если не получило — выключите и включите Wi-Fi (или переткните кабель).</li>
+        <li>Откройте мастер по новому адресу:
+          <strong><a href={`http://${applied}/cheburnet/`}>http://{applied}/cheburnet/</a></strong></li>
+      </ol>
+    {:else}
+      <p>
+        Подсеть LAN роутера (<code class="rounded-sm bg-muted px-1 py-0.5 font-mono text-sm">{info.lan_cidr}</code>)
+        пересекается с подсетью провайдера
+        (<code class="rounded-sm bg-muted px-1 py-0.5 font-mono text-sm">{info.wan_cidr}</code>). Так бывает,
+        когда роутер подключён за другим роутером с той же подсетью. Маршрутизация в таком виде
+        работать не будет — проверка на следующем шаге установку не пропустит.
+      </p>
+      <p>
+        Решение: сменить адрес LAN на свободный — предлагаем
+        <strong>{info.suggest_ip}</strong>. После смены нужно переподключиться к роутеру по
+        новому адресу (гайд покажем).
+      </p>
 
-    {#if error}<p class="warn">{error}</p>{/if}
+      <Field label="Код установки" hint="Смена адреса рвёт соединения — поэтому требует код владельца роутера.">
+        <Input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
+      </Field>
 
-    <div class="row">
-      <Button disabled={busy} onclick={onSkip}>Продолжить без смены</Button>
-      <Button variant="primary" disabled={busy} onclick={apply}>
-        {busy ? 'Применяю…' : `Сменить LAN-адрес на ${info.suggest_ip}`}
-      </Button>
-    </div>
-  {/if}
-</Card>
+      {#if error}<p class="text-destructive">{error}</p>{/if}
+
+      <div class="flex flex-wrap gap-3">
+        <Button variant="outline" class="min-w-35 flex-1" disabled={busy} onclick={onSkip}>Продолжить без смены</Button>
+        <Button class="min-w-35 flex-1" disabled={busy} onclick={apply}>
+          {busy ? 'Применяю…' : `Сменить LAN-адрес на ${info.suggest_ip}`}
+        </Button>
+      </div>
+    {/if}
+  </Card.Content>
+</Card.Root>

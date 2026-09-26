@@ -186,7 +186,7 @@ test('панель: результат действия печатается р�
   await openPanel(page, request, {});
 
   await page.getByRole('button', { name: 'Обновить готовый список' }).click();
-  const note = page.locator('.row:has-text("Обновить готовый список") + p');
+  const note = page.locator('[data-slot=action-note]');
   await expect(note).toHaveText(/Список обновлён/);
 
   // И оно НЕ уехало в опасную зону: там своё сообщение (о сбросе), чужих быть не должно.
@@ -209,7 +209,7 @@ test('панель: диагностика показывается до отп�
   await expect(page.getByText('Вырезано: ключи туннеля; пароль Wi-Fi', { exact: false }))
     .toBeVisible({ timeout: 10_000 });
   // Текст пакета виден на экране — именно то, что уйдёт в чат.
-  await expect(page.locator('pre.log', { hasText: 'cheburnet — диагностика' })).toBeVisible();
+  await expect(page.locator('[data-slot=log]', { hasText: 'cheburnet — диагностика' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Скачать файл' })).toBeVisible();
 });
 
@@ -220,7 +220,7 @@ test('панель: диагностика без входа ведёт на в�
 
   await page.getByRole('button', { name: 'Собрать диагностику' }).click();
   await expect(page.getByRole('heading', { name: 'Вход в управление' })).toBeVisible();
-  await expect(page.locator('pre.log', { hasText: 'cheburnet — диагностика' })).toHaveCount(0);
+  await expect(page.locator('[data-slot=log]', { hasText: 'cheburnet — диагностика' })).toHaveCount(0);
 });
 
 // «Сбросить настройку» люди читают как «удалить программу», а это не так. Плюс сброс раньше
@@ -272,7 +272,7 @@ test('панель: admin-метод без сессии → модалка вх
   await expect(page.getByRole('heading', { name: 'Вход в управление' })).toBeVisible();
 
   // Кнопок «Войти» на странице две (блок входа под «Управлением» и в модалке) — скоупим модалкой.
-  const modal = page.locator('.modal');
+  const modal = page.getByRole('dialog');
 
   // Неверный пароль — понятный счётчик попыток. Поле при этом НЕ блокируется: опечатка не должна
   // стоить перезагрузки страницы (перебор всё равно отбивает rpcd, а не панель).
@@ -297,12 +297,12 @@ test('панель: admin-метод без сессии → модалка вх
 test('панель: без сессии — блок входа, «Сохранить список» ведёт ко входу, после входа список правится', async ({ page, request }) => {
   await openPanel(page, request, { adminLocked: true });
 
-  const gate = page.locator('.login-gate');
+  const gate = page.locator('[data-slot=login-gate]');
   await expect(gate).toBeVisible();
   await expect(gate.getByRole('button', { name: 'Войти' })).toBeVisible();
 
   // Само поле списка без сессии закрыто и объясняет почему: движок не отдаёт список без входа.
-  const domains = page.locator('label.domains textarea');
+  const domains = page.getByLabel('Сайты напрямую — ваш список');
   await expect(domains).toBeDisabled();
   await expect(domains).toHaveAttribute('placeholder', /Войдите/);
 
@@ -310,7 +310,7 @@ test('панель: без сессии — блок входа, «Сохран�
   await expect(save).toBeEnabled();
   await save.click();
 
-  const modal = page.locator('.modal');
+  const modal = page.getByRole('dialog');
   await expect(modal.getByRole('heading', { name: 'Вход в управление' })).toBeVisible();
   // Курсор сразу в поле пароля: модалку открыл клик, лишний тап по полю на телефоне не нужен.
   await expect(modal.getByLabel('Пароль')).toBeFocused();

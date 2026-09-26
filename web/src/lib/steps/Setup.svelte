@@ -6,12 +6,17 @@
   // ГЛАВНОЕ: выбор туннеля идёт ОТ СИМПТОМА, не от названий протоколов — тексты в PROTOCOLS (logic.js).
   import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup, BRUTAL_WARNING, checkConf,
            protocolList, protocolInfo, defaultProtocol, SPEED_DEFAULTS } from '../logic.js';
-  import Card from '../ui/Card.svelte';
-  import Button from '../ui/Button.svelte';
-  import Input from '../ui/Input.svelte';
-  import Radio from '../ui/Radio.svelte';
-  import Select from '../ui/Select.svelte';
-  import ConfCheck from '../ui/ConfCheck.svelte';
+  import * as Card from '$lib/components/ui/card/index.js';
+  import * as Alert from '$lib/components/ui/alert/index.js';
+  import Button from '$lib/components/ui/button/button.svelte';
+  import Input from '$lib/components/ui/input/input.svelte';
+  import Textarea from '$lib/components/ui/textarea/textarea.svelte';
+  import NativeSelect from '$lib/components/ui/native-select/native-select.svelte';
+  import RadioCard from '$lib/components/ui/radio-card/radio-card.svelte';
+  import Badge from '$lib/components/ui/badge/badge.svelte';
+  import Field from '$lib/components/Field.svelte';
+  import SectionTitle from '$lib/components/SectionTitle.svelte';
+  import ConfCheck from '$lib/components/ConfCheck.svelte';
 
   let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, fullReasons = [], acceptRisk = false, urlToken = '', initial = null } = $props();
 
@@ -65,7 +70,7 @@
   let dnsProvider = $state(initial?.dns_provider ?? dnsProviderDefault ?? '');
   let error = $state('');
   let errorField = $state(''); // виновное поле из validateSetup — подсветка + прокрутка
-  const fieldEls = {}; // DOM-узлы полей по имени (bind:this), для scrollIntoView
+  const fieldEls = {}; // DOM-узлы полей по имени (bind:el), для scrollIntoView
 
   // Живые подсказки до сабмита. Показываем после ухода из поля (blur) либо когда второй пароль
   // догнал первый по длине — иначе «не совпадают» дёргается на каждой набранной букве.
@@ -116,171 +121,191 @@
   }
 </script>
 
-<Card title="Настройка">
-  {#if acceptRisk}
-    <p class="note">Установка идёт на роутер слабее рекомендуемого — по вашему решению.
-      Стабильность не гарантируем; при сбое изменения откатятся автоматически.</p>
-  {/if}
+<Card.Root>
+  <Card.Header>
+    <Card.Title>Настройка</Card.Title>
+  </Card.Header>
 
-  <h3>Каким туннелем пользоваться</h3>
-  <p class="muted small">Ошибиться не страшно — туннель меняется потом из панели.</p>
+  <Card.Content>
+    {#if acceptRisk}
+      <Alert.Root variant="warning">
+        <Alert.Description>
+          Установка идёт на роутер слабее рекомендуемого — по вашему решению.
+          Стабильность не гарантируем; при сбое изменения откатятся автоматически.
+        </Alert.Description>
+      </Alert.Root>
+    {/if}
 
-  {#each protocols as p}
-    {@const locked = p.full && !fullAvailable}
-    <Radio bind:group={protocol} value={p.id} disabled={locked}>
-      <strong>{p.symptom}</strong>{#if locked}<span class="badge-locked">недоступно</span>{/if} — {p.why}
-      <!-- &nbsp; намеренно: Svelte срезает ведущий пробел внутри {#if}, и получалось
-           «VLESS+Reality· недоступен». -->
-      <br /><small class="muted">Протокол: {p.name}{#if locked}&nbsp;· недоступен на этом роутере{/if}</small>
-    </Radio>
-  {/each}
+    <div>
+      <SectionTitle>Каким туннелем пользоваться</SectionTitle>
+      <p class="mt-2 text-sm text-muted-foreground">Ошибиться не страшно — туннель меняется потом из панели.</p>
 
-  <!-- Причина — ОДНА строка под списком, а не под каждой запертой строкой: она общая для обоих
-       Full-протоколов, и продублированная жирным дважды была самым заметным текстом на экране,
-       где человек вообще-то выбирает туннель. -->
-  {#if !fullAvailable && fullReasons.length > 0}
-    <p class="muted small">Почему недоступны: {fullReasons.join('; ')}.</p>
-  {/if}
-
-  <details class="more">
-    <summary>Чем они отличаются подробнее</summary>
-    <ul class="small">
       {#each protocols as p}
-        <li><strong>{p.name}</strong> — {p.whyMore}</li>
+        {@const locked = p.full && !fullAvailable}
+        <RadioCard bind:group={protocol} value={p.id} disabled={locked}>
+          <strong>{p.symptom}</strong> — {p.why}
+          <br /><span class="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+            Протокол: {p.name}{#if locked}<Badge variant="warning">недоступно</Badge>{/if}
+          </span>
+        </RadioCard>
       {/each}
-    </ul>
-  </details>
 
-  {#if fullAvailable}
-    <p class="muted small">Для VLESS+Reality и Hysteria2 нужен компонент <code>sing-box</code> —
-      он скачается сам во время установки (~11 МБ).</p>
-  {/if}
-
-  <label bind:this={fieldEls.conf} class:field-invalid={errorField === 'conf'}>
-    <span>{active.confLabel}</span>
-    <textarea
-      bind:value={confs[active.id]}
-      rows={active.file ? 8 : 6}
-      placeholder={active.placeholder}
-    ></textarea>
-    <ConfCheck id={active.id} text={confs[active.id]} hint={active.confHint} />
-    {#if !(confs[active.id] ?? '').trim()}
-      <small class="muted">Нет ни подписки, ни сервера?
-        <a href="https://github.com/andreiyurik/cheburnet-router#что-нужно-и-сколько-стоит"
-          target="_blank" rel="noreferrer">Как получить — за 10–15 минут</a></small>
-    {/if}
-  </label>
-  {#if active.file}
-    <label class="file">
-      <span>…или загрузить файлом</span>
-      <input type="file" accept=".conf,text/plain" onchange={onFile} />
-    </label>
-  {/if}
-
-  <!-- Brutal только у Hysteria2. Голое поле «Мбит/с» здесь было бы вредным: завышенное значение
-       раздувает очередь и делает связь ХУЖЕ, причём молча — ошибок в логах не будет. Поэтому
-       по умолчанию режим автоматический, а ручной снабжён прямым предупреждением. -->
-  {#if protocol === 'hysteria2'}
-    <h3>Скорость канала</h3>
-    <Radio bind:group={declareSpeed} value={false}>
-      <strong>Подбирать автоматически</strong> — рекомендуем. Туннель сам определяет,
-      сколько может взять, и подстраивается под канал.
-    </Radio>
-    <Radio bind:group={declareSpeed} value={true}>
-      <strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями,
-      но только если цифры честные.
-    </Radio>
-    {#if declareSpeed}
-      <p class="warn">{BRUTAL_WARNING} Не знаете точных цифр — выберите «автоматически».</p>
-      <label bind:this={fieldEls.speed} class:field-invalid={errorField === 'speed'}>
-        <span>Скорость приёма (Мбит/с)</span>
-        <Input type="number" min="1" max="10000" bind:value={speedDown} />
-      </label>
-      <label class:field-invalid={errorField === 'speed'}>
-        <span>Скорость отдачи (Мбит/с)</span>
-        <Input type="number" min="1" max="10000" bind:value={speedUp} />
-      </label>
-    {/if}
-  {/if}
-
-  <label>
-    <span>Сайты напрямую</span>
-    <textarea
-      bind:value={domainsText}
-      rows="3"
-      placeholder="ru&#10;example.com"
-    ></textarea>
-    <small class="muted">Остальное — через туннель. Запись зоны (<code>ru</code>) покрывает все
-      сайты в ней; отдельные — своей строкой.</small>
-  </label>
-
-  <h3>Пароль роутера</h3>
-  <label bind:this={fieldEls.rootPass} class:field-invalid={errorField === 'rootPass'}>
-    <span>Пароль администратора (root)</span>
-    <Input type="password" bind:value={rootPass} autocomplete="new-password" placeholder="минимум {MIN_PASS} символов" />
-    <small class="muted">Им вы входите в роутер по SSH и в панель управления. Запомните его.</small>
-  </label>
-  <label bind:this={fieldEls.rootPass2} class:field-invalid={errorField === 'rootPass2' || passMismatch}>
-    <span>Повторите пароль</span>
-    <Input type="password" bind:value={rootPass2} autocomplete="new-password" placeholder="ещё раз тот же пароль"
-      onblur={() => (pass2Left = true)} />
-    {#if passMismatch}<small class="warn">Пароли не совпадают.</small>{/if}
-  </label>
-
-  {#if showWifi}
-    <h3>Wi-Fi {#if wifiRequired}<em class="req">(обязательно)</em>{:else}<em>(необязательно)</em>{/if}</h3>
-    {#if wifiRequired}
-      <p class="muted small">У этого роутера есть Wi-Fi — задайте имя сети и пароль, чтобы включить его.</p>
-    {/if}
-    <label bind:this={fieldEls.ssid} class:field-invalid={errorField === 'ssid'}>
-      <span>Имя сети (SSID)</span>
-      <Input type="text" bind:value={ssid} maxlength={SSID_MAX} placeholder="например, MyHome" />
-    </label>
-    <label bind:this={fieldEls.wifiKey} class:field-invalid={errorField === 'wifiKey' || wifiKeyShort}>
-      <span>Пароль Wi-Fi</span>
-      <Input type="password" bind:value={wifiKey} autocomplete="new-password" placeholder="минимум {WIFI_KEY_MIN} символов"
-        onblur={() => (wifiKeyLeft = true)} />
-      {#if wifiKeyShort}
-        <small class="warn">Минимум {WIFI_KEY_MIN} символов — сейчас {wifiKey.length}.</small>
-      {:else}
-        <small class="muted">WPA2/WPA3 (если доступно).</small>
+      <!-- Причина — ОДНА строка под списком, а не под каждой запертой строкой: она общая для обоих
+           Full-протоколов, и продублированная жирным дважды была самым заметным текстом на экране,
+           где человек вообще-то выбирает туннель. -->
+      {#if !fullAvailable && fullReasons.length > 0}
+        <p class="text-sm text-muted-foreground">Почему недоступны: {fullReasons.join('; ')}.</p>
       {/if}
-    </label>
-    {#if wirelessPresent === null}
-      <small class="muted">Не удалось узнать, есть ли у роутера Wi-Fi — заполните, если он есть; иначе оставьте пустым.</small>
+
+      <details class="mt-3">
+        <summary class="cursor-pointer text-sm text-muted-foreground">Чем они отличаются подробнее</summary>
+        <ul class="mt-2 list-disc pl-5 text-sm text-muted-foreground">
+          {#each protocols as p}
+            <li><strong class="text-foreground">{p.name}</strong> — {p.whyMore}</li>
+          {/each}
+        </ul>
+      </details>
+
+      {#if fullAvailable}
+        <p class="mt-3 text-sm text-muted-foreground">Для VLESS+Reality и Hysteria2 компонент
+          <code class="rounded-sm bg-muted px-1 py-0.5 font-mono">sing-box</code> (~11 МБ) скачается сам.</p>
+      {/if}
+    </div>
+
+    <Field label={active.confLabel} bind:el={fieldEls.conf}>
+      <Textarea
+        bind:value={confs[active.id]}
+        class="font-mono"
+        rows={active.file ? 8 : 6}
+        placeholder={active.placeholder}
+        aria-invalid={errorField === 'conf'}
+      />
+      <ConfCheck id={active.id} text={confs[active.id]} hint={active.confHint} />
+      {#if !(confs[active.id] ?? '').trim()}
+        <span class="mt-1.5 block text-sm text-muted-foreground">Нет ни подписки, ни сервера?
+          <a href="https://github.com/andreiyurik/cheburnet-router#что-нужно-и-сколько-стоит"
+            target="_blank" rel="noreferrer">Как получить — за 10–15 минут</a></span>
+      {/if}
+    </Field>
+    {#if active.file}
+      <Field label="…или загрузить файлом">
+        <Input type="file" accept=".conf,text/plain" onchange={onFile} />
+      </Field>
     {/if}
-  {/if}
 
-  {#if dnsProviders.length > 0}
-    <h3>Фильтрация (DNS)</h3>
-    <label>
-      <span>Блокировка рекламы / взрослого контента</span>
-      <Select bind:value={dnsProvider}>
-        {#each dnsProviders as p}
-          <option value={p.id}>{p.name} — {p.description}</option>
-        {/each}
-      </Select>
-      <small class="muted">«Семейный» провайдер дополнительно блокирует сайты 18+ и форсит безопасный поиск.</small>
-    </label>
-  {/if}
+    <!-- Brutal только у Hysteria2. Голое поле «Мбит/с» здесь было бы вредным: завышенное значение
+         раздувает очередь и делает связь ХУЖЕ, причём молча — ошибок в логах не будет. Поэтому
+         по умолчанию режим автоматический, а ручной снабжён прямым предупреждением. -->
+    {#if protocol === 'hysteria2'}
+      <div>
+        <SectionTitle>Скорость канала</SectionTitle>
+        <RadioCard bind:group={declareSpeed} value={false}>
+          <strong>Подбирать автоматически</strong> — рекомендуем. Туннель сам определяет,
+          сколько может взять, и подстраивается под канал.
+        </RadioCard>
+        <RadioCard bind:group={declareSpeed} value={true}>
+          <strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями,
+          но только если цифры честные.
+        </RadioCard>
+        {#if declareSpeed}
+          <Alert.Root variant="warning" class="my-3">
+            <Alert.Description>{BRUTAL_WARNING} Не знаете точных цифр — выберите «автоматически».</Alert.Description>
+          </Alert.Root>
+          <Field label="Скорость приёма (Мбит/с)" bind:el={fieldEls.speed} class="mb-3">
+            <Input type="number" min="1" max="10000" class="w-32" bind:value={speedDown} aria-invalid={errorField === 'speed'} />
+          </Field>
+          <Field label="Скорость отдачи (Мбит/с)">
+            <Input type="number" min="1" max="10000" class="w-32" bind:value={speedUp} aria-invalid={errorField === 'speed'} />
+          </Field>
+        {/if}
+      </div>
+    {/if}
 
-  {#if tokenEditable}
-    <label bind:this={fieldEls.token} class:field-invalid={errorField === 'token'}>
-      <span>Код установки</span>
-      <Input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки" />
-    </label>
-    <small class="muted">Проще: откройте в браузере всю ссылку из терминала (начинается на
-      http://192.168.1.1/cheburnet/?token=…) — код уже в ней, вводить вручную не придётся.</small>
-  {:else}
-    <p class="muted small">✓ Код установки получен из ссылки.
-      <Button variant="link" type="button" onclick={() => (tokenEditable = true)}>Изменить</Button>
-    </p>
-  {/if}
+    <details class="border-t border-border pt-3">
+      <summary class="cursor-pointer text-sm">
+        Сайты напрямую: <strong>{domainsText.split('\n').filter((d) => d.trim()).length} шт.</strong>
+        <span class="text-muted-foreground">— изменить</span>
+      </summary>
+      <Field class="mt-3" label="Сайты напрямую"
+             hint="Остальное — через туннель. Запись зоны (ru) покрывает все сайты в ней; отдельные — своей строкой.">
+        <Textarea bind:value={domainsText} rows="3" placeholder={'ru\nexample.com'} />
+      </Field>
+    </details>
 
-  {#if error}<p class="warn">{error}</p>{/if}
+    <div class="flex flex-col gap-4">
+      <SectionTitle>Пароль роутера</SectionTitle>
+      <Field label="Пароль администратора (root)" bind:el={fieldEls.rootPass}
+             hint="Им вы входите в роутер по SSH и в панель управления. Запомните его.">
+        <Input type="password" bind:value={rootPass} autocomplete="new-password"
+               placeholder="минимум {MIN_PASS} символов" aria-invalid={errorField === 'rootPass'} />
+      </Field>
+      <Field label="Повторите пароль" bind:el={fieldEls.rootPass2}
+             error={passMismatch ? 'Пароли не совпадают.' : ''}>
+        <Input type="password" bind:value={rootPass2} autocomplete="new-password" placeholder="ещё раз тот же пароль"
+               aria-invalid={errorField === 'rootPass2' || passMismatch}
+               onblur={() => (pass2Left = true)} />
+      </Field>
+    </div>
 
-  <div class="row">
-    <Button onclick={onBack}>Назад</Button>
-    <Button variant="primary" onclick={submit}>Установить</Button>
-  </div>
-</Card>
+    {#if showWifi}
+      <div class="flex flex-col gap-4">
+        <SectionTitle>Wi-Fi</SectionTitle>
+        {#if wifiRequired}
+          <p class="text-sm text-muted-foreground">У этого роутера есть Wi-Fi — задайте имя сети и пароль, чтобы включить его.</p>
+        {/if}
+        <Field label="Имя сети (SSID)" bind:el={fieldEls.ssid} required={wifiRequired} optional={!wifiRequired}>
+          <Input type="text" bind:value={ssid} maxlength={SSID_MAX} placeholder="например, MyHome"
+                 aria-invalid={errorField === 'ssid'} />
+        </Field>
+        <Field label="Пароль Wi-Fi" bind:el={fieldEls.wifiKey}
+               required={wifiRequired} optional={!wifiRequired}
+               hint="WPA2/WPA3 (если доступно)."
+               error={wifiKeyShort ? `Минимум ${WIFI_KEY_MIN} символов — сейчас ${wifiKey.length}.` : ''}>
+          <Input type="password" bind:value={wifiKey} autocomplete="new-password"
+                 placeholder="минимум {WIFI_KEY_MIN} символов"
+                 aria-invalid={errorField === 'wifiKey' || wifiKeyShort}
+                 onblur={() => (wifiKeyLeft = true)} />
+        </Field>
+        {#if wirelessPresent === null}
+          <p class="text-sm text-muted-foreground">Не удалось узнать, есть ли у роутера Wi-Fi — заполните, если он есть; иначе оставьте пустым.</p>
+        {/if}
+      </div>
+    {/if}
+
+    {#if dnsProviders.length > 0}
+      <details class="border-t border-border pt-3">
+        <summary class="cursor-pointer text-sm">
+          Фильтрация: <strong>{dnsProviders.find((p) => p.id === dnsProvider)?.name ?? '—'}</strong>
+          <span class="text-muted-foreground">— изменить</span>
+        </summary>
+        <Field class="mt-3" label="Блокировка рекламы / взрослого контента"
+               hint="«Семейный» провайдер дополнительно блокирует сайты 18+ и форсит безопасный поиск.">
+          <NativeSelect bind:value={dnsProvider}>
+            {#each dnsProviders as p}
+              <option value={p.id}>{p.name} — {p.description}</option>
+            {/each}
+          </NativeSelect>
+        </Field>
+      </details>
+    {/if}
+
+    {#if tokenEditable}
+      <Field label="Код установки" bind:el={fieldEls.token}
+             hint="Проще: откройте в браузере всю ссылку из терминала (начинается на http://192.168.1.1/cheburnet/?token=…) — код уже в ней, вводить вручную не придётся.">
+        <Input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки"
+               aria-invalid={errorField === 'token'} />
+      </Field>
+    {:else}
+      <p class="text-sm text-muted-foreground">✓ Код установки получен из ссылки.
+        <Button variant="link" onclick={() => (tokenEditable = true)}>Изменить</Button>
+      </p>
+    {/if}
+
+    {#if error}<p class="text-destructive">{error}</p>{/if}
+
+    <div class="flex flex-wrap gap-3">
+      <Button variant="outline" class="min-w-35 flex-1" onclick={onBack}>Назад</Button>
+      <Button size="lg" class="min-w-35 flex-1" onclick={submit}>Установить</Button>
+    </div>
+  </Card.Content>
+</Card.Root>
