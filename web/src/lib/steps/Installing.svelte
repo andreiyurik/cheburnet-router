@@ -3,8 +3,13 @@
   import mascot from '../../assets/cheburashka.png';
   import { cheburnet } from '../ubus.js';
   import { STEP_LABELS, installPlan, explainFail, SUPPORT } from '../logic.js';
-  import Card from '../ui/Card.svelte';
-  import Button from '../ui/Button.svelte';
+  import * as Card from '$lib/components/ui/card/index.js';
+  import * as Alert from '$lib/components/ui/alert/index.js';
+  import Button from '$lib/components/ui/button/button.svelte';
+  import Spinner from '$lib/components/ui/spinner/spinner.svelte';
+  import CheckList from '$lib/components/CheckList.svelte';
+  import StatusIcon from '$lib/components/StatusIcon.svelte';
+  import LogView from '$lib/components/LogView.svelte';
 
   // args — { awg_conf, root_password, [ssid, wifi_key], domains, token } для метода install.
   // onDone — установка завершилась успешно. onRetry — вернуться на Setup при ошибке.
@@ -26,6 +31,9 @@
   // 1–3 минуты без интернета читалась как «зависло».
   const plan = installPlan(args);
   const planIdx = $derived(plan.findIndex((p) => p.id === step));
+  const planItems = $derived(
+    plan.map((p, i) => ({ mark: i < planIdx ? 'ok' : i === planIdx ? 'running' : 'pending', text: p.label }))
+  );
   // Подряд неудачные опросы прогресса = страница потеряла роутер (обычно включился новый Wi-Fi
   // и устройство ушло из сети роутера). Это штатно — объясняем, как вернуться, и продолжаем поллить.
   let pollFails = $state(0);
@@ -154,137 +162,142 @@
   start();
 </script>
 
-<Card title="Установка">
-  {#if phase === 'starting'}
-    <p class="muted">Запускаю…</p>
-  {:else if phase === 'running'}
-    {#if planIdx >= 0}
-      <ul class="checks">
-        {#each plan as p, i}
-          <li class:ok={i < planIdx} class:pending={i > planIdx}>
-            <span class="mark">{#if i < planIdx}✓{:else if i === planIdx}<span class="spinner"></span>{:else}·{/if}</span>
-            <span>{p.label}</span>
-          </li>
-        {/each}
-      </ul>
-    {:else}
-      <p><span class="spinner"></span> <strong>{stepLabel}</strong></p>
-    {/if}
-    {#if lostContact}
-      <p class="note"><strong>Страница потеряла связь с роутером — это ожидаемо</strong>, когда
-        включается новая сеть. Установка продолжается на самом роутере.
-        {#if args.ssid}Подключитесь к Wi-Fi «{args.ssid}» и вернитесь сюда — страница
-        подхватит прогресс сама.{:else}Переподключитесь к сети роутера (кабель или Wi-Fi) —
-        страница подхватит прогресс сама.{/if}</p>
-    {/if}
-    <p class="note">
-      Интернет и Wi-Fi сейчас пропадут — это нормально. <strong>Не выключайте роутер и не
-      закрывайте страницу.</strong>
-      {#if step === 'health-check'}
-        Идёт самый долгий шаг — проверка связи через туннель, до полминуты. Если сервер не
-        ответит, роутер сам всё вернёт назад.
+<Card.Root>
+  <Card.Header>
+    <Card.Title>Установка</Card.Title>
+  </Card.Header>
+
+  <Card.Content>
+    {#if phase === 'starting'}
+      <p class="text-muted-foreground">Запускаю…</p>
+    {:else if phase === 'running'}
+      {#if planIdx >= 0}
+        <CheckList items={planItems} />
+      {:else}
+        <p class="flex items-center gap-2"><Spinner /> <strong>{stepLabel}</strong></p>
       {/if}
-    </p>
-    {#if log}
-      <pre class="log live" class:expanded={logExpanded} bind:this={logEl}>{log}</pre>
-      {#if logOverflows || logExpanded}
-        <p class="small"><Button variant="link" type="button" onclick={() => (logExpanded = !logExpanded)}>
-          {logExpanded ? 'Свернуть журнал' : 'Развернуть журнал'}
-        </Button></p>
+      {#if lostContact}
+        <Alert.Root variant="warning">
+          <StatusIcon tone="warn" />
+          <Alert.Body>
+          <Alert.Title>Страница потеряла связь с роутером — это ожидаемо</Alert.Title>
+          <Alert.Description>
+            Так бывает, когда включается новая сеть. Установка продолжается на самом роутере.
+            {#if args.ssid}Подключитесь к Wi-Fi «{args.ssid}» и вернитесь сюда — страница
+            подхватит прогресс сама.{:else}Переподключитесь к сети роутера (кабель или Wi-Fi) —
+            страница подхватит прогресс сама.{/if}
+          </Alert.Description>
+          </Alert.Body>
+        </Alert.Root>
       {/if}
-    {/if}
-    <Button disabled={cancelling} onclick={cancel}>
-      {cancelling ? 'Отменяю…' : 'Отменить установку'}
-    </Button>
-  {:else if phase === 'ok'}
-    <div class="done-hero">
-      <div class="confetti" aria-hidden="true">
-        {#each Array(10) as _, i}<i style="--i:{i}"></i>{/each}
+      <p class="text-muted-foreground">Интернет и Wi-Fi сейчас пропадут — это нормально.
+        <strong class="text-foreground">Не выключайте роутер и не закрывайте страницу.</strong>
+        {#if step === 'health-check'}
+          Идёт самый долгий шаг — проверка связи через туннель, до полминуты. Если сервер не
+          ответит, роутер сам всё вернёт назад.
+        {/if}</p>
+      {#if log}
+        <LogView text={log} live expanded={logExpanded} bind:el={logEl} />
+        {#if logOverflows || logExpanded}
+          <p class="text-sm">
+            <Button variant="link" onclick={() => (logExpanded = !logExpanded)}>
+              {logExpanded ? 'Свернуть журнал' : 'Развернуть журнал'}
+            </Button>
+          </p>
+        {/if}
+      {/if}
+      <Button variant="outline" disabled={cancelling} onclick={cancel}>
+        {cancelling ? 'Отменяю…' : 'Отменить установку'}
+      </Button>
+    {:else if phase === 'ok'}
+      <!-- Экран успеха: маскот «выпрыгивает», сверху осыпаются войлочные конфетти цветами темы.
+           Всё чистый CSS, одноразовое (forwards), при prefers-reduced-motion — статика. -->
+      <div class="relative overflow-hidden pt-4 pb-1 text-center">
+        <div class="pointer-events-none absolute inset-0 motion-reduce:hidden" aria-hidden="true">
+          {#each Array(10) as _, i}<i class="confetti" style="--i:{i}"></i>{/each}
+        </div>
+        <img src={mascot} alt="" width="96" height="96" class="mascot-pop mx-auto" />
+        <p class="mt-3 mb-0.5 text-xl font-semibold text-success">Готово! Роутер настроен.</p>
+        <p class="text-muted-foreground">Wi-Fi уже раздаёт интернет — подключайте устройства.</p>
       </div>
-      <img src={mascot} alt="" width="96" height="96" class="mascot-pop" />
-      <p class="ok-msg">Готово! Роутер настроен.</p>
-      <p class="muted">Wi-Fi уже раздаёт интернет — подключайте устройства.</p>
-    </div>
-    <p class="small thanks">Если всё получилось и проект вам понравился — поблагодарить автора
-      можно <a href={SUPPORT.page} target="_blank" rel="noreferrer">звездой на GitHub</a> или
-      <a href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">донатом</a>. Не получилось
-      или есть идея — напишите в Telegram
-      <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a>.</p>
-    <Button variant="primary" wide onclick={onDone}>Открыть панель управления</Button>
-  {:else if phase === 'fail'}
-    <p class="warn">✗ {error}</p>
-    {#if advice}
-      <div class="support">
-        <strong>{advice.title}</strong>
-        {#if advice.items.length > 0}
-          <ol>
-            {#each advice.items as item}<li>{item}</li>{/each}
-          </ol>
+      <p class="my-3 text-center text-sm">Если всё получилось и проект вам понравился — поблагодарить автора
+        можно <a href={SUPPORT.page} target="_blank" rel="noreferrer">звездой на GitHub</a> или
+        <a href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">донатом</a>. Не получилось
+        или есть идея — напишите в Telegram
+        <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a>.</p>
+      <Button size="lg" class="w-full" onclick={onDone}>Открыть панель управления</Button>
+    {:else if phase === 'fail'}
+      <Alert.Root variant="destructive">
+        <StatusIcon tone="bad" />
+        <Alert.Body><Alert.Title>{error}</Alert.Title></Alert.Body>
+      </Alert.Root>
+      {#if advice}
+        <Alert.Root variant="warning">
+          <StatusIcon tone="warn" />
+          <Alert.Body>
+          <Alert.Title>{advice.title}</Alert.Title>
+          {#if advice.items.length > 0}
+            <Alert.Description>
+              <ol class="mt-1 list-decimal pl-5">
+                {#each advice.items as item}<li>{item}</li>{/each}
+              </ol>
+            </Alert.Description>
+          {/if}
+          </Alert.Body>
+        </Alert.Root>
+      {/if}
+      <div class="flex flex-wrap gap-3">
+        <Button class="min-w-35 flex-1" onclick={onRetry}>{advice?.action ?? 'Изменить данные и повторить'}</Button>
+        {#if log}
+          <Button variant="outline" onclick={copyLog}>{copied ? '✓ Скопировано' : 'Копировать журнал'}</Button>
+          <Button variant="outline" onclick={downloadLog}>Скачать журнал</Button>
         {/if}
       </div>
+      <!-- Куда писать — именно здесь: это единственный экран, где человек уже упёрся и ещё не ушёл.
+           Полной диагностики тут нет намеренно: она admin-метод, а пароль root на этом шаге ещё не
+           применён — сессии нет. Журнал установки при этом уже содержит всё нужное. -->
+      <p class="text-sm text-muted-foreground">Не получается разобраться — напишите мне в Telegram
+        <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a> и
+        приложите журнал (кнопка выше). Когда роутер настроится, в панели появится кнопка
+        «Собрать диагностику» — она вырезает пароли и ключи автоматически.</p>
     {/if}
-    <div class="row">
-      <Button variant="primary" onclick={onRetry}>{advice?.action ?? 'Изменить данные и повторить'}</Button>
-      {#if log}
-        <Button onclick={copyLog}>{copied ? '✓ Скопировано' : 'Копировать журнал'}</Button>
-        <Button onclick={downloadLog}>Скачать журнал</Button>
-      {/if}
-    </div>
-    <!-- Куда писать — именно здесь: это единственный экран, где человек уже упёрся и ещё не ушёл.
-         Полной диагностики тут нет намеренно: она admin-метод, а пароль root на этом шаге ещё не
-         применён — сессии нет. Журнал установки при этом уже содержит всё нужное. -->
-    <p class="muted small">Не получается разобраться — напишите мне в Telegram
-      <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a> и
-      приложите журнал (кнопка выше). Когда роутер настроится, в панели появится кнопка
-      «Собрать диагностику» — она вырезает пароли и ключи автоматически.</p>
-  {/if}
 
-  {#if log && phase !== 'running'}
-    <details open={phase === 'fail'}>
-      <summary>Журнал</summary>
-      <pre class="log">{log}</pre>
-    </details>
-  {/if}
-</Card>
+    {#if log && phase !== 'running'}
+      <details open={phase === 'fail'}>
+        <summary class="cursor-pointer text-muted-foreground">Журнал</summary>
+        <LogView text={log} class="mt-2" />
+      </details>
+    {/if}
+  </Card.Content>
+</Card.Root>
 
 <style>
-  /* Экран успеха: маскот «выпрыгивает», сверху осыпаются войлочные конфетти цветами темы.
-     Всё чистый CSS, одноразовое (forwards), при prefers-reduced-motion — статика. */
-  .done-hero {
-    position: relative;
-    overflow: hidden;
-    text-align: center;
-    padding: 1.1rem 0 0.4rem;
-  }
-  .done-hero .ok-msg { font-size: 1.2rem; margin: 0.7rem 0 0.15rem; }
-  .done-hero .muted { margin: 0; }
+  /* Конфетти и «выпрыгивание» маскота: анимации через @keyframes — в утилитах Tailwind их нет,
+     а тащить плагин анимаций ради одного экрана успеха дороже пяти строк CSS. */
   .mascot-pop { animation: pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1); }
   @keyframes pop {
     from { transform: scale(0.3) rotate(-8deg); opacity: 0; }
     to   { transform: scale(1) rotate(0); opacity: 1; }
   }
-  .confetti { position: absolute; inset: 0; pointer-events: none; }
-  .confetti i {
+  .confetti {
     position: absolute;
     top: -8px;
     left: calc(6% + var(--i) * 9%);
     width: 8px; height: 8px;
     border-radius: 50%;
-    background: var(--accent);
+    background: var(--primary);
     opacity: 0;
     animation: fall 1.5s ease-in calc(var(--i) * 0.08s) 1 forwards;
   }
-  .confetti i:nth-child(3n) { background: var(--attn); width: 6px; height: 6px; }
-  .confetti i:nth-child(4n) { background: var(--ok); }
-  .confetti i:nth-child(5n) { background: var(--bad); border-radius: 2px; }
+  .confetti:nth-child(3n) { background: var(--warning); width: 6px; height: 6px; }
+  .confetti:nth-child(4n) { background: var(--success); }
+  .confetti:nth-child(5n) { background: var(--destructive); border-radius: 2px; }
   @keyframes fall {
     0%   { transform: translateY(0) rotate(0); opacity: 0; }
     12%  { opacity: 0.9; }
     100% { transform: translateY(190px) rotate(220deg); opacity: 0; }
   }
-  .thanks { text-align: center; margin: 0.9rem 0; }
   @media (prefers-reduced-motion: reduce) {
     .mascot-pop { animation: none; }
-    .confetti { display: none; }
   }
 </style>

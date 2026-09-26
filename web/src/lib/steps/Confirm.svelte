@@ -3,39 +3,47 @@
   // onBack — вернуться поправить; onConfirm — запустить установку. dnsProviders — каталог для метки.
   // Разбор конфигов и метки — чистые tunnelSummary/dnsLabel (logic.js, под vitest).
   import { tunnelSummary, dnsLabel } from '../logic.js';
-  import Card from '../ui/Card.svelte';
-  import Button from '../ui/Button.svelte';
+  import * as Card from '$lib/components/ui/card/index.js';
+  import * as Alert from '$lib/components/ui/alert/index.js';
+  import Button from '$lib/components/ui/button/button.svelte';
+  import StatusIcon from '$lib/components/StatusIcon.svelte';
+  import StatusList from '$lib/components/StatusList.svelte';
+  import StatusRow from '$lib/components/StatusRow.svelte';
 
   let { args, onBack, onConfirm, dnsProviders = [] } = $props();
 </script>
 
-<Card title="Проверьте перед установкой">
-  <ul class="status">
-    <li><span>Туннель</span><strong>{tunnelSummary(args)}</strong></li>
-    <li><span>Пароль роутера</span><strong>задан</strong></li>
-    {#if args.ssid}
-      <li><span>Wi-Fi</span><strong>{args.ssid} (пароль задан)</strong></li>
-    {:else}
-      <li><span>Wi-Fi</span><strong>не настраивается</strong></li>
+<Card.Root>
+  <Card.Header>
+    <Card.Title>Проверьте перед установкой</Card.Title>
+  </Card.Header>
+
+  <Card.Content>
+    <StatusList>
+      <StatusRow label="Туннель" value={tunnelSummary(args)} />
+      <StatusRow label="Пароль роутера" value="задан" />
+      <StatusRow label="Wi-Fi" value={args.ssid ? `${args.ssid} (пароль задан)` : 'не настраивается'} />
+      <StatusRow label="Фильтрация (DNS)" value={dnsLabel(args.dns_provider, dnsProviders)} />
+      <StatusRow label="Сайты напрямую" value={args.domains.length} />
+    </StatusList>
+
+    {#if args.accept_risk}
+      <Alert.Root variant="warning">
+        <StatusIcon tone="warn" />
+        <Alert.Body>
+          <Alert.Description>Роутер слабее рекомендуемого — устанавливаем по вашему решению,
+            стабильность не гарантируется.</Alert.Description>
+        </Alert.Body>
+      </Alert.Root>
     {/if}
-    <li><span>Фильтрация (DNS)</span><strong>{dnsLabel(args.dns_provider, dnsProviders)}</strong></li>
-    <li><span>Сайты напрямую</span><strong>{args.domains.length}</strong></li>
-  </ul>
 
-  {#if args.accept_risk}
-    <p class="banner">
-      Роутер слабее рекомендуемого — устанавливаем по вашему решению, стабильность не
-      гарантируется. Вернуться и проверить требования ещё раз можно кнопкой «Назад».
-    </p>
-  {/if}
+    <p class="text-muted-foreground">Установка займёт 1–3 минуты. Интернет и Wi-Fi на это время пропадут —
+      так и должно быть. <strong class="text-foreground">Не выключайте роутер и не вынимайте кабель.</strong>
+      При сбое всё откатится само.</p>
 
-  <p class="note">
-    Установка займёт 1–3 минуты. Интернет и Wi-Fi на это время пропадут — так и должно быть.
-    <strong>Не выключайте роутер и не вынимайте кабель.</strong> При сбое всё откатится само.
-  </p>
-
-  <div class="row">
-    <Button onclick={onBack}>Назад — поправить</Button>
-    <Button variant="primary" onclick={onConfirm}>Установить</Button>
-  </div>
-</Card>
+    <div class="flex flex-wrap gap-3">
+      <Button variant="outline" class="min-w-35 flex-1" onclick={onBack}>Назад — поправить</Button>
+      <Button size="lg" class="min-w-35 flex-1" onclick={onConfirm}>Установить</Button>
+    </div>
+  </Card.Content>
+</Card.Root>

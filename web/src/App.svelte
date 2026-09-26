@@ -2,7 +2,8 @@
   import logo from './assets/cheburashka.png';
   import { cheburnet } from './lib/ubus.js';
   import { SUPPORT } from './lib/logic.js';
-  import ThemeToggle from './lib/ui/ThemeToggle.svelte';
+  import ThemeToggle from './lib/components/ThemeToggle.svelte';
+  import Stepper from './lib/components/Stepper.svelte';
   import Preflight from './lib/steps/Preflight.svelte';
   import LanConflict from './lib/steps/LanConflict.svelte';
   import Setup from './lib/steps/Setup.svelte';
@@ -94,33 +95,28 @@
   }
 </script>
 
-<main>
-  <header>
-    <img src={logo} alt="" class="logo" width="56" height="56" />
+<main class="mx-auto max-w-xl px-4 pt-6 pb-12">
+  <header class="mb-5 flex items-center gap-4">
+    <img src={logo} alt="" class="shrink-0" width="56" height="56" />
     <div>
-      <h1>cheburnet</h1>
+      <h1 class="font-display text-3xl tracking-wide">cheburnet</h1>
       <!-- Панель — не мастер: на настроенном роутере подпись «мастер настройки» обещает шаги,
            которых там нет (и именно этот экран уходит в README скриншотом). -->
-      <p class="sub">{step === 'status' ? 'панель управления роутером' : 'мастер настройки роутера'}</p>
+      <p class="text-muted-foreground">{step === 'status' ? 'панель управления роутером' : 'мастер настройки роутера'}</p>
     </div>
     <ThemeToggle />
   </header>
 
   {#if wizardIndex >= 0}
-    <nav class="stepper" aria-label="Шаги мастера">
-      {#each WIZARD as w, i}
-        <span class="dot" class:active={i === wizardIndex} class:done={i < wizardIndex}></span>
-      {/each}
-      <span class="stepper-label">Шаг {wizardIndex + 1} из {WIZARD.length} — {WIZARD[wizardIndex].label}</span>
-    </nav>
+    <Stepper steps={WIZARD} index={wizardIndex} />
   {/if}
 
   {#if step === 'boot'}
-    <p class="muted">Проверяю состояние роутера…</p>
+    <p class="text-muted-foreground">Проверяю состояние роутера…</p>
   {:else if step === 'lanconflict'}
     <LanConflict info={lanConflict} {urlToken} onSkip={() => (step = 'preflight')} />
   {:else if step === 'preflight'}
-    {#if bootError}<p class="warn">Статус недоступен: {bootError}</p>{/if}
+    {#if bootError}<p class="mb-3 text-destructive">Статус недоступен: {bootError}</p>{/if}
     <Preflight onReady={(full, risk, whyNot) => { fullAvailable = full; acceptRisk = risk === true; fullReasons = whyNot ?? []; step = 'setup'; }} />
   {:else if step === 'setup'}
     <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} {fullAvailable} {fullReasons} {acceptRisk} {urlToken} initial={installArgs} />
@@ -134,9 +130,9 @@
 
   <!-- Компактно: развёрнутые формулировки живут на экране успеха (благодарность) и в блоке
        «Если что-то не работает» панели — футер лишь держит ссылки на виду на каждом экране. -->
-  <footer>
-    <span class="muted">Образовательный split-tunnel роутер на OpenWrt</span>
-    <span class="muted small">
+  <footer class="mt-6 flex flex-col gap-1.5 text-center text-muted-foreground">
+    <span>Образовательный split-tunnel роутер на OpenWrt</span>
+    <span class="text-sm">
       <a href={SUPPORT.page} target="_blank" rel="noreferrer">GitHub</a> ·
       <a href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">Поддержать</a> ·
       <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a>

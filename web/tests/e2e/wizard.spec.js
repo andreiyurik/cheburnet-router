@@ -70,7 +70,7 @@ test('мастер: полный проход от проверки до пан�
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible({ timeout: 10_000 });
   // Режим показан сегментом с подсвеченным ТЕКУЩИМ состоянием: кнопка-переключатель раньше
   // называла то, куда переключит, и спорила со строкой сводки рядом.
-  await expect(page.locator('.segmented button.active')).toHaveText('Дома');
+  await expect(page.getByRole('button', { name: 'Дома' })).toHaveAttribute('aria-pressed', 'true');
 });
 
 // Full-железо: мастер даёт выбор туннеля ПО СИМПТОМУ и предвыбирает VLESS+Reality — самая частая
@@ -140,7 +140,7 @@ test('мастер на пограничном железе: Full-протоко
   await expect(hysteria).toBeDisabled();
 
   // Бейдж — видимый сигнал у самой строки, а не только мелкий текст под ней.
-  await expect(page.locator('.badge-locked')).toHaveCount(2);
+  await expect(page.locator('[data-slot=badge]')).toHaveCount(2);
   await expect(page.getByText('недоступно', { exact: true })).toHaveCount(2);
 
   // Причина недоступности напечатана явно (движок отдал её из preflight.tiers.full_checks).
@@ -178,8 +178,9 @@ test('панель: VPN-сервер молчит → hero-баннер про �
   await request.post('/__vpn-down');
   await page.goto('/cheburnet/');
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible();
-  // Баннер называет и поломку, и протокол — иначе на трёх туннелях непонятно, что именно мертво.
-  await expect(page.getByText('Туннель не работает (AmneziaWG)', { exact: false })).toBeVisible();
+  // Ответ называет и поломку, и протокол — иначе на трёх туннелях непонятно, что именно мертво.
+  await expect(page.getByText('Туннель не работает')).toBeVisible();
+  await expect(page.getByText('AmneziaWG · открываются только сайты', { exact: false })).toBeVisible();
   // Ссылка «вставьте свежий конфиг» ведёт к разделу замены и раскрывает его: блок управления
   // туннелем в панели свёрнут, и без раскрытия якорь прыгал бы в закрытый <details>.
   await page.getByRole('link', { name: 'вставьте свежий конфиг' }).click();

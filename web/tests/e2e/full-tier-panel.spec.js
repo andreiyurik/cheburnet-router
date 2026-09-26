@@ -23,6 +23,12 @@ async function openPanel(page, request, state) {
   await expect(page.getByRole('heading', { name: 'Состояние' })).toBeVisible();
 }
 
+// Полная сводка теперь под «Подробностями» — раскрываем её так же, как человек.
+async function expandDetails(page) {
+  const d = page.locator('details', { has: page.getByText('Подробности', { exact: true }) }).first();
+  if (!(await d.evaluate((el) => el.open))) await d.locator('> summary').click();
+}
+
 // Управление туннелем свёрнуто (details#tunnel-group) — раскрываем кликом, как человек.
 async function expandTunnel(page) {
   const g = page.locator('#tunnel-group');
@@ -37,6 +43,7 @@ test('рабочий Reality: панель не врёт про «туннель
   await expect(page.getByText('Туннель не работает')).toHaveCount(0);
   await expect(page.getByText('VLESS+Reality активен')).toBeVisible();
   // Строка сводки говорит про туннель, а не про молчащий AWG-сервер.
+  await expandDetails(page);
   await expect(page.getByText('поднят (VLESS+Reality)')).toBeVisible();
   await expect(page.getByText('нет ответа от сервера')).toHaveCount(0);
   // Починка предлагается правильная — замена Reality-ссылки, не AWG-конфига.
@@ -50,6 +57,7 @@ test('рабочий Hysteria2: свой зелёный статус и своя
   await expandTunnel(page);
 
   await expect(page.getByText('Hysteria2 активен')).toBeVisible();
+  await expandDetails(page);
   await expect(page.getByText('поднят (Hysteria2)')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Замена сервера (Hysteria2)' })).toBeVisible();
   await expect(page.getByLabel('Ссылка hysteria2:// или конфиг sing-box')).toBeVisible();
@@ -59,7 +67,8 @@ test('мёртвый AWG на подходящем железе: панель в
   await request.post('/__vpn-down');
   await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: true, fullInstalled: false });
 
-  await expect(page.getByText('Туннель не работает (AmneziaWG)')).toBeVisible();
+  await expect(page.getByText('Туннель не работает')).toBeVisible();
+  await expect(page.getByText('AmneziaWG · открываются только сайты', { exact: false })).toBeVisible();
   // Главный сценарий Full-тира: подсказка про UDP + ссылка на блок догрузки.
   const hint = page.getByText('режет сам протокол AmneziaWG', { exact: false });
   await expect(hint).toBeVisible();
@@ -89,12 +98,13 @@ test('мёртвый Reality: починка — свежая ссылка, ес
   await request.post('/__vpn-down');
   await openPanel(page, request, { installed: true, protocol: 'reality', fullCapable: true, fullInstalled: true });
 
-  // Ищем сам абзац-баннер (getByText поймал бы <strong> внутри него, и ссылок в нём нет).
-  const banner = page.locator('p.banner', { hasText: 'Туннель не работает (VLESS+Reality)' });
-  await expect(banner).toBeVisible();
+  await expect(page.getByText('Туннель не работает')).toBeVisible();
+  await expect(page.getByText('VLESS+Reality · открываются только сайты', { exact: false })).toBeVisible();
+  // Плашка «Что делать» ведёт к замене ссылки этого же протокола.
+  const banner = page.locator('[data-slot=alert][data-variant=destructive]');
   await expect(banner.getByRole('link', { name: /свежий конфиг/ })).toBeVisible();
   // С Full-туннеля предлагаем и второй Full, и возврат на лёгкий AmneziaWG.
-  const hint = page.locator('p.note', { hasText: 'дело, скорее всего, не' });
+  const hint = page.getByText('дело, скорее всего, не в сервере', { exact: false });
   await expect(hint.getByRole('link', { name: 'Hysteria2' })).toBeVisible();
   await expect(hint.getByRole('link', { name: 'AmneziaWG' })).toBeVisible();
 });
@@ -153,8 +163,7 @@ test('здоровый AWG, компонент не докачан: в свод�
   await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: true, fullInstalled: false });
 
   await expect(page.locator('#tunnel-group')).toHaveJSProperty('open', false);
-  const row = page.locator('ul.status li', { hasText: 'Туннель' });
-  const link = row.getByRole('link', { name: 'другие протоколы' });
+  const link = page.getByRole('link', { name: 'другие протоколы' });
   await expect(link).toBeVisible();
 
   await link.click();
@@ -165,8 +174,7 @@ test('здоровый AWG, компонент не докачан: в свод�
 test('здоровый Reality, компонент уже стоит: в сводке видна ссылка «сменить»', async ({ page, request }) => {
   await openPanel(page, request, { installed: true, protocol: 'reality', fullCapable: true, fullInstalled: true });
 
-  const row = page.locator('ul.status li', { hasText: 'Туннель' });
-  const link = row.getByRole('link', { name: 'сменить' });
+  const link = page.getByRole('link', { name: 'сменить' });
   await expect(link).toBeVisible();
 
   await link.click();
@@ -178,6 +186,6 @@ test('здоровый Reality, компонент уже стоит: в сво�
 test('слабое железо: в сводке нет ссылки на протоколы, которых всё равно нет', async ({ page, request }) => {
   await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: false, fullInstalled: false });
 
-  const row = page.locator('ul.status li', { hasText: 'Туннель' });
-  await expect(row.getByRole('link')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'другие протоколы' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'сменить' })).toHaveCount(0);
 });
