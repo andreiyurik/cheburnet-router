@@ -20,7 +20,7 @@ const MAIN_OK = "0.0.0.0/1 dev awg0 scope link\n" +
 const DEFAULT_OK = "default via 10.0.2.2 dev br-lan proto static src 10.0.2.15";
 const DIRECT_OK = "default via 10.0.2.2 dev br-lan";
 const KS_OK = "table inet fw4 {\n\tchain cheburnet_ks {\n\t\ttype filter hook forward priority filter; policy accept;\n" +
-	"\t\toifname \"br-lan\" meta mark != 0x00000001 ct state new drop\n\t}\n}";
+	"\t\toifname != \"awg0\" meta mark != 0x00000001 ct status ! dnat ct state new drop\n\t}\n}";
 const MARK_OK = "table inet fw4 {\n\tchain cheburnet_mark {\n\t\ttype filter hook prerouting priority mangle; policy accept;\n" +
 	"\t\tip daddr @direct meta mark set 0x00000001\n\t}\n}";
 const PS_OK = " 5392 nobody    2624 S    /usr/sbin/https-dns-proxy -r https://dns.adguard-dns.com/dns-query -p 5053 -b 94.140.14.14\n" +
@@ -109,6 +109,13 @@ test("kill-switch: пустая цепочка — это провал, а не 
 	let c = rep.checks[2];
 	eq(c.id, "killswitch");
 	ok(index(c.detail, "ПУСТАЯ") >= 0, "в отчёте видно, что цепочка есть, но пустая");
+});
+
+// --- ADR 0007: kill-switch — разрешающий список по туннелю; чужой туннель = отрезанный интернет ---
+test("kill-switch ведёт на туннель прошлого протокола → провал killswitch", () => {
+	let rep = evaluate(facts({ tunnel_if: "singtun0" })); // KS_OK пропускает только awg0
+	ok(index(failed_ids(rep), "killswitch") >= 0);
+	ok(index(rep.checks[2].detail, "singtun0") >= 0, "в отчёте видно, какой туннель ожидался");
 });
 
 // --- P2 из аудита: протухший WAN в таблице направления ---

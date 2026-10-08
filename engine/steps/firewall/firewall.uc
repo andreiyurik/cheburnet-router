@@ -72,7 +72,7 @@ function build_nat_ops(opts) {
 // killswitch отдаём отдельно (список ks-правил) — для юнит-проверки security-семантики.
 function render_nft_file(routing_plan, o) {
 	let ro = routing_plan.opts;
-	let wan = ro.wan_if, mark = ro.mark;
+	let mark = ro.mark;
 	let L = [
 		"# cheburnet: пометка direct-трафика + kill-switch (см. firewall.uc).",
 		"# fw4 включает этот файл в table inet fw4 при каждом reload — правила переживают reload.",
@@ -91,14 +91,17 @@ function render_nft_file(routing_plan, o) {
 	}
 	push(L, "}");
 
-	// kill-switch (forward/filter): ct state new рубит только новые соединения мимо туннеля,
-	// established проходит. AWG-handshake — output роутера, не forward, поэтому не задет.
+	// kill-switch (forward/filter): новое соединение уходит ТОЛЬКО в туннель; established проходит,
+	// handshake туннеля — output роутера, не forward. ИНВАРИАНТ: разрешающий список, не запрет по
+	// WAN — забытый внешний канал (чужой Wi-Fi, модем) иначе тихая утечка. Подробно: [[0007-travel-wifi-uplink]].
+	// ct status dnat — проброс порта в LAN: соединение входящее, наружу оно не уходит.
 	let ks = [];
-	if (o.killswitch && wan) {
+	if (o.killswitch) {
+		let tun = sprintf("oifname != \"%s\"", o.tunnel_if);
 		if (ro.mode == "travel")
-			push(ks, sprintf("oifname \"%s\" ct state new drop", wan));
+			push(ks, sprintf("%s ct status ! dnat ct state new drop", tun));
 		else
-			push(ks, sprintf("oifname \"%s\" meta mark != %s ct state new drop", wan, mark));
+			push(ks, sprintf("%s meta mark != %s ct status ! dnat ct state new drop", tun, mark));
 		push(L, sprintf("chain %s {", o.ks_chain));
 		push(L, "\ttype filter hook forward priority filter; policy accept;");
 		for (let i = 0; i < length(ks); i++)
@@ -151,16 +154,15 @@ function render_hotplug(table, tunnel_if, mode, ks_chain) {
 }
 
 // build_firewall_plan(routing_plan, opts) → структурный план (nft/ip/uci).
-// ИНВАРИАНТ: kill-switch ключуется по oifname WAN, не по LAN-CIDR (хардкод CIDR — тихо-дырявый
-// kill-switch на нестандартной подсети, урок v1). wan_if — из routing_plan.opts, не хардкод.
+// ИНВАРИАНТ: kill-switch ключуется по интерфейсу туннеля, не по LAN-CIDR (хардкод CIDR — тихо-дырявый
+// kill-switch на нестандартной подсети, урок v1). wan_if — для direct-таблицы, из routing_plan.opts.
 function build_firewall_plan(routing_plan, opts) {
 	let o = resolve_opts(opts);
 	let ro = routing_plan.opts;
-	let wan = ro.wan_if;
 	let errors = [];
 
-	if (o.killswitch && !wan)
-		push(errors, "нет wan_if: kill-switch не построить без WAN-интерфейса (не хардкодим)");
+	if (!ro.wan_if)
+		push(errors, "нет wan_if: direct-таблицу не построить без WAN-интерфейса (не хардкодим)");
 
 	let nft = render_nft_file(routing_plan, o);
 

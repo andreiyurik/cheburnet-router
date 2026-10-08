@@ -139,10 +139,15 @@ function evaluate(facts) {
 
 	// 3. Kill-switch. ШРАМ: цепочка оставалась, но ПУСТЕЛА после fw4 reload — «зелёная» система
 	// без защиты. Поэтому мало наличия цепочки: требуем в ней правило drop.
+	// Правило — разрешающий список по туннелю: ведёт на туннель прошлого протокола → режет ВСЁ.
 	let ks = trim(f.nft_ks ?? "");
-	push(checks, check("killswitch", length(ks) > 0 && index(ks, "drop") >= 0,
-		"kill-switch заряжен (непрямой трафик не утечёт в WAN)",
-		length(ks) == 0 ? "цепочки нет в ядре" : (index(ks, "drop") >= 0 ? "правило drop на месте" : "цепочка ЕСТЬ, но ПУСТАЯ"),
+	let armed = length(ks) > 0 && index(ks, "drop") >= 0;
+	let own_tun = index(ks, sprintf("oifname != \"%s\"", f.tunnel_if ?? "?")) >= 0;
+	push(checks, check("killswitch", armed && own_tun,
+		"kill-switch заряжен (мимо туннеля ничего не утечёт)",
+		length(ks) == 0 ? "цепочки нет в ядре"
+			: (!armed ? "цепочка ЕСТЬ, но ПУСТАЯ"
+			: (own_tun ? "правило drop на месте" : sprintf("правило ведёт не на %s — трафик режется целиком", f.tunnel_if ?? "?"))),
 		"ucode -R engine/steps/firewall/apply.uc — правила живут в /etc/nftables.d/",
 		"critical", "firewall"));
 
