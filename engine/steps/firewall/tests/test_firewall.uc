@@ -18,37 +18,42 @@ function has(arr, s) {
 }
 
 // --- kill-switch: HOME ---
-test("HOME kill-switch: непомеченное в WAN → drop, по oifname (не по LAN-CIDR)", () => {
+test("HOME kill-switch: новое соединение — только в туннель или direct (не по LAN-CIDR)", () => {
 	let p = build_firewall_plan(rp(null), null);
 	ok(p.ok);
 	deep_eq(p.killswitch, [
-		"oifname \"eth0\" meta mark != 0x1 ct state new drop",
+		"oifname != \"awg0\" meta mark != 0x1 ct status ! dnat ct state new drop",
 	]);
 	// LAN-подсеть нигде не упоминается — kill-switch от неё не зависит
 	ok(index(p.nft_file, "192.168") < 0, "нет хардкода LAN-подсети");
 });
 
 // --- kill-switch: TRAVEL строже (нет direct-исключений) ---
-test("TRAVEL kill-switch: всё в WAN → drop, без mark-исключения", () => {
+test("TRAVEL kill-switch: всё мимо туннеля → drop, без mark-исключения", () => {
 	let p = build_firewall_plan(rp({ mode: "travel" }), null);
 	deep_eq(p.killswitch, [
-		"oifname \"eth0\" ct state new drop",
+		"oifname != \"awg0\" ct status ! dnat ct state new drop",
 	]);
 });
 
-// --- wan_if обязателен, не хардкодим ---
-test("без wan_if: план.ok=false, kill-switch не строится", () => {
+// --- ADR 0007: правило не зависит от WAN — второй внешний канал не становится дырой ---
+test("kill-switch не упоминает WAN: закрывает любой внешний канал (кабель, чужой Wi-Fi)", () => {
+	let p = build_firewall_plan(rp({ wan_if: "eth0" }), null);
+	for (let r in p.killswitch)
+		ok(index(r, "eth0") < 0, "WAN в правиле = запрет по одному каналу, второй утечёт");
+});
+
+test("kill-switch ключуется по туннелю активного протокола", () => {
+	let p = build_firewall_plan(rp(null), { tunnel_if: "singtun0" });
+	ok(has(p.killswitch, "oifname != \"singtun0\" meta mark != 0x1 ct status ! dnat ct state new drop"));
+});
+
+// --- wan_if обязателен для direct-таблицы, не хардкодим ---
+test("без wan_if: план.ok=false", () => {
 	let plan = build_plan([ "example.com" ], { ipv6: false }); // wan_if не задан
 	let p = build_firewall_plan(plan, null);
 	ok(!p.ok, "должен отказать");
-	eq(length(p.killswitch), 0);
 	ok(length(p.errors) >= 1);
-});
-
-// --- динамический WAN прокидывается в правило ---
-test("kill-switch использует переданный wan_if (динамический)", () => {
-	let p = build_firewall_plan(rp({ wan_if: "wwan0" }), null);
-	ok(has(p.killswitch, "oifname \"wwan0\" meta mark != 0x1 ct state new drop"));
 });
 
 // --- nftables.d-файл: путь + сеты + цепочки + правила (декларативно, для fw4-include) ---

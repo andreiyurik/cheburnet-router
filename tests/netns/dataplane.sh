@@ -19,6 +19,7 @@
 # Покрывает: split (direct→WAN, остальное→туннель) для awg0 И singtun0 (общий интерфейс обоих
 # Full-протоколов — Reality и Hysteria2); kill-switch антиутечку
 # (туннель упал → непрямой трафик ДРОПается, не течёт в WAN); travel (весь трафик в туннель);
+# второй внешний канал (утечки нет и в него); проброс порта в LAN не режется;
 # идентичность data-plane обоих протоколов; реальный dnsmasq: резолв direct-домена → IP попадает
 # в @direct → маршрут уходит в WAN (мост «домен→IP→set», главный шрам v1).
 
@@ -196,6 +197,47 @@ scenario_travel() {
 		|| bad "[travel] УТЕЧКА в travel! (c_wan=$(cwan))"
 }
 
+# scenario_uplink MODE — второй внешний канал (чужой Wi-Fi, ADR 0007): движок ставился с WAN=wan0,
+# а дефолт теперь через wwan0. Туннель упал → непрямой трафик не должен утечь и в wwan0.
+scenario_uplink() {
+	mode=$1
+	TUN=awg0
+	trap cleanup_child EXIT
+	build_topology "$TUN" "$mode"
+	ip link add wwan0 type dummy; ip link set wwan0 up; ip addr add 10.98.0.1/24 dev wwan0
+	ip route replace default dev wwan0
+	nft add counter inet fw4 c_wwan
+	nft add rule inet fw4 test_obs oifname "wwan0" counter name c_wwan
+	cwwan() { nft list counter inet fw4 c_wwan | grep -oE 'packets [0-9]+' | grep -oE '[0-9]+'; }
+
+	hdr "UPLINK / $mode — KILL-SWITCH при втором внешнем канале (туннель УПАЛ)"
+	ip route del 0.0.0.0/1 dev "$TUN"; ip route del 128.0.0.0/1 dev "$TUN"
+	nft reset counter inet fw4 c_wwan >/dev/null; zero; send_other
+	{ [ "$(cwwan)" -eq 0 ] && [ "$(cwan)" -eq 0 ]; } \
+		&& ok "[$mode] АНТИУТЕЧКА: непрямой не ушёл ни в wan0, ни в wwan0 (c_wwan=$(cwwan))" \
+		|| bad "[$mode] УТЕЧКА во второй внешний канал! (c_wwan=$(cwwan) c_wan=$(cwan))"
+}
+
+# scenario_dnat — проброс порта (DNAT) в LAN не режется kill-switch'ом: новое соединение идёт не в
+# туннель, но и не наружу. Второй LAN-сегмент — dummy lan2, адрес назначения за ним.
+scenario_dnat() {
+	TUN=awg0
+	trap cleanup_child EXIT
+	build_topology "$TUN" travel
+	ip link add lan2 type dummy; ip link set lan2 up; ip addr add 10.77.0.1/24 dev lan2
+	nft add counter inet fw4 c_lan2
+	nft add rule inet fw4 test_obs oifname "lan2" counter name c_lan2
+	nft add chain inet fw4 test_dnat '{ type nat hook prerouting priority dstnat; policy accept; }'
+	nft add rule inet fw4 test_dnat ip daddr 10.0.0.1 tcp dport 9999 dnat ip to 10.77.0.5
+	clan2() { nft list counter inet fw4 c_lan2 | grep -oE 'packets [0-9]+' | grep -oE '[0-9]+'; }
+
+	hdr "DNAT — проброс порта в LAN при kill-switch"
+	nsenter -t "$CPID" -n sh -c 'echo | nc -w1 10.0.0.1 9999' >/dev/null 2>&1 || true
+	[ "$(clan2)" -ge 1 ] \
+		&& ok "[dnat] проброшенное соединение дошло до LAN-сегмента (c_lan2=$(clan2))" \
+		|| bad "[dnat] kill-switch зарезал проброс порта (c_lan2=$(clan2))"
+}
+
 # scenario_membership — РЕАЛЬНЫЙ dnsmasq: резолв direct-домена наполняет @direct, и маршрут уходит
 # в WAN; непрямой домен в set НЕ попадает и идёт в туннель. Мост «домен→IP→set» (главный шрам v1).
 # Требует dnsmasq + резолвер (nslookup/dig); нет — скип (в CI NETNS_REQUIRE=1 сделает фейлом).
@@ -322,6 +364,8 @@ if [ "${1:-}" = "__run" ]; then
 		home)       scenario_home "$3" ;;
 		travel)     scenario_travel "$3" ;;
 		membership) scenario_membership ;;
+		uplink)     scenario_uplink "$3" ;;
+		dnat)       scenario_dnat ;;
 		*) echo "unknown scenario: $2" >&2; exit 2 ;;
 	esac
 	[ "$fail" -eq 0 ] || exit 1
@@ -333,16 +377,17 @@ require_or_skip
 
 printf '\033[1mnetns data-plane тест — поведение split-routing после установки\033[0m\n'
 
-# Чистая проверка (без netns): data-plane в ядре и на sing-box ИДЕНТИЧЕН — kill-switch/пометка не
-# зависят ни от имени туннеля, ни от протокола (ключуются по WAN-oifname и метке пакета, БЕЗ портов).
-# Это доказывает «туннель взаимозаменяем» и заодно то, что port hopping Hysteria2 не требует правок
-# firewall-слоя: портов в правилах нет. Оба Full-протокола едут на singtun0, поэтому проверка
-# awg0 vs singtun0 покрывает и Reality, и Hysteria2.
+# Чистая проверка (без netns): data-plane в ядре и на sing-box ИДЕНТИЧЕН с точностью до имени
+# туннеля — kill-switch пропускает только интерфейс туннеля, остальное (пометка, метка пакета) не
+# зависит от протокола и не содержит портов. Это доказывает «туннель взаимозаменяем» и что port
+# hopping Hysteria2 не требует правок firewall-слоя. Оба Full-протокола едут на singtun0, поэтому
+# проверка awg0 vs singtun0 покрывает и Reality, и Hysteria2.
 hdr "Идентичность data-plane (awg0 vs singtun0)"
 nft_awg=$(emit '{"what":"nft","domains":["x.example"],"routing_opts":{"ipv6":false,"wan_if":"wan0","mode":"home"},"fw_opts":{"tunnel_if":"awg0"}}')
-nft_rea=$(emit '{"what":"nft","domains":["x.example"],"routing_opts":{"ipv6":false,"wan_if":"wan0","mode":"home"},"fw_opts":{"tunnel_if":"singtun0"}}')
+nft_rea=$(emit '{"what":"nft","domains":["x.example"],"routing_opts":{"ipv6":false,"wan_if":"wan0","mode":"home"},"fw_opts":{"tunnel_if":"singtun0"}}' \
+	| sed 's/"singtun0"/"awg0"/g')
 if [ "$nft_awg" = "$nft_rea" ]; then
-	ok "nft-правила (пометка + kill-switch) идентичны для обоих протоколов"
+	ok "nft-правила (пометка + kill-switch) идентичны для обоих протоколов, кроме имени туннеля"
 else
 	bad "nft-правила разошлись между awg0 и singtun0 — data-plane НЕ взаимозаменяем"
 fi
@@ -364,7 +409,7 @@ else
 	NETNS_ROOTLESS=1             # membership пропустится с причиной: setgroups запрещён
 fi
 export NETNS_ROOTLESS
-for spec in "home awg0" "home singtun0" "travel awg0" "membership -"; do
+for spec in "home awg0" "home singtun0" "travel awg0" "uplink home" "uplink travel" "dnat -" "membership -"; do
 	# shellcheck disable=SC2086
 	set -- $spec
 	# shellcheck disable=SC2086
