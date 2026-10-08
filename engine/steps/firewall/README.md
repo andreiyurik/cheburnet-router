@@ -8,7 +8,7 @@ Production-применение split-routing для форвард-трафик
 2. **Пометка** — наша prerouting-цепочка метит пакеты с `daddr ∈ direct`
    ([policy-routing](../../../docs/kb/concepts/policy-routing.md)).
 3. **Policy routing** — `ip rule`/`ip route` разводят помеченное в WAN, остальное в туннель.
-4. **Kill-switch** — роняет непрямой трафик, утекающий в WAN мимо туннеля
+4. **Kill-switch** — роняет непрямой трафик, уходящий куда-либо мимо туннеля
    ([kill-switch](../../../docs/kb/concepts/kill-switch.md)).
 5. **Hotplug-хук восстановления** — `/etc/hotplug.d/iface/99-cheburnet`: на `ifup` любого
    интерфейса сверяет ip-часть с текущим WAN (в travel — kill-switch в ядре) и, если не сходится,
@@ -34,16 +34,18 @@ hotplug-хук: он возвращает ip-часть при подъёме WA
 > Инвариант v1: kill-switch — **осознанная защита**, не лишний слой. Дырявый kill-switch
 > молча обнуляет приватность (всё «работает», но утекает).
 
-- **Ключуемся по `oifname <wan>`, а не по LAN-CIDR.** Это убирает баг v1 (хардкод
-  `192.168.1.0/24` → тихо-дырявый kill-switch на нестандартной подсети): правило вообще не
-  зависит от подсети LAN.
-- **`wan_if` обязателен и динамический** (из gather/preflight). Нет WAN-интерфейса →
-  `plan.ok=false`, kill-switch **не строится**, шаг отказывает без изменений. Лучше честный
-  отказ, чем хардкод-дыра.
+- **Разрешающий список по туннелю: `oifname != <tunnel_if>`, а не запрет по WAN и не LAN-CIDR.**
+  Запрет по одному WAN пропускал второй внешний канал (чужой Wi-Fi) — тихая утечка
+  ([ADR 0007](../../../docs/kb/decisions/0007-travel-wifi-uplink.md)); LAN-CIDR — баг v1 с
+  нестандартной подсетью. Исключения: direct-метка и `ct status ! dnat` (проброс порта в LAN).
+  Цена — маршрутизация между LAN-зонами тоже режется, см.
+  [kill-switch](../../../docs/kb/concepts/kill-switch.md).
+- **`wan_if` обязателен и динамический** (из gather/preflight) — для direct-таблицы. Нет
+  WAN-интерфейса → `plan.ok=false`, шаг отказывает без изменений.
 - **`ct state new`** — рубим только новые исходящие соединения мимо туннеля; established
   (обратный трафик уже разрешённого) проходит.
 - **AWG-handshake не задет:** он — `output` роутера, а kill-switch на `forward`.
-- **TRAVEL строже:** direct-исключений нет → `oifname <wan> ct state new drop` без mark.
+- **TRAVEL строже:** direct-исключений нет → то же правило без mark.
 
 ## Чистое ядро vs импурный apply
 
