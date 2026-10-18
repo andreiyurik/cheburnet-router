@@ -194,12 +194,12 @@ function soft_failed_ids(report) {
 	return out;
 }
 
-// Full-тир (Reality/Hysteria2 через sing-box) — более жёсткие требования, замер и разбор
+// Full-тир (Reality через sing-box) — более жёсткие требования, замер и разбор
 // порогов: [[hardware-requirements]]. arch — proxy для AES-ускорения (точная проверка cpuinfo —
 // gather, router-side).
 const FULL_REQUIREMENTS = {
 	arch: [ "aarch64", "x86_64" ],  // ARMv8/x86 с AES; mips/armv7 исключены
-	min_flash_mb: 44,                // sing-box-tiny + config.json + логи (замер: make qemu-hysteria)
+	min_flash_mb: 44,                // sing-box-tiny + config.json + логи (замер qemu-hysteria до заморозки, ADR 0009)
 	min_ram_mb: 240,                 // = плата на 256 МБ (MemTotal < паспорта, см. REQUIREMENTS)
 	// ИНВАРИАНТ: любой пакет из pkgs подходит — sing-box-tiny и sing-box взаимозаменяемы
 	// (PROVIDES:=sing-box, тот же бинарь и init-скрипт); tiny предпочтителен, sing-box — фолбэк.

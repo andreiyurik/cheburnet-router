@@ -2,7 +2,7 @@
 # tests/router/install.sh — ШАГ 3: установка на физический роутер конфигом со стенда VPS.
 #
 #     R_HOST=192.168.1.1 bash tests/router/install.sh awg
-#     R_HOST=192.168.1.1 bash tests/router/install.sh reality|hysteria2|hysteria2-hop
+#     R_HOST=192.168.1.1 bash tests/router/install.sh awg|reality
 #
 # Зовёт ТОТ ЖЕ метод ubus, что и веб-мастер (`cheburnet install` с install-токеном), а не свои
 # команды: проверяем путь, которым пойдут люди. Отличие от мастера только во вводе — конфиг берётся
@@ -40,15 +40,10 @@ case "$PROTO" in
         CONF_FIELD="awg_conf"; CONF_VALUE="$(cat "$AWG_CONF_FILE")" ;;
     reality)
         CONF_FIELD="reality_conf"; CONF_VALUE="${VLESS_REALITY:-}" ;;
-    hysteria2)
-        CONF_FIELD="hysteria2_conf"; CONF_VALUE="${HYSTERIA2:-}" ;;
-    hysteria2-hop)
-        CONF_FIELD="hysteria2_conf"; CONF_VALUE="${HYSTERIA2_PORT_HOPPING:-}" ;;
-    *) r_die "неизвестный протокол «$PROTO» (awg|reality|hysteria2|hysteria2-hop)" ;;
+    *) r_die "неизвестный протокол «$PROTO» (awg|reality; hysteria2 заморожена — ADR 0009)" ;;
 esac
 [ -n "$CONF_VALUE" ] || r_die "в links.env нет конфига для «$PROTO» — стенд поднялся не полностью"
-# Протокол в install — id тира; hop-вариант отличается только ссылкой, но не протоколом.
-PROTO_ID="${PROTO%-hop}"
+PROTO_ID="$PROTO"
 
 # Токен установки: доказательство «у меня есть SSH к роутеру». Его создаёт bootstrap (или postinst
 # пакета) и движок снимает его по завершении установки — повторная установка требует нового.

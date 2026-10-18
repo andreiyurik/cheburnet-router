@@ -32,7 +32,7 @@ raw="$(ssh "${SSH_ARGS[@]}" "$HOST" 'cat /root/cheburnet-lab/links.txt' 2>/dev/n
 # дописывалась своя, и в строке оказывалось ТРИ кавычки. Такой файл при `. links.env` падает не
 # сразу и не понятно («command not found» на середине ссылки), а третьим шагом прогона.
 printf '%s\n' "$raw" \
-    | grep -E '^(VLESS_REALITY|HYSTERIA2|HYSTERIA2_PORT_HOPPING|AWG_CONF_REMOTE)=' \
+    | grep -E '^(VLESS_REALITY|AWG_CONF_REMOTE)=' \
     | sed -e "s/=['\"]/=/" -e "s/['\"]$//" -e "s/=\(.*\)$/='\1'/" > "$OUT"
 chmod 600 "$OUT"
 

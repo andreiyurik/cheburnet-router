@@ -19,14 +19,11 @@
 #   make qemu-emergency    — T3k: аварийный режим возвращает интернет и обратим (~6-9мин, интернет).
 #   make qemu-profiles — T3l: поля AWG 3.1 доходят до ядра; профили и автосмена откатываются (~5-8мин, интернет).
 #   make qemu-reality  — T3d: обвязка VLESS+Reality на живом OpenWrt (~4-6мин, интернет).
-#   make qemu-hysteria — T3e: обвязка Hysteria2 + замер веса Full-тира (~4-6мин, интернет).
-#   make qemu-netem    — T3f: ЗАМЕР goodput/CPU при потерях (netem), QUIC против TCP
-#                            (~6-10мин, интернет). Печатает цифры, релиз не гейтит.
 #   make qemu-live-vps    — T4a: трафик НАСКВОЗЬ через настоящий сервер Full-тира. Нужен
 #                            поднятый стенд (tests/vps/) — не для CI.
 #   make qemu-live-install— T4b: успешная установка целиком + ребут поверх неё (стенд tests/vps/).
 
-.PHONY: lint test-engine test-netns test-shell poc-split qemu-smoke qemu-webui qemu-install qemu-rollback qemu-reboot qemu-route-fallback qemu-dns-fallback qemu-emergency qemu-profiles qemu-reality qemu-hysteria qemu-netem qemu-live-vps qemu-live-install
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-smoke qemu-webui qemu-install qemu-rollback qemu-reboot qemu-route-fallback qemu-dns-fallback qemu-emergency qemu-profiles qemu-reality qemu-live-vps qemu-live-install
 
 lint:
 	@bash tests/lint.sh
@@ -110,30 +107,17 @@ qemu-dns-fallback:
 qemu-emergency:
 	@bash tests/qemu/emergency.sh
 
-# T3d — Full-тир (VLESS+Reality) data-plane WIRING на живом OpenWrt: singbox-шаг
-# применяет config.json + netifd-маршрут singtun0 (half-routes), connectivity-probe
-# корректно отвергает недостижимый сервер (fail-safe), teardown чистит. Рабочий
-# Reality-сервер НЕ нужен (герметично). Нужен интернет для apk. ~4-6 мин с KVM.
+# T3l — AWG 3.1 и профили серверов: поля 3.1 доходят до модуля ядра, неполный конфиг отбивается,
+# подключение молчащего сервера и автосмена откатываются честно (endpoint из RFC 5737). ~5-8 мин.
 qemu-profiles:
 	@bash tests/qemu/profiles.sh
 
+# T3d — Full-тир (VLESS+Reality) data-plane WIRING на живом OpenWrt: singbox-шаг
+# применяет config.json + netifd-маршрут singtun0 (half-routes), connectivity-probe
+# корректно отвергает недостижимый сервер (fail-safe), teardown чистит, вес сверяется с порогом
+# preflight. Рабочий Reality-сервер НЕ нужен (герметично). Нужен интернет для apk. ~4-6 мин с KVM.
 qemu-reality:
 	@bash tests/qemu/reality.sh
-
-# T3e — Hysteria2 (Full-тир) на живом OpenWrt: сборка sing-box-tiny РЕАЛЬНО умеет hysteria2
-# (sing-box check принимает наш конфиг), port hopping доезжает в server_ports, TUN и маршруты
-# встают, битый конфиг отвергается ДО подмены рабочего, проба отвергает мёртвый туннель,
-# teardown чистит. Плюс ЗАМЕР веса Full-тира и сверка с порогом preflight в обе стороны.
-# Рабочий Hysteria2-сервер НЕ нужен. Нужен интернет для apk. ~4-6 мин с KVM.
-qemu-hysteria:
-	@bash tests/qemu/hysteria.sh
-
-# T3f — ЗАМЕР ради которого Hysteria2 и берут: goodput и CPU при tc netem loss 0/5/15 %.
-# Герметичный стенд целиком внутри VM (netns-сервер + veth + netem): QUIC (наш сгенерированный
-# hysteria2-конфиг) против TCP через тот же sing-box, плюс baseline без туннеля. Печатает цифры
-# для ADR 0004; релиз по ним НЕ гейтится (железо CI разное). Нужен интернет. ~6-10 мин с KVM.
-qemu-netem:
-	@bash tests/qemu/netem.sh
 
 # T4a — единственная проверка, доказывающая не «обвязка применилась», а «байты дошли до интернета
 # через туннель»: тянем «какой у меня IP» ЧЕРЕЗ туннель и сверяем с адресом VPS, плюс крупная

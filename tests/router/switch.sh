@@ -2,9 +2,9 @@
 # tests/router/switch.sh — ШАГ 4: сменить активный туннель на уже настроенном роутере.
 #
 #     R_HOST=192.168.1.1 bash tests/router/switch.sh reality
-#     R_HOST=192.168.1.1 bash tests/router/switch.sh hysteria2|hysteria2-hop|awg
+#     R_HOST=192.168.1.1 bash tests/router/switch.sh reality|awg
 #
-# Зовёт ТЕ ЖЕ методы, что кнопки панели (switch_to_reality / switch_to_hysteria2 / switch_to_awg):
+# Зовёт ТЕ ЖЕ методы, что кнопки панели (switch_to_reality / switch_to_awg):
 # конфиг нового туннеля приносится, а домены/DNS/режим берутся из сохранённой конфигурации.
 # У каждого метода внутри снапшот → применить → проба → commit или АВТООТКАТ, поэтому неудачное
 # переключение обязано вернуть прежний рабочий туннель — это и проверяется прогоном.
@@ -20,7 +20,7 @@ PROTO="${1:-}"
 LINKS="$R_DIR/../vps/links.env"
 AWG_CONF_FILE="$R_DIR/../vps/awg-client.conf"
 
-[ -n "$PROTO" ] || { echo "использование: $0 awg|reality|hysteria2|hysteria2-hop"; exit 1; }
+[ -n "$PROTO" ] || { echo "использование: $0 awg|reality"; exit 1; }
 [ -f "$LINKS" ] || { echo "✗ нет $LINKS — поднимите стенд (tests/vps/)"; exit 1; }
 # shellcheck source=/dev/null
 . "$LINKS"
@@ -31,10 +31,6 @@ case "$PROTO" in
         METHOD="switch_to_awg";       FIELD="awg_conf";       VALUE="$(cat "$AWG_CONF_FILE")" ;;
     reality)
         METHOD="switch_to_reality";   FIELD="reality_conf";   VALUE="${VLESS_REALITY:-}" ;;
-    hysteria2)
-        METHOD="switch_to_hysteria2"; FIELD="hysteria2_conf"; VALUE="${HYSTERIA2:-}" ;;
-    hysteria2-hop)
-        METHOD="switch_to_hysteria2"; FIELD="hysteria2_conf"; VALUE="${HYSTERIA2_PORT_HOPPING:-}" ;;
     *) echo "✗ неизвестный протокол «$PROTO»"; exit 1 ;;
 esac
 [ -n "$VALUE" ] || { echo "✗ в links.env нет конфига для «$PROTO»"; exit 1; }
@@ -49,7 +45,7 @@ r_record "SWITCH from=${prev:-?} to=$PROTO"
 
 # Full-протоколам нужен бинарь. Ставим его продуктовым методом панели, а не своим apk add.
 case "$PROTO" in
-    reality|hysteria2|hysteria2-hop)
+    reality)
         if r_ssh 'command -v sing-box >/dev/null 2>&1'; then
             r_ok "sing-box уже установлен"
         else
@@ -73,9 +69,8 @@ case "$PROTO" in
 esac
 
 # Если целевой протокол УЖЕ активен — это не переключение, а замена сервера, и у движка для неё
-# отдельный метод (switch_to_* честно отказывает: «меняйте сервер через замену конфига»). Так
-# проверяется, в частности, port hopping: протокол тот же, ссылка другая.
-want="${PROTO%-hop}"
+# отдельный метод (switch_to_* честно отказывает: «меняйте сервер через замену конфига»).
+want="$PROTO"
 if [ "$prev" = "$want" ]; then
     METHOD="replace_${want}_conf"
     printf '  протокол уже активен → замена сервера (%s)\n' "$METHOD"
@@ -104,8 +99,7 @@ now="$(printf '%s' "$after" | sed -n 's/.*"protocol": *"\([a-z0-9]*\)".*/\1/p' |
 health="$(printf '%s' "$after" | sed -n 's/.*"tunnel_health": *"\([a-z]*\)".*/\1/p' | head -1)"
 r_record "RESULT proto=$now health=$health"
 
-# Ожидаемый протокол в статусе: hop-вариант — это тот же hysteria2, отличается только ссылка (want
-# вычислен выше, там же выбирается метод замены сервера).
+# Ожидаемый протокол в статусе (want вычислен выше, там же выбирается метод замены сервера).
 if [ "$now" = "$want" ] && [ "$health" = "up" ]; then
     r_ok "активен $now, здоровье up"
     printf '    Дальше: bash tests/router/verify.sh — проверка насквозь.\n'

@@ -1,11 +1,11 @@
 <script>
   // Props: onSubmit(args для install) / onBack; wirelessPresent (false → без Wi-Fi, null → необязателен);
   // initial («Назад» не теряет введённое); dnsProviders/dnsProviderDefault (каталог из status);
-  // fullAvailable (железо тянет Full → доступны Reality/Hysteria2, иначе строки неактивны с причиной
+  // fullAvailable (железо тянет Full → доступен VLESS+Reality, иначе строка неактивна с причиной
   // из fullReasons); acceptRisk (soft-провалы preflight приняты — флаг едет в install).
   // ГЛАВНОЕ: выбор туннеля идёт ОТ СИМПТОМА, не от названий протоколов — тексты в PROTOCOLS (logic.js).
-  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup, BRUTAL_WARNING, checkConf,
-           protocolList, protocolInfo, defaultProtocol, SPEED_DEFAULTS } from '../logic.js';
+  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup, checkConf,
+           protocolList, protocolInfo, defaultProtocol } from '../logic.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import Button from '$lib/components/ui/button/button.svelte';
@@ -38,13 +38,7 @@
   let confs = $state({
     awg: initial?.awg_conf ?? '',
     reality: initial?.reality_conf ?? '',
-    hysteria2: initial?.hysteria2_conf ?? '',
   });
-  // Brutal (Hysteria2): по умолчанию скорость НЕ объявляем — sing-box тогда использует BBR и
-  // подстраивается сам. Ручной режим включается осознанно, см. предупреждение в разметке.
-  let declareSpeed = $state(false);
-  let speedDown = $state(SPEED_DEFAULTS.down);
-  let speedUp = $state(SPEED_DEFAULTS.up);
   // svelte-ignore state_referenced_locally
   let rootPass = $state(initial?.root_password ?? '');
   // svelte-ignore state_referenced_locally
@@ -107,7 +101,7 @@
     error = '';
     errorField = '';
     const r = validateSetup({
-      protocol, fullAvailable, confs, declareSpeed, speedDown, speedUp,
+      protocol, fullAvailable, confs,
       rootPass, rootPass2, showWifi, wifiRequired, ssid, wifiKey,
       dnsProvider, domainsText, token, acceptRisk,
     });
@@ -167,7 +161,7 @@
       </details>
 
       {#if fullAvailable}
-        <p class="mt-3 text-sm text-muted-foreground">Для VLESS+Reality и Hysteria2 компонент
+        <p class="mt-3 text-sm text-muted-foreground">Для VLESS+Reality компонент
           <code class="rounded-sm bg-muted px-1 py-0.5 font-mono">sing-box</code> (~11 МБ) скачается сам.</p>
       {/if}
     </div>
@@ -191,34 +185,6 @@
       <Field label="…или загрузить файлом">
         <Input type="file" accept=".conf,text/plain" onchange={onFile} />
       </Field>
-    {/if}
-
-    <!-- Brutal только у Hysteria2. Голое поле «Мбит/с» здесь было бы вредным: завышенное значение
-         раздувает очередь и делает связь ХУЖЕ, причём молча — ошибок в логах не будет. Поэтому
-         по умолчанию режим автоматический, а ручной снабжён прямым предупреждением. -->
-    {#if protocol === 'hysteria2'}
-      <div>
-        <SectionTitle>Скорость канала</SectionTitle>
-        <RadioCard bind:group={declareSpeed} value={false}>
-          <strong>Подбирать автоматически</strong> — рекомендуем. Туннель сам определяет,
-          сколько может взять, и подстраивается под канал.
-        </RadioCard>
-        <RadioCard bind:group={declareSpeed} value={true}>
-          <strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями,
-          но только если цифры честные.
-        </RadioCard>
-        {#if declareSpeed}
-          <Alert.Root variant="warning" class="my-3">
-            <Alert.Description>{BRUTAL_WARNING} Не знаете точных цифр — выберите «автоматически».</Alert.Description>
-          </Alert.Root>
-          <Field label="Скорость приёма (Мбит/с)" bind:el={fieldEls.speed} class="mb-3">
-            <Input type="number" min="1" max="10000" class="w-32" bind:value={speedDown} aria-invalid={errorField === 'speed'} />
-          </Field>
-          <Field label="Скорость отдачи (Мбит/с)">
-            <Input type="number" min="1" max="10000" class="w-32" bind:value={speedUp} aria-invalid={errorField === 'speed'} />
-          </Field>
-        {/if}
-      </div>
     {/if}
 
     <details class="border-t border-border pt-3">

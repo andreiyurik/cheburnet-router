@@ -25,14 +25,14 @@ const RULES = [
 		},
 	},
 	{
-		// Учётная часть ссылки до «@»: пароль Hysteria2, UUID у VLESS.
+		// Учётная часть ссылки до «@»: UUID у VLESS (и пароли ссылок других протоколов).
 		label: "пароли из ссылок",
 		apply: function(t) {
 			return replace(t, /([a-z0-9]+:\/\/)[^@[:space:]\/]+@/g, (m, a) => a + MASK + "@");
 		},
 	},
 	{
-		// Параметры ссылки: pbk/sid у Reality, пароль обфускации у Hysteria2.
+		// Параметры ссылки: pbk/sid у Reality, пароли обфускации (ссылки legacy-протоколов в старых логах).
 		label: "параметры ссылок (pbk, sid, пароли обфускации)",
 		apply: function(t) {
 			return replace(t, /([?&](pbk|sid|obfs-password|obfs_password|password|passwd|key|auth)=)[^&[:space:]]+/g,

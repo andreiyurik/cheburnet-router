@@ -22,8 +22,8 @@ LINKS="$R_DIR/../vps/links.env"
 # shellcheck source=/dev/null
 . "$LINKS"
 
-# Адрес VPS выводим из любой доступной ссылки: он один и тот же для всех трёх протоколов.
-VPS_IP="$(printf '%s' "${HYSTERIA2:-${VLESS_REALITY:-}}" | sed -n 's|.*@\([^:/?#]*\).*|\1|p')"
+# Адрес VPS выводим из ссылки Reality: он один и тот же для всех протоколов стенда.
+VPS_IP="$(printf '%s' "${VLESS_REALITY:-}" | sed -n 's|.*@\([^:/?#]*\).*|\1|p')"
 [ -n "$VPS_IP" ] || { echo "✗ не удалось извлечь адрес VPS из links.env"; exit 1; }
 
 r_init "verify"
@@ -45,7 +45,7 @@ r_record "STATUS proto=${proto:-?} health=${health:-?} installed=$installed"
 # а не угадываем по имени.
 case "$proto" in
     awg)                 IFACE=awg0 ;;
-    reality|hysteria2)   IFACE=singtun0 ;;
+    reality|hysteria2)   IFACE=singtun0 ;;   # hysteria2 — legacy (ADR 0009): живой роутер на ней ещё проверяем
     *) r_die "неизвестный протокол «$proto» — обновите verify.sh под новый тир" ;;
 esac
 printf '    интерфейс: %s\n' "$IFACE"

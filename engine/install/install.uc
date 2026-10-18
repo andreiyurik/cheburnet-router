@@ -10,8 +10,8 @@ import { is_clean_config } from "../rollback/rollback.uc";
 // rollback: clean = откатывается uci-snapshot'ом; dirty = состояние ядра, safe-fail через teardown.
 // needs — что шагу подать на stdin (для run.uc): awg_conf | domains | none.
 const STEPS = [
-	// needs=tunnel_conf у ОБОИХ туннель-шагов: какой именно текст подать (AWG .conf / vless:// /
-	// hysteria2://), решает conf_key активного протокола — см. PROTOCOLS и step_stdin в run.uc.
+	// needs=tunnel_conf у ОБОИХ туннель-шагов: какой именно текст подать (AWG .conf / vless://),
+	// решает conf_key активного протокола — см. PROTOCOLS и step_stdin в run.uc.
 	// Так добавление протокола не требует новой ветки в раздаче stdin.
 	{ name: "vpn",      configs: [ "network" ],                  rollback: "clean", needs: "tunnel_conf" },
 	// singbox — альтернативный туннель (Full-тир). Взаимоисключающий с vpn (см. PROTOCOLS).
@@ -26,26 +26,31 @@ const STEPS = [
 	{ name: "firewall", configs: [ "firewall" ],                 rollback: "dirty", needs: "domains" },
 ];
 
-// Туннельные протоколы — три оси покрытия, каждая лечит свою поломку (ADR 0004): awg — ядро,
-// слабое железо, дефолт; reality — трафик не проходит (DPI/блок UDP); hysteria2 — тот же
-// sing-box, трафик проходит но плохо (потери/троттлинг).
-// ИНВАРИАНТ: оба Full-протокола делят ОДИН шаг и интерфейс — весь data-plane переиспользуется
-// без изменений, третий протокол на sing-box не приносит своей семантики здоровья.
-// conf_key — ключ конфига протокола в payload установки (run.uc/step_stdin).
+// Туннельные протоколы — оси покрытия, каждая лечит свою поломку (ADR 0004): awg — ядро, слабое
+// железо, дефолт; reality — трафик не проходит (DPI/блок UDP). conf_key — ключ конфига в payload.
+// ИНВАРИАНТ: протоколы на sing-box делят ОДИН шаг и интерфейс — data-plane, здоровье, сторож и
+// сброс не зависят от имени протокола, только от шага.
+// legacy — заморожен (hysteria2, ADR 0009): установить/переключиться нельзя, но уже работающий
+// роутер живёт на том же шаге sing-box, пока владелец не уйдёт на другой протокол.
 const PROTOCOLS = {
 	awg:       { step: "vpn",     tunnel_if: "awg0",     conf_key: "awg_conf" },
 	reality:   { step: "singbox", tunnel_if: "singtun0", conf_key: "reality_conf" },
-	hysteria2: { step: "singbox", tunnel_if: "singtun0", conf_key: "hysteria2_conf" },
+	hysteria2: { step: "singbox", tunnel_if: "singtun0", legacy: true },
 };
 const DEFAULT_PROTOCOL = "awg";
 const TUNNEL_STEPS = [ "vpn", "singbox" ]; // взаимоисключающие шаги (ровно один активен)
 const SINGBOX_STEP = "singbox";
 
-// protocol_ids() → список валидных протоколов (для enum в ubus-реестре — граница доверия).
+// protocol_ids() → протоколы, которые можно УСТАНОВИТЬ (enum в ubus-реестре — граница доверия); legacy нет.
 function protocol_ids() {
 	let out = [];
-	for (let k in PROTOCOLS) push(out, k);
+	for (let k in PROTOCOLS) if (!PROTOCOLS[k].legacy) push(out, k);
 	return out;
+}
+
+// is_legacy(protocol) → протокол заморожен: работает, но менять сервер/ставить заново нельзя.
+function is_legacy(protocol) {
+	return PROTOCOLS[protocol]?.legacy === true;
 }
 
 function default_protocol() {
@@ -228,7 +233,7 @@ function route_uses_iface(route_out, iface) {
 	return false;
 }
 
-export { protocol_ids, default_protocol, tunnel_info, tunnel_ifs, uses_singbox, tunnel_conf,
+export { protocol_ids, is_legacy, default_protocol, tunnel_info, tunnel_ifs, uses_singbox, tunnel_conf,
          disabled_tunnels, enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          handshake_state, fresh_handshake, tunnel_health, HANDSHAKE_FRESH_S,
          route_uses_iface };

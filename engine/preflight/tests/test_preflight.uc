@@ -231,7 +231,7 @@ test("valid_lan_ip: только 192.168.X.Y, октеты в диапазоне
 	ok(!valid_lan_ip(null), "null");
 });
 
-// --- evaluate_tiers: гейтинг Full-тира (VLESS+Reality и Hysteria2 — один гейт на оба) ---
+// --- evaluate_tiers: гейтинг Full-тира (VLESS+Reality; Hysteria2 заморожена — ADR 0009) ---
 
 // Мощное железо, потянет Full: AES-arch, RAM/флеш с запасом, предпочтительная сборка ставится.
 function full_facts() {
@@ -357,7 +357,7 @@ test("supports_full_hw: mram строкой и мусором (приходит 
 	ok(!supports_full_hw("", 512, 200, null), "пустая arch → false");
 });
 
-// Флеш в гейте КНОПКИ панели: бинарь Full-тира весит десятки МБ (замер qemu-hysteria), а
+// Флеш в гейте КНОПКИ панели: бинарь Full-тира весит десятки МБ (замер qemu-hysteria до заморозки), а
 // раньше кнопка флеш не смотрела и обещала то, что валилось на apk «No space left».
 test("full_hw_missing: не хватает флеша → 'flash' в причинах, кнопка не обещает лишнего", () => {
 	deep_eq(full_hw_missing("aarch64", 512, 20, null), [ "flash" ]);
@@ -393,7 +393,7 @@ test("evaluate_tiers: кастомные пороги Full через req.full",
 test("full_requirements: дефолты Full-тира", () => {
 	let r = full_requirements();
 	eq(r.min_ram_mb, 240, "240 = плата на 256 МБ по MemTotal, а не паспортные 256");
-	eq(r.min_flash_mb, 44, "44 = замер веса sing-box-tiny + запас (qemu-hysteria сверяет)");
+	eq(r.min_flash_mb, 44, "44 = замер веса sing-box-tiny + запас (qemu-reality сверяет)");
 	deep_eq(r.pkgs, [ "sing-box-tiny", "sing-box" ], "tiny первым — она легче на 4.5 МБ скачивания");
 	ok(index(r.arch, "aarch64") >= 0);
 	ok(index(r.arch, "mipsel") < 0, "mips исключён из Full");

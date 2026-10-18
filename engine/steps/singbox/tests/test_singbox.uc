@@ -279,4 +279,14 @@ test("resolve_opts: неизвестный ключ opts не протекает
 	ok(index(sprintf("%J", plan), "bogus_key") < 0);
 });
 
+// Hysteria2 заморожена (ADR 0009): ссылка получает отказ с выходом, а не «вход не vless://».
+test("parse_input: hysteria2:// и hy2:// → «больше не поддерживается» с подсказкой, куда уйти", () => {
+	for (let link in [ "hysteria2://pw@h.example.com:443", "hy2://pw@h.example.com" ]) {
+		let r = build_singbox_plan(link, {});
+		ok(!r.ok, link);
+		ok(index(join(" ", r.errors), "больше не поддерживается") >= 0, join(" ", r.errors));
+		ok(index(join(" ", r.errors), "VLESS+Reality") >= 0, "назван выход");
+	}
+});
+
 exit(summary());

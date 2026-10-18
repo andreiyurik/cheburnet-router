@@ -1,10 +1,15 @@
 ---
-title: "Hysteria2 (Full-тир)"
+title: "Hysteria2 (заморожен)"
 tags: [concept, data-plane, protocols, quic, loss]
 aliases: [hysteria2, hy2, brutal, port-hopping]
 ---
 
 # Hysteria2 — туннель для канала, который теряет пакеты
+
+> [!warning] Протокол заморожен ([[0009-freeze-hysteria2|ADR 0009]])
+> В cheburnet Hysteria2 больше не устанавливается и не выбирается; код — в теге `hysteria2-final`
+> и ветке `archive/hysteria2`. Глава оставлена ради принципа: почему потери ломают TCP-туннели и
+> как QUIC с этим справляется — это знание переносимо и без нашего продукта.
 
 > [!info] Когда это нужно
 > Когда интернет через VPN **открывается, но тормозит и рвётся**: мобильный интернет, дальний

@@ -134,7 +134,7 @@ let raw = trim(stdin.read("all") ?? "");
 let cfg = (substr(raw, 0, 1) == "{") ? json(raw) : {};
 let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
-// Протокол туннеля: awg (Light, дефолт) | reality | hysteria2 (Full, общий sing-box). tunnel_if
+// Протокол туннеля: awg (Light, дефолт) | reality (Full, sing-box); hysteria2 — legacy (ADR 0009). tunnel_if
 // кладём в routing_opts — health-check и firewall (fw_opts) его используют, routing игнорирует.
 let protocol = cfg.protocol ?? default_protocol();
 let tinfo = tunnel_info(protocol);

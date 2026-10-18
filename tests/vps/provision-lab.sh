@@ -6,18 +6,17 @@
 #     scp tests/vps/provision-lab.sh root@<vps>:/root/
 #     ssh root@<vps> 'bash /root/provision-lab.sh'
 #
-# Печатает готовые ссылки `vless://…` и `hysteria2://…` — их вставляют в веб-мастер cheburnet.
+# Печатает готовую ссылку `vless://…` и кладёт конфиг AmneziaWG — их вставляют в веб-мастер cheburnet.
 #
-# ЗАЧЕМ ЭТО ВООБЩЕ: ключи Reality и Hysteria2 НЕ выдаются провайдером, а генерируются самим
+# ЗАЧЕМ ЭТО ВООБЩЕ: ключи Reality НЕ выдаются провайдером, а генерируются самим
 # sing-box (`generate reality-keypair`, `generate uuid`). То есть для проверки нашего кода никакие
 # «ключи от сервера» просить не у кого — сервер поднимается за минуту, и он тоже sing-box.
 #
-# ЧТО ЭТОТ СЕРВЕР ДАЁТ, ЧЕГО НЕ ДАЁТ ГЕРМЕТИЧНЫЙ СТЕНД (make qemu-netem):
+# ЧТО ЭТОТ СЕРВЕР ДАЁТ, ЧЕГО НЕ ДАЁТ ГЕРМЕТИЧНЫЙ СТЕНД (QEMU):
 #   • реальный интернет-путь: NAT провайдера, настоящий RTT, и главное — PMTU. У нас в TUN зашит
-#     mtu 1500, а QUIC поверх PPPoE/оверхеда может фрагментироваться: стенд на veth этого не видит;
+#     mtu 1500, а туннель поверх PPPoE/оверхеда может фрагментироваться: стенд на veth этого не видит;
 #   • Reality против НАСТОЯЩЕГО заимствованного SNI (в лабе рукопожатие-цель недостижима);
-#   • долгий прогон: сутки, переживание reboot роутера, реконнект при смене IP;
-#   • port hopping насквозь: сервер принимает весь диапазон, а не один порт.
+#   • долгий прогон: сутки, переживание reboot роутера, реконнект при смене IP.
 #
 # ЧТО ОН НЕ ПРОВЕРЯЕТ И НЕ МОЖЕТ: устойчивость к фильтрации. Ни один лабораторный сервер не
 # скажет, пропустит ли конкретный провайдер конкретный протокол — это проверяется только из той
@@ -38,11 +37,6 @@ set -e -u -o pipefail
 SB_VERSION="${SB_VERSION:-1.12.17}"
 LAB_DIR="${LAB_DIR:-/root/cheburnet-lab}"
 REALITY_PORT="${REALITY_PORT:-443}"
-HY2_PORT="${HY2_PORT:-8443}"
-# Диапазон для port hopping: сервер слушает ОДИН порт, а весь диапазон заворачивается на него
-# через nftables — именно так это и делают в реальности.
-HY2_HOP_FROM="${HY2_HOP_FROM:-20000}"
-HY2_HOP_TO="${HY2_HOP_TO:-20100}"
 # Заимствованный SNI для Reality: любой крупный сайт с настоящим TLS. Сервер РЕАЛЬНО ходит на
 # него во время рукопожатия (поле handshake в схеме — server only и обязательное), поэтому цель
 # обязана быть достижима с VPS.
@@ -109,7 +103,7 @@ ok "$(sing-box version | head -1)"
 
 # ─── ключи и пароли ───────────────────────────────────────────────────────────
 # ВСЁ генерируется здесь и сейчас, случайным на каждый запуск. Это и есть ответ на вопрос
-# «где взять ключи для Reality/Hysteria2»: их негде взять, их создают.
+# «где взять ключи для Reality»: их негде взять, их создают.
 msg "Генерирую ключи и пароли (случайные на каждый запуск)"
 mkdir -p "$LAB_DIR"
 chmod 700 "$LAB_DIR"
@@ -121,16 +115,7 @@ REALITY_PUB="$(printf '%s\n' "$KEYPAIR" | awk '/PublicKey/{print $2}')"
 
 UUID="$(sing-box generate uuid)"
 SHORT_ID="$(openssl rand -hex 4)"
-HY2_PASS="$(openssl rand -base64 18 | tr -d '/+=')"
-OBFS_PASS="$(openssl rand -base64 18 | tr -d '/+=')"
-
-# Сертификат для Hysteria2. Self-signed — сознательно: клиент идёт с insecure=1, и это ровно тот
-# путь, который наш парсер обязан поддерживать. Reality сертификата не требует В ПРИНЦИПЕ — он
-# занимает рукопожатие чужого сайта, в этом его смысл.
-openssl req -x509 -newkey rsa:2048 -sha256 -days 30 -nodes \
-    -keyout "$LAB_DIR/hy2-key.pem" -out "$LAB_DIR/hy2-cert.pem" \
-    -subj "/CN=$REALITY_SNI" >/dev/null 2>&1
-chmod 600 "$LAB_DIR"/hy2-*.pem
+# Reality сертификата не требует В ПРИНЦИПЕ — он занимает рукопожатие чужого сайта.
 ok "ключи в $LAB_DIR (режим 700)"
 
 # ─── публичный адрес ──────────────────────────────────────────────────────────
@@ -169,20 +154,6 @@ cat > "$LAB_DIR/config.json" <<EOF
           "short_id": [ "$SHORT_ID" ]
         }
       }
-    },
-    {
-      "type": "hysteria2",
-      "tag": "hy2-in",
-      "listen": "::",
-      "listen_port": $HY2_PORT,
-      "users": [ { "password": "$HY2_PASS" } ],
-      "obfs": { "type": "salamander", "password": "$OBFS_PASS" },
-      "tls": {
-        "enabled": true,
-        "server_name": "$REALITY_SNI",
-        "certificate_path": "$LAB_DIR/hy2-cert.pem",
-        "key_path": "$LAB_DIR/hy2-key.pem"
-      }
     }
   ],
   "outbounds": [ { "type": "direct", "tag": "direct" } ]
@@ -193,18 +164,11 @@ chmod 600 "$LAB_DIR/config.json"
 sing-box check -c "$LAB_DIR/config.json" || die "sing-box отверг серверный конфиг (см. вывод выше)"
 ok "конфиг валиден"
 
-# ─── port hopping на стороне сервера ──────────────────────────────────────────
-# Клиент с диапазоном портов стучится в случайный порт из него; сервер слушает один. Разворот
-# диапазона делаем nftables-DNAT — это стандартный способ, и без него клиентский server_ports
-# проверить насквозь нельзя.
-msg "Заворачиваю диапазон $HY2_HOP_FROM-$HY2_HOP_TO на порт $HY2_PORT (port hopping)"
+# ─── NAT и MSS для подсети AWG ────────────────────────────────────────────────
+msg "Включаю NAT для подсети AWG"
 nft delete table inet cheburnet_lab 2>/dev/null || true
 nft -f - <<EOF
 table inet cheburnet_lab {
-    chain prerouting {
-        type nat hook prerouting priority dstnat; policy accept;
-        udp dport $HY2_HOP_FROM-$HY2_HOP_TO redirect to :$HY2_PORT
-    }
     chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
         ip saddr $AWG_NET.0/24 masquerade
@@ -217,12 +181,12 @@ table inet cheburnet_lab {
     }
 }
 EOF
-ok "диапазон заворачивается, NAT для подсети AWG включён"
+ok "NAT для подсети AWG включён"
 
 # ─── AmneziaWG (Light-тир) на том же VPS ──────────────────────────────────────
-# ЗАЧЕМ здесь, а не отдельным сервером: три протокола с ОДНОГО стенда сравнимы между собой —
+# ЗАЧЕМ здесь, а не отдельным сервером: протоколы с ОДНОГО стенда сравнимы между собой —
 # разница в результатах будет разницей ПРОТОКОЛОВ, а не двух машин. Порты не конфликтуют
-# (AWG UDP/51820, Reality TCP/443, Hysteria2 UDP/8443 + диапазон).
+# (AWG UDP/51820, Reality TCP/443).
 #
 # Реализация — amneziawg-go (userspace), а НЕ модуль ядра: сборка модуля требует заголовков
 # ядра провайдера и ломается на любом их обновлении. Для стенда важна совместимость протокола,
@@ -387,7 +351,7 @@ fi
 msg "Ставлю systemd-сервис"
 cat > /etc/systemd/system/cheburnet-lab.service <<EOF
 [Unit]
-Description=cheburnet test lab (sing-box: VLESS+Reality + Hysteria2)
+Description=cheburnet test lab (sing-box: VLESS+Reality)
 After=network-online.target
 Wants=network-online.target
 
@@ -451,40 +415,20 @@ cat > "$LAB_DIR/selfcheck-reality.json" <<EOF
   } ]
 }
 EOF
-cat > "$LAB_DIR/selfcheck-hysteria2.json" <<EOF
-{
-  "log": { "level": "error" },
-  "inbounds": [ { "type": "socks", "listen": "127.0.0.1", "listen_port": 11082 } ],
-  "outbounds": [ {
-    "type": "hysteria2", "tag": "out",
-    "server": "127.0.0.1", "server_port": $HY2_PORT,
-    "password": "$HY2_PASS",
-    "obfs": { "type": "salamander", "password": "$OBFS_PASS" },
-    "tls": { "enabled": true, "server_name": "$REALITY_SNI", "insecure": true }
-  } ]
-}
-EOF
 chmod 600 "$LAB_DIR"/selfcheck-*.json
 
 selfcheck "reality" "$LAB_DIR/selfcheck-reality.json" 11081 \
     || die "Reality не работает на самом стенде — ссылки не отдаю (иначе поиск уйдёт в роутер)"
 ok "Reality: стенд принимает свою ссылку"
-selfcheck "hysteria2" "$LAB_DIR/selfcheck-hysteria2.json" 11082 \
-    || die "Hysteria2 не работает на самом стенде — ссылки не отдаю"
-ok "Hysteria2: стенд принимает свою ссылку"
 
 # ─── ссылки для мастера ───────────────────────────────────────────────────────
 VLESS_LINK="vless://${UUID}@${PUBIP}:${REALITY_PORT}?security=reality&encryption=none&type=tcp&flow=xtls-rprx-vision&sni=${REALITY_SNI}&fp=chrome&pbk=${REALITY_PUB}&sid=${SHORT_ID}#cheburnet-lab"
-HY2_LINK="hysteria2://${HY2_PASS}@${PUBIP}:${HY2_PORT}?sni=${REALITY_SNI}&insecure=1&obfs=salamander&obfs-password=${OBFS_PASS}#cheburnet-lab"
-HY2_HOP_LINK="hysteria2://${HY2_PASS}@${PUBIP}:${HY2_PORT},${HY2_HOP_FROM}-${HY2_HOP_TO}?sni=${REALITY_SNI}&insecure=1&obfs=salamander&obfs-password=${OBFS_PASS}#cheburnet-lab-hop"
 
 # Значения в ОДИНАРНЫХ кавычках: файл предназначен для `. links.env` на стороне разработчика, а в
 # ссылках есть '&' и '#' — без кавычек shell разваливает их на фоновые команды и комментарии.
 {
     echo "# Ссылки тестового стенда, $(date -u '+%Y-%m-%d %H:%M UTC')"
     echo "VLESS_REALITY='$VLESS_LINK'"
-    echo "HYSTERIA2='$HY2_LINK'"
-    echo "HYSTERIA2_PORT_HOPPING='$HY2_HOP_LINK'"
     # AmneziaWG передаётся не ссылкой, а .conf-файлом (так его и принимает мастер), поэтому в
     # links.env кладём ПУТЬ, а сам конфиг забирает fetch-links.sh отдельным файлом.
     echo "AWG_CONF_REMOTE='$LAB_DIR/awg/client.conf'"
@@ -500,13 +444,7 @@ cat <<EOF
 
 $VLESS_LINK
 
-2) Hysteria2 — ось «трафик проходит, но теряет пакеты»:
-
-$HY2_LINK
-
-3) Hysteria2 с port hopping — проверка server_ports насквозь:
-
-$HY2_HOP_LINK
+2) AmneziaWG — конфиг $LAB_DIR/awg/client.conf (fetch-links.sh заберёт его сам).
 
 Копия: $LAB_DIR/links.txt        Логи: journalctl -u cheburnet-lab -f
 Снять стенд: bash $0 --teardown
@@ -516,10 +454,9 @@ $HY2_HOP_LINK
   1. MTU/PMTU. Наш TUN зашит на mtu 1500. Прогоните крупные страницы и скачивание файла;
      симптом проблемы — «мелкие сайты открываются, крупные висят». Это главный риск,
      которого герметичный стенд не видит.
-  2. Оба протокола end-to-end: трафик реально идёт, connectivity-probe подтверждает.
+  2. Оба протокола (AWG и Reality) end-to-end: трафик реально идёт, проба подтверждает.
   3. Переключение туда-обратно из панели (switch_to_*) с автооткатом.
-  4. Port hopping: ссылка (3) обязана работать так же, как (2).
-  5. Сутки без вмешательства + reboot роутера: туннель встаёт сам.
+  4. Сутки без вмешательства + reboot роутера: туннель встаёт сам.
 
 НАПОМИНАНИЕ: пока сервис жив, VPS работает прокси для любого, у кого есть ссылка.
 Закончили — снимите стенд и удалите VPS.

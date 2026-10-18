@@ -193,20 +193,18 @@ test("hysteria2 без sing-box: тот же чистый abort ДО снимк�
 	cleanup(sb);
 });
 
-// Ключ конфига выбирается по протоколу (conf_key): если бы run.uc продолжал читать reality_conf,
-// hysteria2-установка ушла бы в singbox-шаг с ПУСТЫМ stdin и упала бы «непонятно почему».
-test("hysteria2: конфиг доезжает до singbox-шага по conf_key (dry-run печатает hysteria2-outbound)", () => {
+// Hysteria2 — legacy (ADR 0009): conf_key нет, поэтому новый конфиг до singbox-шага не доезжает,
+// даже если payload его несёт. ubus такой install и не пропустит (enum), это второй рубеж.
+test("hysteria2 (legacy): поставить заново нельзя — singbox-шаг получает пустой вход и отказывает", () => {
 	let sb = mk_sandbox();
-	with_singbox(sb); // бинарь «есть» → догрузка пропускается
+	with_singbox(sb);
 	let r = run_uc(sb, "install/run.uc", "--dry-run", sprintf("%J", {
 		protocol: "hysteria2",
 		hysteria2_conf: "hysteria2://HY2PASS@203.0.113.5:8443?sni=example.com",
 		domains: [], routing_opts: {},
 	}));
-	eq(r.rc, 0, "exit 0: " + r.out);
-	ok(index(r.out, "\"type\": \"hysteria2\"") >= 0, "singbox-шаг получил hy2-ссылку: " + r.out);
-	ok(index(r.out, "HY2PASS") >= 0, "пароль из ссылки доехал в конфиг");
-	ok(index(r.out, "singtun") >= 0, "маршрут в общий TUN-интерфейс");
+	ok(index(r.out, "HY2PASS") < 0, "старый ключ payload'а не читается: " + r.out);
+	ok(index(r.out, "\"type\": \"hysteria2\"") < 0, "hysteria2-outbound не собирается");
 	cleanup(sb);
 });
 

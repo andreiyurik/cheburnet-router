@@ -30,11 +30,9 @@ LINKS_FILE="${LINKS_FILE:-$HERE/../vps/links.env}"
 [ -f "$LINKS_FILE" ] && . "$LINKS_FILE"
 
 : "${VLESS_REALITY:=}"
-: "${HYSTERIA2:=}"
-: "${HYSTERIA2_PORT_HOPPING:=}"
 
-if [ -z "$VLESS_REALITY" ] && [ -z "$HYSTERIA2" ]; then
-    echo "✗ нет ссылок. Ожидается $LINKS_FILE (или env VLESS_REALITY / HYSTERIA2)."
+if [ -z "$VLESS_REALITY" ]; then
+    echo "✗ нет ссылки. Ожидается $LINKS_FILE (или env VLESS_REALITY)."
     echo "  Поднять стенд:  bash tests/vps/provision-lab.sh   (на VPS)"
     echo "  Забрать ссылки: bash tests/vps/fetch-links.sh root@<vps>"
     exit 1
@@ -43,7 +41,7 @@ fi
 # Адрес VPS достаём из самой ссылки (часть после '@' до ':') — отдельной переменной, которую можно
 # забыть обновить, быть не должно.
 link_host() { printf '%s' "$1" | sed -n 's|^[a-z2]*://[^@]*@\([^:/?#,]*\).*|\1|p'; }
-VPS_IP="${VPS_IP:-$(link_host "${VLESS_REALITY:-$HYSTERIA2}")}"
+VPS_IP="${VPS_IP:-$(link_host "$VLESS_REALITY")}"
 [ -n "$VPS_IP" ] || { echo "✗ не удалось выделить адрес сервера из ссылки"; exit 1; }
 
 . "$HERE/lib.sh"
@@ -211,9 +209,7 @@ printf("%s\n", tunnel_connectivity("singtun0").ok ? "UP" : "DOWN");
 UC
 vm_scp "$WORK/probe-check.uc" "/tmp/probe-check.uc"
 
-[ -n "$VLESS_REALITY" ]          && check_link "VLESS+Reality" "$VLESS_REALITY"
-[ -n "$HYSTERIA2" ]              && check_link "Hysteria2" "$HYSTERIA2"
-[ -n "$HYSTERIA2_PORT_HOPPING" ] && check_link "Hysteria2 + port hopping" "$HYSTERIA2_PORT_HOPPING"
+check_link "VLESS+Reality" "$VLESS_REALITY"
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
