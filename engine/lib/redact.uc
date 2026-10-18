@@ -9,10 +9,10 @@ const MASK = "<удалено>";
 // изменило. Пересечения правил допустимы: лишняя маскировка безопасна, пропущенный секрет — нет.
 const RULES = [
 	{
-		// WireGuard/AmneziaWG .conf: приватный и пресхаред-ключ.
+		// WireGuard/AmneziaWG .conf: приватный, пресхаред-ключ и ключ защиты заголовков (AWG 3.x).
 		label: "ключи туннеля",
 		apply: function(t) {
-			return replace(t, /(PrivateKey|PresharedKey)([[:space:]]*=[[:space:]]*)[^[:space:]]+/g,
+			return replace(t, /(PrivateKey|PresharedKey|HeaderProtectionKey)([[:space:]]*=[[:space:]]*)[^[:space:]]+/g,
 				(m, a, b) => a + b + MASK);
 		},
 	},

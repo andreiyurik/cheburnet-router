@@ -13,14 +13,37 @@ const VPN_DEFAULTS = {
 	arm: true,
 };
 
-// AWG-параметры обфускации: ключ .conf → uci-опция awg_<lc>. Все опциональны — пишем только
-// присутствующие, иначе proto-handler получит пустую строку и netifd не поднимет интерфейс (v1).
-const OBFUSCATION = [
-	"Jc", "Jmin", "Jmax",
-	"S1", "S2", "S3", "S4",
-	"H1", "H2", "H3", "H4",
-	"I1", "I2", "I3", "I4", "I5",
+// AWG-параметры: ключ .conf → uci-опция proto-handler'а amneziawg (awg-openwrt). Имена явные, не lc():
+// у AWG 3.x в uci подчёркивания (HeaderProtectionKey → awg_header_protection_key). Все опциональны —
+// пишем только присутствующие, иначе proto-handler получит пустую строку и netifd не поднимет интерфейс (v1).
+// ШРАМ (Cudy TR3000, 2026-10): AWG 3.x-поля не доезжали до uci → сервер с HeaderProtectionKey не
+// отвечал на handshake → health-check → откат установки. Значения (в т.ч. диапазоны) — как есть.
+const AWG_PARAMS = [
+	[ "Jc", "awg_jc" ], [ "Jmin", "awg_jmin" ], [ "Jmax", "awg_jmax" ],
+	[ "S1", "awg_s1" ], [ "S2", "awg_s2" ], [ "S3", "awg_s3" ], [ "S4", "awg_s4" ],
+	[ "H1", "awg_h1" ], [ "H2", "awg_h2" ], [ "H3", "awg_h3" ], [ "H4", "awg_h4" ],
+	[ "I1", "awg_i1" ], [ "I2", "awg_i2" ], [ "I3", "awg_i3" ], [ "I4", "awg_i4" ], [ "I5", "awg_i5" ],
+	[ "HeaderProtectionKey",    "awg_header_protection_key" ],
+	[ "ContentPaddingAddition", "awg_content_padding_addition" ],
+	[ "RekeyAfterTime",         "awg_rekey_after_time" ],
+	[ "RekeyTimeout",           "awg_rekey_timeout" ],
+	[ "RejectAfterTime",        "awg_reject_after_time" ],
+	[ "KeepaliveTimeout",       "awg_keepalive_timeout" ],
+	[ "MaxHandshakeAttempts",   "awg_max_handshake_attempts" ],
 ];
+
+// Размер nonce защиты заголовков в модуле AWG 3.1 (header_protection.h): нижняя граница S1..S4.
+const HP_NONCE = 12;
+
+// Флаги AWG 3.1: в .conf `on`, в uci — boolean (proto-handler сам пишет обратно `=on`).
+const AWG_FLAGS = [
+	[ "RandomTrailers", "awg_random_trailers" ],
+	[ "DisableCookies", "awg_disable_cookies" ],
+];
+
+function flag_on(v) {
+	return index([ "on", "true", "yes", "1" ], lc(trim(v ?? ""))) >= 0;
+}
 
 // ИНВАРИАНТ: маршрут «всё в туннель» держат HALF-ROUTES (0.0.0.0/1 + 128.0.0.0/1, v6 ::/1 + 8000::/1),
 // а НЕ один default: они специфичнее WAN-дефолта и побеждают его, НЕ УДАЛЯЯ — WAN остаётся путём
@@ -158,13 +181,19 @@ function parse_awg_conf(text) {
 	return { interface: iface, peers: peers };
 }
 
-// Поля .conf, которые kmod-amneziawg/awg-tools на OpenWrt НЕ понимают и которые меняют формат
-// пакетов на проводе: сервер с ними ждёт другой протокол, и handshake молча не приходит
-// (GL-MT3000, 2026-08-27: конфиг Amnezia-клиента с HeaderProtectionKey — 105 пакетов ушло, 0 вернулось).
-// Не отказываем (сервер может не требовать), но называем причину заранее — в лог установки.
-const UNSUPPORTED_WIRE = [ "HeaderProtectionKey" ];
+// unsupported_awg_opts(plan, handler_text) → uci-опции плана, которых proto-handler не знает.
+// netifd молча игнорирует незнакомую опцию, а без неё сервер AWG 3.x не ответит на handshake
+// (GL-MT3000, 2026-08-27: пакеты до AWG 3.1 и HeaderProtectionKey — 105 пакетов ушло, 0 вернулось).
+function unsupported_awg_opts(plan, handler_text) {
+	let out = [];
+	for (let i = 0; i < length(plan.awg_options ?? []); i++)
+		if (index(handler_text ?? "", '"' + plan.awg_options[i] + '"') < 0)
+			push(out, plan.awg_options[i]);
+	return out;
+}
 
-// build_vpn_plan(parsed, opts) → { ok, errors, warnings, teardown, setup, interface, peer_section }.
+// build_vpn_plan(parsed, opts) → { ok, errors, teardown, setup, interface, peer_section,
+// awg_options } (awg_options — записанные awg_*-опции, для сверки с proto-handler'ом в apply.uc).
 // teardown — delete-before-add (идемпотентность; на apply с || true). setup — uci set/add_list.
 // Берём первый [Peer] (типовой случай: один сервер). Маршрутизацию навязываем ядру (см. инвариант).
 function build_vpn_plan(parsed, opts) {
@@ -183,14 +212,16 @@ function build_vpn_plan(parsed, opts) {
 	if (!peer.Endpoint)    push(errors, "нет Endpoint в [Peer]");
 	else if (!ep)          push(errors, sprintf("не разобран Endpoint: %s", peer.Endpoint));
 
-	if (length(errors) > 0)
-		return { ok: false, errors: errors, warnings: [], teardown: [], setup: [] };
+	// ШРАМ (qemu-profiles, 2026-10-18): модуль AWG 3.1 с HeaderProtectionKey требует S1..S4 ≥ 12 (nonce)
+	// и иначе отвергает ВЕСЬ конфиг (EINVAL) — интерфейс пуст, установка падает невнятным «нет рукопожатия».
+	if (length(iface.HeaderProtectionKey ?? "") > 0)
+		for (let k in [ "S1", "S2", "S3", "S4" ])
+			if (!match(iface[k] ?? "", /^[0-9]+$/) || int(iface[k]) < HP_NONCE)
+				push(errors, sprintf("HeaderProtectionKey требует %s не меньше %d (в конфиге: %s) — "
+					+ "конфиг неполный, возьмите его у сервера заново", k, HP_NONCE, iface[k] ?? "нет"));
 
-	let warnings = [];
-	for (let i = 0; i < length(UNSUPPORTED_WIRE); i++)
-		if (exists(iface, UNSUPPORTED_WIRE[i]))
-			push(warnings, sprintf("%s: защита заголовков AmneziaWG на этом роутере не поддерживается — "
-				+ "если сервер её требует, рукопожатия не будет; попросите конфиг без неё", UNSUPPORTED_WIRE[i]));
+	if (length(errors) > 0)
+		return { ok: false, errors: errors, teardown: [], setup: [] };
 
 	let arm = build_arm_ops(o);
 	let teardown = [
@@ -214,11 +245,20 @@ function build_vpn_plan(parsed, opts) {
 			push(setup, sprintf("add_list network.%s.addresses='%s'", ifname, a));
 	}
 	push(setup, sprintf("set network.%s.mtu='%s'", ifname, iface.MTU ?? o.mtu));
-	// Обфускация — только присутствующие поля.
-	for (let i = 0; i < length(OBFUSCATION); i++) {
-		let k = OBFUSCATION[i];
-		if (exists(iface, k) && length(iface[k]) > 0)
-			push(setup, sprintf("set network.%s.awg_%s='%s'", ifname, lc(k), iface[k]));
+	let awg_options = [];
+	for (let i = 0; i < length(AWG_PARAMS); i++) {
+		let k = AWG_PARAMS[i][0], opt = AWG_PARAMS[i][1];
+		if (exists(iface, k) && length(iface[k]) > 0) {
+			push(setup, sprintf("set network.%s.%s='%s'", ifname, opt, iface[k]));
+			push(awg_options, opt);
+		}
+	}
+	for (let i = 0; i < length(AWG_FLAGS); i++) {
+		let k = AWG_FLAGS[i][0], opt = AWG_FLAGS[i][1];
+		if (flag_on(iface[k])) {
+			push(setup, sprintf("set network.%s.%s='1'", ifname, opt));
+			push(awg_options, opt);
+		}
 	}
 
 	// Peer.
@@ -245,11 +285,12 @@ function build_vpn_plan(parsed, opts) {
 		push(setup, no_proto_route_op(ifname));
 
 	return {
-		ok: true, errors: [], warnings: warnings,
+		ok: true, errors: [],
 		teardown: teardown, setup: setup,
 		interface: ifname, peer_section: peersect,
+		awg_options: awg_options,
 	};
 }
 
 export { owned_sections, route_sections, build_arm_ops, build_disarm_ops, split_endpoint, parse_awg_conf,
-         build_vpn_plan };
+         build_vpn_plan, unsupported_awg_opts };

@@ -2,11 +2,11 @@
 // План — vpn.uc (тесты: vpn/tests). Флаги: --dry-run | --no-arm (без half-routes, первая установка) |
 // --arm (довооружить) | --disarm (снять маршрут, конфиг оставить — аварийный режим) | --teardown.
 
-import { stdin, popen } from "fs";
+import { stdin, popen, readfile } from "fs";
 import { sh, uci_batch } from "../../lib/proc.uc";
 import { wait_wan_default } from "../../lib/wan.uc";
 import { parse_awg_conf, build_vpn_plan, build_arm_ops, build_disarm_ops,
-         owned_sections } from "./vpn.uc";
+         owned_sections, unsupported_awg_opts } from "./vpn.uc";
 
 // dev_present(iface) — создал ли netifd kernel-устройство интерфейса (ip link).
 function dev_present(iface) {
@@ -87,8 +87,13 @@ if (!plan.ok) {
 		warn("vpn: " + plan.errors[i] + "\n");
 	exit(1);
 }
-for (let i = 0; i < length(plan.warnings ?? []); i++)
-	warn("vpn: ВНИМАНИЕ — " + plan.warnings[i] + "\n");
+// Нет файла (хост, --dry-run вне роутера) — сверять не с чем, молчим.
+let handler = readfile("/lib/netifd/proto/amneziawg.sh");
+let missing = handler ? unsupported_awg_opts(plan, handler) : [];
+if (length(missing) > 0)
+	warn(sprintf("vpn: ВНИМАНИЕ — пакет amneziawg-tools на роутере не знает параметров конфига (%s): "
+		+ "они не применятся, и сервер, который их требует, не ответит на рукопожатие. "
+		+ "Обновите kmod-amneziawg и amneziawg-tools (AmneziaWG 3.1+)\n", join(", ", missing)));
 
 if (dry) {
 	for (let i = 0; i < length(plan.teardown); i++) print("  " + plan.teardown[i] + "\n");
