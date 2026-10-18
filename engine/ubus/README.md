@@ -40,6 +40,11 @@
 | `service_restart` | write | admin | перезапуск сервиса: `vpn` (ifdown/ifup awg0) / `dns` / `doh` |
 | `set_dns_provider` | write | admin | сменить DNS-провайдера (= уровень фильтрации) — переприменить `steps/doh` |
 | `replace_awg_conf` | write | admin | замена AWG-конфига: sync-валидация → фон `install/replace_vpn.uc` (авто-rollback) |
+| `list_profiles` | read | admin | сохранённые AWG-серверы: имена, порядок, активный, автосмена, последняя смена — без секретов |
+| `add_profile` / `rename_profile` / `delete_profile` / `order_profiles` | write | admin | правка списка ([engine/profiles](../profiles/README.md)); `.conf` валидируется синхронно, активный не удаляется |
+| `update_profile_conf` | write | admin | новый `.conf` профиля; у подключённого — фоном через `replace_vpn.uc` с автооткатом |
+| `activate_profile` | write | admin | подключить профиль: на AWG — фон `replace_vpn.uc --profile`, с Full-туннеля — `switch_tunnel("awg")` |
+| `set_failover` | write | admin | вкл/выкл автосмену сервера сторожем ([ADR 0008](../../docs/kb/decisions/0008-awg-profiles.md)) |
 | `factory_reset` | write | admin | `confirm:"RESET"` → фон `install/reset.uc` (teardown cheburnet-конфигурации, НЕ firstboot) |
 | `diagnostics` | read | admin | пакет для поддержки: логи+состояние+версии с ВЫРЕЗАННЫМИ секретами (`lib/redact.uc`) |
 | `install_token` | write | admin | токен для повторной настройки: отдать существующий или **выпустить** (см. ниже) |

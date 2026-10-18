@@ -1,5 +1,6 @@
 // replace_vpn.uc — замена AWG-конфига без переустановки (импурно, router-side).
-//   printf '%s' "$awg_conf" | ucode -R replace_vpn.uc
+//   printf '%s' "$awg_conf" | ucode -R replace_vpn.uc [--profile <id>] [--auto]
+// --profile: применяется сохранённый профиль (engine/profiles); --auto: это решение сторожа (автосмена).
 //
 // Защитный пояс: snapshot UCI → применить vpn-шаг → ждать handshake → commit / restore. При
 // сбое restore возвращает старый network-конфиг и reload'ит сеть. Запускается в фоне (setsid),
@@ -8,11 +9,15 @@
 import { stdin } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { fresh_handshake } from "./install.uc";
+import { commit_conf } from "../profiles/store.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
 
 let conf = stdin.read("all") ?? "";
+let pi = index(ARGV, "--profile");
+let profile = (pi >= 0 && pi + 1 < length(ARGV)) ? ARGV[pi + 1] : null;
+let auto_switch = index(ARGV, "--auto") >= 0;
 
 // --- 1. snapshot (старый network вернётся restore'ом при сбое) ---
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
@@ -38,6 +43,9 @@ for (let i = 0; i < 15; i++) {
 // --- 4. commit / restore ---
 if (ok) {
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
+	// Только подтверждённый сервер попадает в «активный профиль»: иначе панель и автосмена
+	// считали бы подключённым то, что откатилось.
+	commit_conf(conf, profile, auto_switch);
 	print("replace_vpn: новый конфиг работает (handshake получен)\n");
 	exit(0);
 }

@@ -7,7 +7,7 @@
 // в calls-логе нет apk/wifi/passwd). Живой fw4/netifd — QEMU; здесь — состав действий.
 
 import { test, eq, ok, summary } from "../../lib/assert.uc";
-import { writefile, readfile, access } from "fs";
+import { writefile, readfile, access, mkdir } from "fs";
 import { mk_sandbox, run_uc, calls, cleanup } from "./harness.uc";
 
 function seed_installed(sb) {
@@ -15,6 +15,8 @@ function seed_installed(sb) {
 		'{"routing_opts":{"wan_if":"eth0","tunnel_if":"awg0"},"domains":["example.com"]}\n');
 	writefile(sb.etc + "/install-token", "TOK\n");
 	writefile(sb.etc + "/direct-list", "example.com\n");
+	mkdir(sb.etc + "/profiles", 0o700);
+	writefile(sb.etc + "/profiles/p1.conf", "[Interface]\nPrivateKey = secret=\n");
 }
 
 test("reset: /etc/cheburnet снят целиком, data-plane и туннели вычищены", () => {
@@ -22,7 +24,7 @@ test("reset: /etc/cheburnet снят целиком, data-plane и туннел�
 	seed_installed(sb);
 	let r = run_uc(sb, "install/reset.uc");
 	eq(r.rc, 0, "exit 0: " + r.out);
-	ok(!access(sb.etc), "каталог конфигурации удалён (включая токен и кэш списка)");
+	ok(!access(sb.etc), "каталог конфигурации удалён (включая токен, кэш списка и ключи профилей)");
 	let log = calls(sb);
 	ok(index(log, "nft") >= 0, "firewall teardown дошёл до nft");
 	ok(index(log, "delete network.awg0=") >= 0 || index(log, "delete network.awg0\n") >= 0,

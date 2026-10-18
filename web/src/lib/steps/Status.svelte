@@ -20,6 +20,7 @@
   import StatusList from '$lib/components/StatusList.svelte';
   import StatusRow from '$lib/components/StatusRow.svelte';
   import ConfCheck from '$lib/components/ConfCheck.svelte';
+  import Servers from '$lib/components/Servers.svelte';
 
   // onReinstall — запустить мастер заново (с preflight).
   let { onReinstall } = $props();
@@ -34,6 +35,12 @@
   // выбирают один раз. Ссылка из hero-баннера раскрывает группу сама (как у туннеля).
   let servicesOpen = $state(false);
   let dangerOpen = $state(false);
+  let serversOpen = $state(false);
+  // Отказ доступа из блока серверов: протухшую сессию выбрасываем и открываем вход (как в admin()).
+  function serversDenied() {
+    if (loggedIn) { logout(); loggedIn = false; }
+    loginOpen = true;
+  }
   let action = $state(''); // текст результата/ошибки управляющего действия
   // Где показать это сообщение. Одно место на всю страницу означало, что результат нажатия
   // верхней кнопки появлялся через два экрана вниз — человек его просто не видел. Каждое
@@ -742,6 +749,11 @@
           <Button variant="outline" disabled={busy || !providerSel || providerSel === s.dns_provider} onclick={setProvider}>Применить</Button>
         </div>
         {@render actionNote('dns')}
+      </DetailsGroup>
+
+      <!-- Сохранённые серверы («страны»): выбор и автосмена. Свёрнуто, как и остальное управление. -->
+      <DetailsGroup id="servers-group" bind:open={serversOpen} summary="Серверы — выбрать страну">
+        <Servers {loggedIn} protocol={s.protocol} onDenied={serversDenied} onChanged={refresh} />
       </DetailsGroup>
 
       <!-- Управление туннелем свёрнуто: самый объёмный блок панели, нужен в редкие дни поломки.

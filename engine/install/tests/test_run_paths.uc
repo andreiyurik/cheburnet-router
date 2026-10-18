@@ -334,6 +334,7 @@ test("первая установка (AWG), health провалился → hal
 	eq(trim(readfile(sb.reason) ?? ""), "health:tunnel:fetch");
 	ok(index(calls(sb), "awg0_route4lo=route") < 0,
 		"дом НЕ переключался на непроверенный туннель — раньше здесь была утечка/потеря интернета");
+	ok(!access(sb.etc + "/profiles.json"), "откатившийся сервер профилем не запоминается");
 	ok(index(calls(sb), "amneziawg_awg0") >= 0, "но интерфейс поднимался (--no-arm) — health-check мог его проверить");
 	cleanup(sb);
 });
@@ -367,6 +368,8 @@ test("первая установка (AWG), health прошёл → half-routes
 	let r = run_uc(sb, "install/run.uc", null, payload);
 	eq(r.rc, 0, "exit 0: " + r.out);
 	ok(index(calls(sb), "awg0_route4lo=route") >= 0, "туннель подтверждён — теперь вооружён");
+	eq(json(readfile(sb.etc + "/profiles.json")).active, "p1", "подтверждённый сервер стал профилем");
+	eq(readfile(sb.etc + "/profiles/p1.conf"), AWG_CONF);
 	cleanup(sb);
 });
 
@@ -381,6 +384,7 @@ test("первая установка (Reality), health провалился →
 	eq(r.rc, 1, "exit 1: " + r.out);
 	ok(index(calls(sb), "ifup singtun") < 0,
 		"дом НЕ переключался на непроверенный туннель — раньше здесь была утечка/потеря интернета");
+	ok(!access(sb.etc + "/profiles.json"), "откатившийся сервер профилем не запоминается");
 	cleanup(sb);
 });
 
@@ -396,6 +400,41 @@ test("первая установка (Reality), health прошёл → ifup si
 	let r = run_uc(sb, "install/run.uc", null, payload);
 	eq(r.rc, 0, "exit 0: " + r.out);
 	ok(index(calls(sb), "ifup singtun") >= 0, "туннель подтверждён — теперь вооружён");
+	cleanup(sb);
+});
+
+// ШРАМ (ревью): active переживал уход на Reality — возврат на AWG вставленным конфигом молча
+// перезаписывал .conf «Германии», а удалить её было нельзя, хотя панель показывала «не подключён».
+test("смена на Reality подтверждена → активный AWG-профиль сброшен, сам профиль цел", () => {
+	let sb = mk_sandbox();
+	with_singbox(sb);
+	writefile(sb.fake + "/pgrep.rc", "0");
+	writefile(sb.fake + "/route_get.out", "1.1.1.1 dev singtun0 src 10.9.0.2\n");
+	writefile(sb.fake + "/fetch.rc", "0");
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	writefile(sb.etc + "/profiles.json", sprintf("%J", { profiles: [ { id: "p1", name: "Германия" } ], active: "p1", next_id: 2 }));
+	let payload = sprintf("%J", { protocol: "reality", reality_conf: REALITY_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	eq(run_uc(sb, "install/run.uc", null, payload).rc, 0);
+	let st = json(readfile(sb.etc + "/profiles.json"));
+	eq(st.active, null);
+	eq(st.profiles[0].name, "Германия");
+	cleanup(sb);
+});
+
+test("возврат на AWG вставленным конфигом без активного → новый «Сервер N», чужой профиль не тронут", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/awg.out", "pubkeyXXX\t5\n");
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	mkdir(sb.etc + "/profiles", 0o700);
+	writefile(sb.etc + "/profiles/p1.conf", "СТАРЫЙ");
+	writefile(sb.etc + "/profiles.json", sprintf("%J", { profiles: [ { id: "p1", name: "Германия" } ], active: null, next_id: 2 }));
+	let payload = sprintf("%J", { protocol: "awg", awg_conf: AWG_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	eq(run_uc(sb, "install/run.uc", null, payload).rc, 0);
+	let st = json(readfile(sb.etc + "/profiles.json"));
+	eq(st.active, "p2");
+	eq(readfile(sb.etc + "/profiles/p1.conf"), "СТАРЫЙ", "конфиг «Германии» не перезаписан");
 	cleanup(sb);
 });
 

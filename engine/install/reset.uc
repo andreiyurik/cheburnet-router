@@ -83,9 +83,16 @@ if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) == "y") {
 }
 
 print("reset: удаляю /etc/cheburnet\n");
+// profiles/ — каталог с .conf серверов (приватные ключи): unlink каталог не берёт, а оставленные
+// ключи пережили бы сброс навсегда. Глубже одного уровня у нас ничего не лежит.
 let files = lsdir(ETC_CHEBURNET) ?? [];
-for (let i = 0; i < length(files); i++)
-	unlink(ETC_CHEBURNET + "/" + files[i]);
+for (let i = 0; i < length(files); i++) {
+	let p = ETC_CHEBURNET + "/" + files[i];
+	for (let f in (lsdir(p) ?? []))
+		unlink(p + "/" + f);
+	if (!unlink(p))
+		rmdir(p);
+}
 rmdir(ETC_CHEBURNET);
 // Install-токен здесь НЕ выпускаем: это отдельный ubus-метод install_token, зовётся владельцем
 // по запросу, а не автоматически при сбросе.
