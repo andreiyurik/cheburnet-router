@@ -35,9 +35,14 @@
 
 `.conf` — **вход пользователя** → валидируем (CLAUDE.md). Нет обязательных полей
 (`PrivateKey`/`Address`/`PublicKey`/`Endpoint`) или битый `Endpoint` → `plan.ok=false`,
-ошибки, шаг **не трогает сеть**. Обфускация (`Jc`,`Jmin`,`Jmax`,`S1..S4`,`H1..H4`,`I1..I5`)
-— опциональна: пишем `awg_<lc>` только для присутствующих полей (иначе netifd не поднимет
-интерфейс — урок v1). Base64-ключи с `=` не ломают парсер (split по первому `=`).
+ошибки, шаг **не трогает сеть**. Параметры AWG (`Jc`,`Jmin`,`Jmax`,`S1..S4`,`H1..H4`,`I1..I5`
+и поля 3.x: `HeaderProtectionKey`, `ContentPaddingAddition`, `RekeyAfterTime`, `RekeyTimeout`,
+`RejectAfterTime`, `KeepaliveTimeout`, `MaxHandshakeAttempts`, флаги `RandomTrailers`/`DisableCookies`)
+— опциональны: пишем только присутствующие (иначе netifd не поднимет интерфейс — урок v1).
+Имена UCI — **явная таблица** `AWG_PARAMS`, не `lc()`: у 3.x в UCI подчёркивания
+(`awg_header_protection_key`). `apply.uc` сверяет записанные опции с установленным
+`/lib/netifd/proto/amneziawg.sh` и предупреждает, если пакет какую-то не знает: netifd незнакомую
+опцию молча игнорирует, а сервер без неё не ответит на рукопожатие. Base64-ключи с `=` не ломают парсер (split по первому `=`).
 
 ## Идемпотентность
 
@@ -56,6 +61,6 @@ cat awg0.conf | ucode -R engine/steps/vpn/apply.uc --dry-run
 ## Тесты
 
 `make test-engine`. Покрыто: split_endpoint (v4/v6/мусор), парсер (секции, inline-комментарии,
-base64-`=`), обфускация только присутствующая, **half-routes (туннель=дефолт, WAN цел)**, peer
+base64-`=`), обфускация только присутствующая, AWG 3.1-поля и флаги, сверка с proto-handler'ом, **half-routes (туннель=дефолт, WAN цел)**, peer
 (endpoint/PSK/forced allowed_ips/keepalive), dual-stack Address, teardown, валидация входа,
 кастомное имя интерфейса.

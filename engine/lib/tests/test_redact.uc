@@ -25,6 +25,13 @@ test("AmneziaWG .conf: приватный и пресхаред-ключ выр�
 	ok(index(r.removed, "ключи туннеля") >= 0, "removed называет ключи туннеля");
 });
 
+test("AmneziaWG 3.x: HeaderProtectionKey вырезан и в .conf, и в uci", () => {
+	// Нестандартная длина: правило «голого» base64-ключа (43 символа) его бы не поймало.
+	let r = redact("HeaderProtectionKey = c2VjcmV0aGVhZGVya2V5MTIzNDU2\n" +
+		"network.awg0.awg_header_protection_key='c2VjcmV0aGVhZGVya2V5MTIzNDU2'\n");
+	ok(!has(r.text, "c2VjcmV0aGVhZGVya2V5MTIzNDU2"), "ключ защиты заголовков вырезан");
+});
+
 test("голый ключ WireGuard в логе (без имени поля) тоже вырезается", () => {
 	let line = "awg0: peer QFxsc0Gk3nJ2VZUwvVYqNlH9y7bTf1cKmXpRsAeDgHo= handshake failed";
 	let r = redact(line);

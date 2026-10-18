@@ -3,7 +3,7 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../../lib/assert.uc";
 import { parse_awg_conf, split_endpoint, build_vpn_plan, build_arm_ops, owned_sections,
-         route_sections } from "../vpn.uc";
+         route_sections, unsupported_awg_opts } from "../vpn.uc";
 
 // Типовой .conf с обфускацией и PSK (значения-заглушки, не настоящие ключи).
 const CONF = "[Interface]\n" +
@@ -170,16 +170,58 @@ test("build_vpn_plan: keepalive-диапазон 25-35 → нижняя гран
 		"нечисло → дефолт, а не отказ netifd после установки");
 });
 
-// ШРАМ (GL-MT3000, 2026-08-27): конфиг с защитой заголовков молча не рукопожимается — kmod её не знает.
-test("build_vpn_plan: HeaderProtectionKey → план ok, но с предупреждением о причине", () => {
-	let hp = replace(CONF, "Jc = 4\n", "Jc = 4\nHeaderProtectionKey = 2GuHslRmlqkLNgYPKK4Nqt2z8uMwPKfzzy9xbnGkiFw=\n");
-	let plan = build_vpn_plan(parse_awg_conf(hp), {});
-	ok(plan.ok, "не отказываем: сервер может защиту не требовать");
-	eq(length(plan.warnings), 1);
-	ok(index(plan.warnings[0], "HeaderProtectionKey") >= 0, "причина названа по имени поля");
-	ok(!has(plan.setup, "set network.awg0.awg_headerprotectionkey='2GuHslRmlqkLNgYPKK4Nqt2z8uMwPKfzzy9xbnGkiFw='"),
-		"в uci неизвестное поле не уезжает");
-	eq(length(build_vpn_plan(parse_awg_conf(CONF), {}).warnings), 0, "обычный конфиг — без предупреждений");
+// ШРАМ (Cudy TR3000, 2026-10): AWG 3.x-поля не доезжали до uci — сервер с защитой заголовков молчал.
+const HPK = "2GuHslRmlqkLNgYPKK4Nqt2z8uMwPKfzzy9xbnGkiFw=";
+const AWG31 = replace(CONF, "Jc = 4\n", "Jc = 4\nS2 = 40\nS3 = 20\nS4 = 16\n" +
+	"HeaderProtectionKey = " + HPK + "\n" +
+	"ContentPaddingAddition = 0-16\n" +
+	"RekeyAfterTime = 120\n" +
+	"RekeyTimeout = 5\n" +
+	"RejectAfterTime = 180\n" +
+	"KeepaliveTimeout = 10\n" +
+	"MaxHandshakeAttempts = 18\n" +
+	"RandomTrailers = on\n" +
+	"DisableCookies = off\n");
+
+test("build_vpn_plan: AWG 3.1 — явные uci-имена с подчёркиваниями, значения как есть", () => {
+	let plan = build_vpn_plan(parse_awg_conf(AWG31), {});
+	ok(plan.ok);
+	ok(has(plan.setup, "set network.awg0.awg_header_protection_key='" + HPK + "'"));
+	ok(has(plan.setup, "set network.awg0.awg_content_padding_addition='0-16'"), "диапазон не режем");
+	ok(has(plan.setup, "set network.awg0.awg_rekey_after_time='120'"));
+	ok(has(plan.setup, "set network.awg0.awg_rekey_timeout='5'"));
+	ok(has(plan.setup, "set network.awg0.awg_reject_after_time='180'"));
+	ok(has(plan.setup, "set network.awg0.awg_keepalive_timeout='10'"));
+	ok(has(plan.setup, "set network.awg0.awg_max_handshake_attempts='18'"));
+	ok(has(plan.setup, "set network.awg0.awg_random_trailers='1'"), "флаг on → uci boolean");
+	ok(!has(plan.setup, "set network.awg0.awg_disable_cookies='1'"), "флаг off — не пишем");
+	ok(!has(plan.setup, "set network.awg0.awg_headerprotectionkey='" + HPK + "'"), "lc()-имя proto-handler не знает");
+});
+
+test("build_vpn_plan: HeaderProtectionKey при S1..S4 < 12 → отказ с причиной (ядро отвергло бы весь конфиг)", () => {
+	let no_s3 = replace(AWG31, "S3 = 20\n", "");
+	let r = build_vpn_plan(parse_awg_conf(no_s3), {});
+	ok(!r.ok);
+	ok(index(join(" ", r.errors), "S3 не меньше 12") >= 0, join(" ", r.errors));
+	ok(!build_vpn_plan(parse_awg_conf(replace(AWG31, "S4 = 16", "S4 = 8")), {}).ok, "8 < 12");
+	ok(build_vpn_plan(parse_awg_conf(replace(AWG31, "S4 = 16", "S4 = 12")), {}).ok, "12 — граница допустима");
+	ok(build_vpn_plan(parse_awg_conf(CONF), {}).ok, "без защиты заголовков S3/S4 не нужны");
+});
+
+test("unsupported_awg_opts: сверка с proto-handler'ом — старый пакет называет недостающее", () => {
+	let plan = build_vpn_plan(parse_awg_conf(AWG31), {});
+	// Опции proto-handler'а до AWG 3.1 (awg-openwrt v25.12.5 до пересборки 2026-09-22).
+	let old = "";
+	for (let k in [ "jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5" ])
+		old += sprintf('proto_config_add_string "awg_%s"\n', k);
+	let missing = unsupported_awg_opts(plan, old);
+	ok(index(missing, "awg_header_protection_key") >= 0);
+	ok(index(missing, "awg_jc") < 0, "известная опция не в списке");
+	let neu = old;
+	for (let i = 0; i < length(plan.awg_options); i++) neu += sprintf('proto_config_add_string "%s"\n', plan.awg_options[i]);
+	eq(length(unsupported_awg_opts(plan, neu)), 0, "AWG 3.1-пакет — без предупреждения");
+	eq(length(unsupported_awg_opts(build_vpn_plan(parse_awg_conf(CONF), {}), old)), 0,
+		"обычный конфиг на старом пакете — без предупреждения");
 });
 
 // --- keepalive по умолчанию, если в conf нет ---
