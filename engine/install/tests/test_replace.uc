@@ -101,7 +101,7 @@ test("replace_vpn: handshake не пришёл за окно → restore, чес
 	cleanup(sb);
 });
 
-// === replace_singbox.uc (Full-тир: VLESS+Reality и Hysteria2 — один скрипт) ===
+// === replace_singbox.uc (Full-тир: VLESS+Reality) ===
 
 test("replace_singbox: битый вход → отказ шага, старый config.json цел, .bak поглощён", () => {
 	let sb = mk_sandbox();
@@ -152,43 +152,15 @@ test("replace_singbox на чистой системе: провал пробы 
 	cleanup(sb);
 });
 
-// Тот же пояс обязан работать для Hysteria2 — иначе «замена сервера» у второго Full-протокола
-// осталась бы без автооткатa, и человек мог бы потерять рабочий туннель на неудачной ссылке.
-test("replace_singbox: hy2-ссылка → commit по пробе, config.json из новой ссылки", () => {
+// Hysteria2 заморожена (ADR 0009): ссылка отвергается ДО подмены живого конфига, с выходом в тексте.
+test("replace_singbox: hy2-ссылка → отказ «больше не поддерживается», рабочий конфиг не тронут", () => {
 	let sb = mk_sandbox();
 	writefile(sb.sbconf, "СТАРЫЙ РАБОЧИЙ КОНФИГ\n");
 	probe_alive(sb);
 	let r = run_uc(sb, "install/replace_singbox.uc", null, GOOD_HY2);
-	eq(r.rc, 0, "exit 0: " + r.out);
-	let cfg = readfile(sb.sbconf) ?? "";
-	ok(index(cfg, "HY2_TEST_PASSWORD") >= 0, "config.json — из НОВОЙ hy2-ссылки");
-	ok(index(cfg, "hysteria2") >= 0, "outbound именно hysteria2");
-	ok(index(cfg, "9000:9100") >= 0, "port hopping доехал до конфига");
-	ok(!access(sb.snap), "commit: снимок выброшен");
-	cleanup(sb);
-});
-
-test("replace_singbox: hy2-туннель не отозвался → прежний config.json возвращён", () => {
-	let sb = mk_sandbox();
-	writefile(sb.sbconf, "СТАРЫЙ РАБОЧИЙ КОНФИГ\n");
-	probe_alive(sb);
-	writefile(sb.fake + "/fetch.rc", "1"); // трафик через туннель не пошёл
-	let r = run_uc(sb, "install/replace_singbox.uc", null, GOOD_HY2);
-	eq(r.rc, 1, "exit 1");
-	eq(readfile(sb.sbconf), "СТАРЫЙ РАБОЧИЙ КОНФИГ\n", "старый config.json возвращён");
-	cleanup(sb);
-});
-
-test("replace_singbox: hy2-ссылка с неподдерживаемым параметром → отказ, конфиг не тронут", () => {
-	let sb = mk_sandbox();
-	writefile(sb.sbconf, "СТАРЫЙ РАБОЧИЙ КОНФИГ\n");
-	probe_alive(sb);
-	// pinSHA256 без insecure sing-box не умеет — шаг обязан отказать ДО подмены живого конфига.
-	let r = run_uc(sb, "install/replace_singbox.uc", null,
-		"hysteria2://pw@203.0.113.5:8443?pinSHA256=deadbeef");
 	eq(r.rc, 1, "exit 1");
 	eq(readfile(sb.sbconf), "СТАРЫЙ РАБОЧИЙ КОНФИГ\n", "рабочий конфиг не пострадал");
-	ok(index(r.out, "pinSHA256") >= 0, "причина названа в логе: " + r.out);
+	ok(index(r.out, "больше не поддерживается") >= 0, "причина названа: " + r.out);
 	cleanup(sb);
 });
 
@@ -213,7 +185,7 @@ test("replace_singbox: без WAN-дефолта в main — отказ с пр�
 	writefile(sb.sbconf, "СТАРЫЙ РАБОЧИЙ КОНФИГ\n");
 	probe_alive(sb);
 	writefile(sb.fake + "/route_default.out", "");   // main без дефолта, ifup его не вернул
-	let r = run_uc(sb, "install/replace_singbox.uc", null, GOOD_HY2);
+	let r = run_uc(sb, "install/replace_singbox.uc", null, GOOD_VLESS);
 	ok(r.rc != 0, "провал, а не молчаливый успех: " + r.out);
 	ok(index(r.out, "маршрута по умолчанию") >= 0, "причина названа человеческим языком");
 	eq(readfile(sb.sbconf), "СТАРЫЙ РАБОЧИЙ КОНФИГ\n", "рабочий конфиг остался прежним");

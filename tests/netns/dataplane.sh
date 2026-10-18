@@ -16,8 +16,8 @@
 #   make test-netns          # или:  sh tests/netns/dataplane.sh
 #   NETNS_REQUIRE=1 …         # в CI: отсутствие инструментов = ФЕЙЛ, а не тихий скип
 #
-# Покрывает: split (direct→WAN, остальное→туннель) для awg0 И singtun0 (общий интерфейс обоих
-# Full-протоколов — Reality и Hysteria2); kill-switch антиутечку
+# Покрывает: split (direct→WAN, остальное→туннель) для awg0 И singtun0 (общий интерфейс протоколов
+# Full-тира на sing-box); kill-switch антиутечку
 # (туннель упал → непрямой трафик ДРОПается, не течёт в WAN); travel (весь трафик в туннель);
 # второй внешний канал (утечки нет и в него); проброс порта в LAN не режется;
 # идентичность data-plane обоих протоколов; реальный dnsmasq: резолв direct-домена → IP попадает
@@ -379,9 +379,8 @@ printf '\033[1mnetns data-plane тест — поведение split-routing п
 
 # Чистая проверка (без netns): data-plane в ядре и на sing-box ИДЕНТИЧЕН с точностью до имени
 # туннеля — kill-switch пропускает только интерфейс туннеля, остальное (пометка, метка пакета) не
-# зависит от протокола и не содержит портов. Это доказывает «туннель взаимозаменяем» и что port
-# hopping Hysteria2 не требует правок firewall-слоя. Оба Full-протокола едут на singtun0, поэтому
-# проверка awg0 vs singtun0 покрывает и Reality, и Hysteria2.
+# зависит от протокола и не содержит портов. Это доказывает «туннель взаимозаменяем»: любой протокол
+# на sing-box едет на singtun0, и проверка awg0 vs singtun0 покрывает весь Full-тир.
 hdr "Идентичность data-plane (awg0 vs singtun0)"
 nft_awg=$(emit '{"what":"nft","domains":["x.example"],"routing_opts":{"ipv6":false,"wan_if":"wan0","mode":"home"},"fw_opts":{"tunnel_if":"awg0"}}')
 nft_rea=$(emit '{"what":"nft","domains":["x.example"],"routing_opts":{"ipv6":false,"wan_if":"wan0","mode":"home"},"fw_opts":{"tunnel_if":"singtun0"}}' \

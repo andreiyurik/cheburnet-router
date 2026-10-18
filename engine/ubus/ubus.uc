@@ -29,13 +29,12 @@ const REGISTRY = [
 	] },
 	{ name: "install_progress", access: "read", auth: "anon", token: false, args: [] },
 	{ name: "install",   access: "write", auth: "anon",  token: true, args: [
-		// protocol: awg (Light, дефолт) | reality | hysteria2 (Full, ADR 0004). Конфиг каждого —
+		// protocol: awg (Light, дефолт) | reality (Full, ADR 0004). Конфиг каждого —
 		// в своём поле, ВСЕ необязательны здесь: активный туннель-шаг валидирует вход сам,
 		// fail-safe при отсутствии.
 		{ name: "protocol",       type: "string", enum: PROTOCOL_IDS },
 		{ name: "awg_conf",       type: "string" }, // AmneziaWG .conf (protocol=awg)
 		{ name: "reality_conf",   type: "string" }, // vless://… или JSON sing-box, секрет → payload 600
-		{ name: "hysteria2_conf", type: "string" }, // hysteria2://… или JSON sing-box, секрет → payload 600
 		{ name: "root_password", type: "string", required: true, minlen: 8 }, // секрет → payload 600
 		// Wi-Fi необязателен: wired-only роутеры ставятся без него (UI спрашивает поля только
 		// при status.wireless_present; шаг wifi — no-op без них).
@@ -80,14 +79,11 @@ const REGISTRY = [
 	// Full-тир — opt-in: бинарь sing-box догружается по кнопке, не при bootstrap.
 	{ name: "install_full_tier", access: "write", auth: "admin", token: false, args: [] },
 	// In-place смена активного туннеля: приносим только конфиг нового, домены/DNS/режим — из
-	// сохранённой конфигурации. Три метода вместо switch_tunnel(protocol, conf) — имя аргумента
-	// = имя формата (vless:// ≠ .conf ≠ hysteria2://); импурный путь под ними один общий.
+	// сохранённой конфигурации. Метод на протокол вместо switch_tunnel(protocol, conf) — имя аргумента
+	// = имя формата (vless:// ≠ .conf); импурный путь под ними один общий.
 	// Требует уже установленного бинаря sing-box.
 	{ name: "switch_to_reality", access: "write", auth: "admin", token: false, args: [
 		{ name: "reality_conf", type: "string", required: true },
-	] },
-	{ name: "switch_to_hysteria2", access: "write", auth: "admin", token: false, args: [
-		{ name: "hysteria2_conf", type: "string", required: true },
 	] },
 	// Обратная смена на AmneziaWG (зеркало переходов выше); sing-box остаётся установленным.
 	{ name: "switch_to_awg", access: "write", auth: "admin", token: false, args: [
@@ -129,9 +125,6 @@ const REGISTRY = [
 	// (общий replace_singbox.uc).
 	{ name: "replace_reality_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "reality_conf", type: "string", required: true },
-	] },
-	{ name: "replace_hysteria2_conf", access: "write", auth: "admin", token: false, args: [
-		{ name: "hysteria2_conf", type: "string", required: true },
 	] },
 	// Диагностика: логи+состояние+версии с ВЫРЕЗАННЫМИ секретами (diagnostics.uc + lib/redact.uc).
 	// auth=admin: даже вычищенный пакет раскрывает топологию сети — соседу по LAN не отдаём.

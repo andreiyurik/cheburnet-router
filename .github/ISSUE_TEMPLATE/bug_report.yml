@@ -43,7 +43,7 @@ body:
       options:
         - AmneziaWG (по умолчанию)
         - VLESS+Reality
-        - Hysteria2
+        - Hysteria2 (заморожен, установлен раньше)
         - Ещё не дошёл до выбора
     validations:
       required: true

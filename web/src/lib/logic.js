@@ -24,7 +24,7 @@ export const SUPPORT = {
 // --- Каталог туннельных протоколов (три оси покрытия, ADR 0004) ---
 // Зеркалит PROTOCOLS движка (engine/install/install.uc; синхронность стережёт engine-sync.test.js)
 // плюс то, чего в движке быть не должно: как объяснить протокол ЧЕЛОВЕКУ — от поломки, не от
-// названия. why — одна строка у всех трёх сразу; whyMore — под «Подробнее»; sniff/sniffError —
+// названия. why — одна строка у всех сразу; whyMore — под «Подробнее»; sniff/sniffError —
 // дешёвая проверка формата ДО отправки (отказ движка стоит трёх минут установки и отката).
 export const PROTOCOLS = {
   awg: {
@@ -64,22 +64,13 @@ export const PROTOCOLS = {
     switchMethod: 'switch_to_reality',
     replaceMethod: 'replace_reality_conf',
   },
+  // Заморожен (ADR 0009): в мастере и списке смены туннеля его нет, но панель роутера, который на
+  // нём остался, должна назвать протокол правильно и предложить уйти — а не притвориться AWG.
   hysteria2: {
     id: 'hysteria2',
     name: 'Hysteria2',
-    confKey: 'hysteria2_conf',
-    symptom: 'Интернет открывается, но тормозит и рвётся',
-    why: 'Держит скорость на канале, который теряет пакеты: мобильный интернет, дальний Wi-Fi, вечерняя перегрузка.',
-    whyMore: 'Умеет прыгать по портам, если провайдер душит какой-то один. Тоже считается в программе, а не в ядре — процессору тяжелее.',
-    confLabel: 'Ссылка hysteria2:// или конфиг sing-box',
-    confHint: 'Возьмите ссылку в панели своего сервера Hysteria2 (подходит и короткая форма hy2://).',
-    placeholder: 'hysteria2://пароль@host:443?sni=example.com&obfs=salamander&obfs-password=…#name\n…или JSON-конфиг sing-box',
-    sniff: /^\s*(hysteria2:\/\/|hy2:\/\/|\{)/i,
-    sniffError: 'Похоже, это не ссылка Hysteria2: она начинается с hysteria2:// или hy2://. Вставьте ссылку целиком (или JSON-конфиг sing-box).',
-    file: false,
+    legacy: true,
     full: true,
-    switchMethod: 'switch_to_hysteria2',
-    replaceMethod: 'replace_hysteria2_conf',
   },
 };
 
@@ -93,9 +84,8 @@ export function checkConf(id, text) {
   return info.sniff.test(s) ? '' : info.sniffError;
 }
 
-// Порядок показа в мастере и панели. Reality перед Hysteria2 осознанно: «не открывается вообще» —
-// более частая и более срочная поломка, чем «медленно».
-export const PROTOCOL_ORDER = ['awg', 'reality', 'hysteria2'];
+// Порядок показа в мастере и панели (legacy-протоколов здесь нет — их не выбирают).
+export const PROTOCOL_ORDER = ['awg', 'reality'];
 
 export function protocolList() {
   return PROTOCOL_ORDER.map((id) => PROTOCOLS[id]);
@@ -116,41 +106,6 @@ export function requiresFull(id) {
 // железа есть, чтобы за проходимость заплатить. См. ADR 0004, «Дефолты и гейтинг».
 export function defaultProtocol(fullAvailable) {
   return fullAvailable ? 'reality' : 'awg';
-}
-
-// --- Brutal: объявленная скорость канала (Hysteria2) ---
-// Объявленная скорость включает Brutal: он не ищет полосу, а держит названную; завышение = очередь,
-// пинг и «стало хуже» без ошибок в логах. Поэтому по умолчанию не объявляем (BBR), а в ручном режиме
-// подставляем скромные значения и предупреждаем. Подробно: docs/kb/concepts/hysteria2.md.
-export const SPEED_DEFAULTS = { down: 50, up: 10 };
-export const SPEED_MAX = 10000;
-
-// Предупреждение про завышенную цифру. Одно на весь UI: оно нужно в мастере и в панели (замена
-// сервера, смена туннеля), а две копии одного предупреждения разъезжаются при первой же правке.
-// Текст длинный намеренно — без «станет ХУЖЕ» человек не свяжет причину со следствием: ошибок в
-// логах при этом не появится.
-export const BRUTAL_WARNING = 'Указывайте скорость, которую интернет реально держит, и лучше немного '
-  + 'меньше. Если написать больше, чем есть, связь станет хуже: вырастут задержки и начнутся '
-  + 'обрывы — и никакой ошибки при этом не появится.';
-
-// withDeclaredSpeed(link, down, up) → ссылка с нашими локальными параметрами down/up.
-// ПОЧЕМУ параметры дописываем мы, а не автор ссылки: официальная спецификация hy2-URI прямо
-// требует не класть полосу в ссылку — она индивидуальна и «не предназначена для слепого
-// применения». Значит это решение ВЛАДЕЛЬЦА роутера, и вносит его наш UI.
-// Ссылка, уже несущая up/down (некоторые панели их добавляют), не переписывается: уважаем то,
-// что человек вставил, и не спорим с ним молча.
-export function withDeclaredSpeed(link, down, up) {
-  const s = (link ?? '').trim();
-  if (!s || !/^(hysteria2|hy2):\/\//i.test(s)) return s; // JSON-конфиг и прочее не трогаем
-  if (/[?&](up|down)=/.test(s)) return s;
-  const d = Number(down), u = Number(up);
-  if (!Number.isInteger(d) || !Number.isInteger(u) || d <= 0 || u <= 0) return s;
-  if (d > SPEED_MAX || u > SPEED_MAX) return s;
-  // Параметры дописываем ДО #fragment — иначе они уехали бы в метку и парсер их не увидел.
-  const hash = s.indexOf('#');
-  const body = hash >= 0 ? s.slice(0, hash) : s;
-  const frag = hash >= 0 ? s.slice(hash) : '';
-  return `${body}${body.includes('?') ? '&' : '?'}down=${d}&up=${u}${frag}`;
 }
 
 // Direct-домены: по строке или через запятую → массив. Пустые/пробелы отбрасываем
@@ -245,26 +200,16 @@ export function canOverride(report) {
 }
 
 // validateSetup(f) → { error, field } | { args } — проверка полей Setup и сборка аргументов install.
-// field (conf|speed|rootPass|rootPass2|ssid|wifiKey|token) — Setup подсвечивает и прокручивает к
+// field (conf|rootPass|rootPass2|ssid|wifiKey|token) — Setup подсвечивает и прокручивает к
 // нему: на длинной форме ошибка у кнопки оказывалась за два экрана от поля. f — поля формы Setup.
 export function validateSetup(f) {
   // Активный протокол: Full-протоколы доступны только при fullAvailable — если железо не тянет,
   // форсим AmneziaWG даже когда protocol пришёл из initial (fail-safe направление, как в движке).
   const proto = requiresFull(f.protocol) && !f.fullAvailable ? 'awg' : (f.protocol ?? 'awg');
   const info = protocolInfo(proto);
-  let conf = (f.confs?.[proto] ?? '').trim();
+  const conf = (f.confs?.[proto] ?? '').trim();
   const confError = checkConf(proto, conf);
   if (confError) return { error: confError, field: 'conf' };
-
-  // Скорость канала для Brutal — только когда владелец включил ручной режим (иначе BBR).
-  if (proto === 'hysteria2' && f.declareSpeed) {
-    const d = Number(f.speedDown), u = Number(f.speedUp);
-    if (!Number.isInteger(d) || !Number.isInteger(u) || d <= 0 || u <= 0)
-      return { error: 'Скорость канала — целые числа Мбит/с больше нуля (или выключите ручной режим).', field: 'speed' };
-    if (d > SPEED_MAX || u > SPEED_MAX)
-      return { error: `Скорость канала — не больше ${SPEED_MAX} Мбит/с.`, field: 'speed' };
-    conf = withDeclaredSpeed(conf, d, u);
-  }
 
   // Пароль НЕ обрезаем (в нём могут быть значимые пробелы) — сравниваем как есть.
   if (f.rootPass.length < MIN_PASS)
@@ -379,7 +324,7 @@ export function explainFail(reason, protocol) {
     // Full-тир на своём сервере (3x-ui) — известная внешняя проблема: свежий xray-core (≥26.7.11)
     // отвергает sing-box-клиента (нашего) на КАЖДОЙ попытке, конфиг при этом выглядит идеально.
     // AWG её не касается (свой протокол, не xray-core) — показываем только по делу.
-    if (protocol === 'reality' || protocol === 'hysteria2')
+    if (protocolInfo(protocol).full)
       items.push('сервер на своём VPS через 3x-ui: если сертификаты/подписка точно в порядке — ' +
         'проверьте версию xray-core, актуальные (≥26.7.11) несовместимы с нашим клиентом, нужна v26.6.27 или ниже ' +
         '(docs/kb/concepts/vless-reality.md#серверная-сторона).');
@@ -411,7 +356,7 @@ export function explainFail(reason, protocol) {
       advice: {
         title: 'Изменения откатаны, роутер в исходном состоянии. Проверьте ссылку:',
         items: [
-          'она вставлена целиком — от vless:// или hysteria2:// до конца строки;',
+          'она вставлена целиком — от vless:// до конца строки;',
           'ссылка свежая: у некоторых панелей она меняется при пересоздании подключения;',
           'если в журнале ниже упоминается конкретный параметр — попросите у сервера ссылку без него.',
         ],
@@ -437,7 +382,7 @@ export function explainFail(reason, protocol) {
     return {
       error: 'Не удалось загрузить компонент для этого туннеля.',
       advice: {
-        title: 'Изменений на роутере нет. Для VLESS+Reality и Hysteria2 нужно скачать компонент (~11 МБ) с серверов OpenWrt:',
+        title: 'Изменений на роутере нет. Для VLESS+Reality нужно скачать компонент (~11 МБ) с серверов OpenWrt:',
         items: [
           'проверьте, что роутер подключён к интернету (кабель WAN на месте);',
           'иногда загрузка рвётся из-за сети провайдера — просто попробуйте ещё раз;',
@@ -479,8 +424,8 @@ export function endpoint(conf) {
 }
 
 // Краткая сводка туннеля без секретов: протокол + адрес сервера.
-// Для ссылочных протоколов берём то, что ПОСЛЕ последнего '@' — иначе пароль/uuid (а в hy2-ссылке
-// это именно пароль) попал бы на экран подтверждения и в скриншоты.
+// Для ссылочных протоколов берём то, что ПОСЛЕ последнего '@' — иначе uuid (по сути пароль
+// доступа) попал бы на экран подтверждения и в скриншоты.
 export function tunnelSummary(args) {
   const info = protocolInfo(args?.protocol);
   if (info.id === 'awg') return `${info.name} → ${endpoint(args?.awg_conf)}`;
@@ -516,8 +461,7 @@ export function heroKind(s) {
 //   { action: 'install' } — железо тянет Full, но бинаря нет: предложить догрузку;
 //   { action: 'switch', targets: [...] } — куда можно переключиться прямо сейчас;
 //   null — предлагать нечего (слабое железо и активен AWG).
-// Ключевое: с AmneziaWG (UDP) ведём на Reality (TCP) — Hysteria2 тоже UDP и упал бы вместе с AWG,
-// поэтому он в подсказке «не открывается» НЕ фигурирует (ADR 0004: оси общие → фолбэк бесполезен).
+// Ключевое: с AmneziaWG (UDP) ведём на Reality (TCP) — другая ось, поэтому она и спасает (ADR 0004).
 export function tunnelFallback(s) {
   if (!s?.installed) return null;
   const active = protocolInfo(s.protocol).id;
@@ -526,9 +470,8 @@ export function tunnelFallback(s) {
     if (s.full_capable) return { action: 'install' };
     return null;
   }
-  // Активен Full-протокол: другой Full рядом (бинарь уже стоит) + всегда доступный возврат на AWG.
-  const other = active === 'reality' ? 'hysteria2' : 'reality';
-  return { action: 'switch', targets: [other, 'awg'] };
+  // Активен Full-протокол (или заморожённый Hysteria2): всё, что можно выбрать, кроме него самого.
+  return { action: 'switch', targets: PROTOCOL_ORDER.filter((id) => id !== active).reverse() };
 }
 
 // switchTargets(s) → протоколы, на которые можно переключиться из текущего состояния.

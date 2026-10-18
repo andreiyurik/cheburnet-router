@@ -2,8 +2,8 @@
   import { onDestroy } from 'svelte';
   import { cheburnet, login, isLoggedIn, logout, isAccessDenied } from '../ubus.js';
   import { hs, FORCED_LABELS, heroKind, tunnelFallback, switchTargets, tunnelRowText,
-           explainFullTierFail, fullMissingText, protocolInfo, checkConf, BRUTAL_WARNING,
-           withDeclaredSpeed, SPEED_DEFAULTS, SUPPORT, parseDomains } from '../logic.js';
+           explainFullTierFail, fullMissingText, protocolInfo, checkConf,
+           SUPPORT, parseDomains } from '../logic.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import Button from '$lib/components/ui/button/button.svelte';
   import Input from '$lib/components/ui/input/input.svelte';
@@ -68,7 +68,7 @@
   let fullPhase = $state('idle'); // догрузка компонента: idle | running | ok | fail
   let fullLog = $state('');
   // Смена туннеля: конфиги хранятся ПО ПРОТОКОЛАМ (переключение выбора не теряет вставленное).
-  let switchConfs = $state({ awg: '', reality: '', hysteria2: '' });
+  let switchConfs = $state({ awg: '', reality: '' });
   // switchPick — ВЫБРАННОЕ направление (радио), switchTarget — то, что уже переключается.
   // Раньше блоков было по одному на протокол: три похожих поля для ссылок на одной странице, и
   // вставить в чужое — обычное дело. Теперь как в мастере: сначала выбор по симптому, потом одно поле.
@@ -76,10 +76,6 @@
   let switchTarget = $state('');  // направление текущего свитча
   let switchPhase = $state('idle');
   let switchLog = $state('');
-  // Скорость канала для Hysteria2 (Brutal). По умолчанию — автоматически (BBR): см. logic.js.
-  let declareSpeed = $state(false);
-  let speedDown = $state(SPEED_DEFAULTS.down);
-  let speedUp = $state(SPEED_DEFAULTS.up);
   let timer = null;
   let replaceTimer = null;
   let fullTimer = null;
@@ -278,14 +274,6 @@
     URL.revokeObjectURL(a.href);
   }
 
-  // hy2Conf(id, conf) — ссылка Hysteria2 с объявленной скоростью, если владелец её включил.
-  // Для остальных протоколов — как есть.
-  function hy2Conf(id, conf) {
-    return (id === 'hysteria2' && declareSpeed)
-      ? withDeclaredSpeed(conf, speedDown, speedUp)
-      : conf;
-  }
-
   // Замена сервера активного туннеля: метод и имя аргумента — из каталога протоколов, поэтому
   // третий протокол не потребовал третьей копии этой функции. Фон+poll — общий канал
   // install_progress (тот же, что у установки).
@@ -303,7 +291,7 @@
     action = '';
     replaceLog = '';
     try {
-      await cheburnet(active.replaceMethod, { [active.confKey]: hy2Conf(active.id, conf) });
+      await cheburnet(active.replaceMethod, { [active.confKey]: conf });
       replacePhase = 'running';
       replaceTimer = setInterval(pollReplace, 2000);
     } catch (e) {
@@ -432,7 +420,7 @@
     switchTarget = p.id;
     busy = true; action = ''; switchLog = '';
     try {
-      await cheburnet(p.switchMethod, { [p.confKey]: hy2Conf(p.id, conf) });
+      await cheburnet(p.switchMethod, { [p.confKey]: conf });
       switchPhase = 'running';
       switchTimer = setInterval(pollSwitch, 2000);
     } catch (e) {
@@ -507,33 +495,6 @@
   {#if action && actionScope === scope}<p data-slot="action-note" class="text-muted-foreground">{action}</p>{/if}
 {/snippet}
 
-<!-- Скорость канала (Brutal) — сниппет, потому что рендерится РЯДОМ С ПОЛЕМ, к которому относится:
-     в замене сервера, если Hysteria2 уже активен, и в смене туннеля, если на него переключаются.
-     Раньше блок стоял единожды в конце страницы — то есть НИЖЕ кнопок, которые его применяют, и
-     человек нажимал раньше, чем узнавал о настройке. Оба места одновременно не выпадают: активный
-     протокол в targets не попадает, поэтому общее состояние declareSpeed однозначно.
-     Поле не голое сознательно: завышенная цифра делает связь ХУЖЕ и молча (см. ADR 0004). -->
-{#snippet speedFields()}
-  <h4 class="mt-4 mb-1 text-sm font-semibold">Скорость канала</h4>
-  <RadioCard bind:group={declareSpeed} value={false} disabled={busy}>
-    <strong>Подбирать автоматически</strong> — рекомендуем.
-  </RadioCard>
-  <RadioCard bind:group={declareSpeed} value={true} disabled={busy}>
-    <strong>Указать вручную</strong> — иногда выжимает больше на канале с потерями.
-  </RadioCard>
-  {#if declareSpeed}
-    <Alert.Root variant="warning" class="my-3">
-      <Alert.Description>{BRUTAL_WARNING}</Alert.Description>
-    </Alert.Root>
-    <Field label="Скорость приёма (Мбит/с)" class="mb-3">
-      <Input type="number" min="1" max="10000" class="w-32" bind:value={speedDown} disabled={busy} />
-    </Field>
-    <Field label="Скорость отдачи (Мбит/с)">
-      <Input type="number" min="1" max="10000" class="w-32" bind:value={speedUp} disabled={busy} />
-    </Field>
-  {/if}
-{/snippet}
-
 <!-- Кнопка сегмента «Режим работы»: показывает ТЕКУЩЕЕ состояние (aria-pressed), а не то, куда
      переключит. Кнопка-переключатель и строка сводки рядом называли одно и то же по-разному. -->
 {#snippet segment(label, pressed, onclick)}
@@ -575,8 +536,9 @@
           <Alert.Body>
             <Alert.Description>
               Сначала <a href="#services-group" onclick={() => (servicesOpen = true)}>перезапустите
-              туннель</a>. Не помогло — <a href="#replace-tunnel" onclick={() => (tunnelOpen = true)}>вставьте
-              свежий конфиг</a>.
+              туннель</a>. Не помогло — {#if active.legacy}<a href="#switch-tunnel" onclick={() => (tunnelOpen = true)}>переключитесь
+              на другой туннель</a>: сервер {active.name} больше не меняется{:else}<a href="#replace-tunnel" onclick={() => (tunnelOpen = true)}>вставьте
+              свежий конфиг</a>{/if}.
             </Alert.Description>
           </Alert.Body>
         </Alert.Root>
@@ -592,15 +554,14 @@
             сторож вернёт DNS в него сам.</p>
         {/if}
 
-        <!-- Ведём к запасному пути ровно тогда, когда он нужен. ВАЖНО: с AmneziaWG предлагаем
-             именно VLESS+Reality: Hysteria2 тоже UDP и падает вместе с AWG. -->
+        <!-- Ведём к запасному пути ровно тогда, когда он нужен: с AmneziaWG (UDP) — на VLESS+Reality (TCP). -->
         {#if fallback?.action === 'install'}
           <p class="text-sm text-muted-foreground">Не помог и свежий конфиг? Похоже, сеть режет сам протокол AmneziaWG (он работает по UDP).
             Тогда помогает <a href="#full-tier" onclick={() => (tunnelOpen = true)}>добавить VLESS+Reality</a> —
             снаружи он выглядит как обычный HTTPS.</p>
         {:else if fallback?.action === 'switch'}
-          <p class="text-sm text-muted-foreground">Не помог и свежий конфиг? Значит дело, скорее всего, не в сервере, а в сети —
-            попробуйте другой туннель:
+          <p class="text-sm text-muted-foreground">{#if active.legacy}Попробуйте поддерживаемый туннель:{:else}Не помог и свежий конфиг? Значит дело, скорее всего, не в сервере, а в сети —
+            попробуйте другой туннель:{/if}
             {#each fallback.targets as t, i}{#if i > 0}, {/if}<a href="#switch-tunnel"
               onclick={() => { switchPick = t; tunnelOpen = true; }}>{protocolInfo(t).name}</a>{/each}.
             Не поднимется — прежний вернётся сам.</p>
@@ -759,44 +720,49 @@
       <!-- Управление туннелем свёрнуто: самый объёмный блок панели, нужен в редкие дни поломки.
            Открывается сам по ссылкам из ответа наверху (tunnelOpen). -->
       <DetailsGroup id="tunnel-group" bind:open={tunnelOpen} summary="Туннель — заменить сервер или сменить протокол">
-        <!-- Замена сервера АКТИВНОГО туннеля. Метод, подпись и placeholder — из каталога протоколов. -->
-        <SectionTitle id="replace-tunnel">Замена сервера ({active.name})</SectionTitle>
-        <p class="mt-2 mb-3 text-sm text-muted-foreground">Вставьте свежий конфиг от своего сервера.
-          Не отзовётся — прежний вернётся сам.</p>
-        <Field label={active.confLabel}>
-          <Textarea bind:value={replaceConf} rows="5" class="font-mono" disabled={busy} placeholder={active.placeholder} />
-          <ConfCheck id={active.id} text={replaceConf} />
-        </Field>
-        {#if active.file}
-          <Field class="mt-3" label="…или загрузить файлом">
-            <Input type="file" accept=".conf,text/plain" onchange={onReplaceFile} disabled={busy} />
+        <!-- Заморожённый протокол (ADR 0009): сервер у него не меняется — единственный выход ведём ниже. -->
+        {#if active.legacy}
+          <SectionTitle id="replace-tunnel">{active.name} больше не поддерживается</SectionTitle>
+          <p class="mt-2 text-sm">Туннель работает, но сменить его сервер нельзя.
+            Переключитесь на VLESS+Reality или AmneziaWG в блоке «Сменить туннель» ниже — при сбое {active.name} вернётся сам.</p>
+        {:else}
+          <!-- Замена сервера АКТИВНОГО туннеля. Метод, подпись и placeholder — из каталога протоколов. -->
+          <SectionTitle id="replace-tunnel">Замена сервера ({active.name})</SectionTitle>
+          <p class="mt-2 mb-3 text-sm text-muted-foreground">Вставьте свежий конфиг от своего сервера.
+            Не отзовётся — прежний вернётся сам.</p>
+          <Field label={active.confLabel}>
+            <Textarea bind:value={replaceConf} rows="5" class="font-mono" disabled={busy} placeholder={active.placeholder} />
+            <ConfCheck id={active.id} text={replaceConf} />
           </Field>
-        {/if}
-        {#if active.id === 'hysteria2'}{@render speedFields()}{/if}
-        <div class="mt-3">
-          <Button disabled={busy || replaceConf.trim().length === 0} onclick={replaceTunnel}>
-            {replacePhase === 'running' ? 'Применяю…' : 'Заменить конфиг'}
-          </Button>
-        </div>
-        {#if replacePhase === 'running'}
-          <p class="mt-3 flex items-center gap-2"><Spinner /> Применяю новый конфиг — при сбое прежний вернётся автоматически.</p>
-        {/if}
-        {@render actionNote('replace')}
-        {#if replaceLog && replacePhase !== 'idle'}
-          <details class="mt-3" open={replacePhase === 'fail'}>
-            <summary class="cursor-pointer text-sm text-muted-foreground">Журнал замены</summary>
-            <LogView text={replaceLog} class="mt-2" />
-          </details>
+          {#if active.file}
+            <Field class="mt-3" label="…или загрузить файлом">
+              <Input type="file" accept=".conf,text/plain" onchange={onReplaceFile} disabled={busy} />
+            </Field>
+          {/if}
+          <div class="mt-3">
+            <Button disabled={busy || replaceConf.trim().length === 0} onclick={replaceTunnel}>
+              {replacePhase === 'running' ? 'Применяю…' : 'Заменить конфиг'}
+            </Button>
+          </div>
+          {#if replacePhase === 'running'}
+            <p class="mt-3 flex items-center gap-2"><Spinner /> Применяю новый конфиг — при сбое прежний вернётся автоматически.</p>
+          {/if}
+          {@render actionNote('replace')}
+          {#if replaceLog && replacePhase !== 'idle'}
+            <details class="mt-3" open={replacePhase === 'fail'}>
+              <summary class="cursor-pointer text-sm text-muted-foreground">Журнал замены</summary>
+              <LogView text={replaceLog} class="mt-2" />
+            </details>
+          {/if}
         {/if}
 
         <!-- Full-тир не установлен: либо кнопка догрузки (железо тянет), либо честное объяснение,
              почему её нет. Молчать нельзя — иначе непонятно, почему функции из документации нет. -->
         {#if !s.full_installed}
-          <SectionTitle id="full-tier">Запасные туннели — если этот не выручает</SectionTitle>
+          <SectionTitle id="full-tier">Запасной туннель — если этот не выручает</SectionTitle>
           {#if s.full_capable}
             <p class="mt-2 text-sm text-muted-foreground"><strong>VLESS+Reality</strong> — если интернет через VPN
-              вообще не открывается. <strong>Hysteria2</strong> — если открывается, но тормозит и рвётся.
-              Кнопка скачает общий для них компонент <code class="rounded-sm bg-muted px-1 py-0.5 font-mono">sing-box</code>
+              вообще не открывается. Кнопка скачает для него компонент <code class="rounded-sm bg-muted px-1 py-0.5 font-mono">sing-box</code>
               (~11 МБ, на флеше ~42 МБ). Текущий туннель продолжит работать.</p>
             <div class="mt-3">
               <Button disabled={busy || fullPhase === 'running'} onclick={enableFullTier}>
@@ -813,8 +779,8 @@
               </details>
             {/if}
           {:else}
-            <p class="mt-2 text-sm text-muted-foreground">Запасные туннели (VLESS+Reality и Hysteria2)
-              <strong>на этом роутере недоступны</strong>{#if fullMissing}: {fullMissing}{/if}. Они считаются
+            <p class="mt-2 text-sm text-muted-foreground">Запасной туннель (VLESS+Reality)
+              <strong>на этом роутере недоступен</strong>{#if fullMissing}: {fullMissing}{/if}. Он считается
               программой, а не ядром — на слабом железе это медленнее самого интернета.</p>
             {#if s.full_missing?.includes('flash')}
               <p class="mt-2 text-sm text-muted-foreground">Место можно освободить (по SSH
@@ -848,7 +814,6 @@
               <Input type="file" accept=".conf,text/plain" onchange={(e) => onSwitchFile(e, switchPick)} disabled={busy} />
             </Field>
           {/if}
-          {#if switchPick === 'hysteria2'}{@render speedFields()}{/if}
           <div class="mt-3">
             <Button disabled={busy || (switchConfs[switchPick] ?? '').trim().length === 0} onclick={() => switchTo(pick)}>
               {switchPhase === 'running' && switchTarget === switchPick ? 'Переключаю…' : `Переключиться на ${pick.name}`}

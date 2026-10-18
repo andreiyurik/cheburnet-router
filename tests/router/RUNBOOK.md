@@ -55,7 +55,7 @@ bash tests/router/inventory.sh
 
 **Решение по результату:**
 - флеш ≥ 44 МБ и RAM ≥ 256 МБ → доступны все три протокола;
-- меньше → Full-тир (Reality/Hysteria2) на этом роутере не поднимется, проверяем только
+- меньше → Full-тир (Reality) на этом роутере не поднимется, проверяем только
   AmneziaWG. Это не баг: preflight гейтит железо осознанно.
 
 ## Шаг 2. Путь назад
@@ -83,7 +83,7 @@ ssh root@<роутер> 'sh /tmp/bootstrap.sh'
 - **скриптом**, если протоколов несколько и прогон повторяется:
 
 ```sh
-bash tests/router/install.sh awg        # или reality | hysteria2 | hysteria2-hop
+bash tests/router/install.sh awg        # или reality
 ```
 
 Скрипт зовёт тот же метод ubus, что мастер, и берёт конфиг со стенда: `.conf` для AmneziaWG,
@@ -110,7 +110,7 @@ bash tests/router/verify.sh
 Переключаемся из панели (блок «Сменить туннель») либо скриптом — он зовёт те же методы:
 
 ```sh
-bash tests/router/switch.sh reality        # awg | reality | hysteria2 | hysteria2-hop
+bash tests/router/switch.sh reality        # awg | reality
 bash tests/router/verify.sh
 ```
 

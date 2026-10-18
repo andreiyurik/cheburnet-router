@@ -15,7 +15,7 @@ import {
   heroKind, tunnelFallback, switchTargets, tunnelRowText, fullReasons, explainFullTierFail,
   fullMissingText, FULL_MISSING_LABELS,
   PROTOCOLS, PROTOCOL_ORDER, protocolList, protocolInfo, requiresFull, defaultProtocol,
-  withDeclaredSpeed, SPEED_DEFAULTS, SPEED_MAX, SUPPORT, checkConf, BRUTAL_WARNING,
+  SUPPORT, checkConf,
   moveProfile, lastSwitchText,
 } from './logic.js';
 
@@ -70,13 +70,23 @@ describe('parseDomains', () => {
 
 // Каталог протоколов — источник соответствия «протокол → поле конфига → ubus-метод» для всего UI.
 // Он обязан совпадать с PROTOCOLS движка: разъезд тут = панель зовёт метод не того протокола.
-describe('каталог протоколов (три оси покрытия)', () => {
-  it('порядок показа и полнота: awg, reality, hysteria2', () => {
-    expect(PROTOCOL_ORDER).toEqual(['awg', 'reality', 'hysteria2']);
+describe('каталог протоколов (оси покрытия)', () => {
+  it('порядок показа и полнота: awg, reality (заморожённый hysteria2 не выбирается)', () => {
+    expect(PROTOCOL_ORDER).toEqual(['awg', 'reality']);
     expect(protocolList().map((p) => p.id)).toEqual(PROTOCOL_ORDER);
   });
 
-  // why видно у всех трёх вариантов сразу — там ровно одна мысль; остальное уезжает в whyMore
+  // ADR 0009: роутер, оставшийся на Hysteria2, видит в панели правильное имя, а не «AmneziaWG».
+  it('hysteria2 — legacy: имя и Full-признак есть, ни формата, ни методов нет', () => {
+    const h = protocolInfo('hysteria2');
+    expect(h.name).toBe('Hysteria2');
+    expect(h.legacy).toBe(true);
+    expect(h.full).toBe(true);
+    expect(h.confKey).toBeUndefined();
+    expect(h.replaceMethod).toBeUndefined();
+  });
+
+  // why видно у всех вариантов сразу — там ровно одна мысль; остальное уезжает в whyMore
   // («Подробнее»). Разъезд обратно в три абзаца делает экран выбора нечитаемым.
   it('короткое объяснение остаётся коротким, длинное живёт отдельно', () => {
     for (const p of protocolList()) {
@@ -95,10 +105,9 @@ describe('каталог протоколов (три оси покрытия)',
     }
   });
 
-  it('confKey совпадает с ключами движка (awg_conf / reality_conf / hysteria2_conf)', () => {
+  it('confKey совпадает с ключами движка (awg_conf / reality_conf)', () => {
     expect(PROTOCOLS.awg.confKey).toBe('awg_conf');
     expect(PROTOCOLS.reality.confKey).toBe('reality_conf');
-    expect(PROTOCOLS.hysteria2.confKey).toBe('hysteria2_conf');
   });
 
   it('Full-тир требуют только userspace-протоколы; неизвестный id → дефолт (fail-safe)', () => {
@@ -124,22 +133,19 @@ describe('checkConf — формат конфига ловится в форме
   it('пусто → просьба вставить (для .conf — ещё и загрузить файлом)', () => {
     expect(checkConf('awg', '   ')).toMatch(/загрузите/i);
     expect(checkConf('reality', '')).toMatch(/vless:\/\//);
-    expect(checkConf('hysteria2', null)).toMatch(/hysteria2:\/\//);
   });
 
   it('правильный формат проходит, включая JSON-конфиг sing-box у Full-протоколов', () => {
     expect(checkConf('awg', '[Interface]\nPrivateKey = x')).toBe('');
     expect(checkConf('reality', 'vless://u@h:443?security=reality')).toBe('');
-    expect(checkConf('hysteria2', 'hy2://pw@h:443')).toBe('');
-    expect(checkConf('hysteria2', 'hysteria2://pw@h:443')).toBe('');
     expect(checkConf('reality', '{"outbounds":[]}')).toBe('');
-    expect(checkConf('hysteria2', '  {"outbounds":[]}')).toBe('');
+    expect(checkConf('reality', '  {"outbounds":[]}')).toBe('');
   });
 
   it('перепутанные форматы отбиваются с подсказкой про нужный', () => {
     expect(checkConf('awg', 'vless://u@h:443')).toMatch(/\[Interface\]/);
     expect(checkConf('reality', '[Interface]\nPrivateKey = x')).toMatch(/vless:\/\//);
-    expect(checkConf('hysteria2', 'vless://u@h:443')).toMatch(/hysteria2:\/\//);
+    expect(checkConf('reality', 'hysteria2://pw@h:443')).toMatch(/vless:\/\//);
   });
 
   // Обрезанный конфиг — вторая частая беда: человек копирует со второй строки.
@@ -165,112 +171,25 @@ describe('validateSetup — конфиг туннеля', () => {
     expect(r.error).toMatch(/vless:\/\//);
   });
 
-  it('hysteria2 при fullAvailable: пустая ссылка → просьба именно про hysteria2://', () => {
-    const r = validateSetup(fields({ protocol: 'hysteria2', fullAvailable: true, confs: { hysteria2: '' } }));
-    expect(r.error).toMatch(/hysteria2:\/\//);
-  });
-
   it('Full-протокол БЕЗ fullAvailable форсится в awg (железо не тянет)', () => {
-    for (const proto of ['reality', 'hysteria2']) {
-      const r = validateSetup(fields({
-        protocol: proto, fullAvailable: false,
-        confs: { awg: '[Interface]\nPrivateKey = x\n', reality: 'vless://x', hysteria2: 'hy2://pw@h:443' },
-      }));
-      expect(r.error).toBeUndefined();
-      expect(r.args.protocol).toBe('awg');
-      expect(r.args.awg_conf).toBeDefined();
-      expect(r.args.reality_conf).toBeUndefined();
-      expect(r.args.hysteria2_conf).toBeUndefined();
-    }
+    const r = validateSetup(fields({
+      protocol: 'reality', fullAvailable: false,
+      confs: { awg: '[Interface]\nPrivateKey = x\n', reality: 'vless://x' },
+    }));
+    expect(r.error).toBeUndefined();
+    expect(r.args.protocol).toBe('awg');
+    expect(r.args.awg_conf).toBeDefined();
+    expect(r.args.reality_conf).toBeUndefined();
   });
 
   // Конфиги других протоколов остаются в форме (человек мог их сравнивать), но в args уходит
   // РОВНО один — чужие credentials в payload установки незачем.
   it('в args уходит только конфиг активного протокола', () => {
-    const all = { awg: '[Interface]\n', reality: 'vless://x', hysteria2: 'hysteria2://pw@h:443' };
-    const r = validateSetup(fields({ protocol: 'hysteria2', fullAvailable: true, confs: all }));
-    expect(r.args.protocol).toBe('hysteria2');
-    expect(r.args.hysteria2_conf).toBe('hysteria2://pw@h:443');
-    expect('reality_conf' in r.args).toBe(false);
+    const all = { awg: '[Interface]\n', reality: 'vless://x' };
+    const r = validateSetup(fields({ protocol: 'reality', fullAvailable: true, confs: all }));
+    expect(r.args.protocol).toBe('reality');
+    expect(r.args.reality_conf).toBe('vless://x');
     expect('awg_conf' in r.args).toBe(false);
-  });
-});
-
-// Brutal: скорость канала объявляет ТОЛЬКО владелец и только осознанно. Дефолт (без up/down) —
-// это BBR в sing-box; выдуманная цифра включила бы Brutal и могла сделать связь хуже молча.
-describe('validateSetup — скорость канала для Hysteria2 (Brutal)', () => {
-  const hy2 = (over = {}) => fields({
-    protocol: 'hysteria2', fullAvailable: true,
-    confs: { hysteria2: 'hysteria2://pw@h.example.com:443?sni=s' },
-    ...over,
-  });
-
-  it('без ручного режима ссылка не переписывается (остаётся BBR)', () => {
-    const r = validateSetup(hy2());
-    expect(r.args.hysteria2_conf).toBe('hysteria2://pw@h.example.com:443?sni=s');
-  });
-
-  it('ручной режим дописывает down/up в ссылку', () => {
-    const r = validateSetup(hy2({ declareSpeed: true, speedDown: 80, speedUp: 20 }));
-    expect(r.args.hysteria2_conf).toBe('hysteria2://pw@h.example.com:443?sni=s&down=80&up=20');
-  });
-
-  it('нецелая/нулевая/запредельная скорость → ошибка, а не молчаливое искажение', () => {
-    expect(validateSetup(hy2({ declareSpeed: true, speedDown: 0, speedUp: 10 })).error).toMatch(/Скорость/);
-    expect(validateSetup(hy2({ declareSpeed: true, speedDown: 1.5, speedUp: 10 })).error).toMatch(/Скорость/);
-    expect(validateSetup(hy2({ declareSpeed: true, speedDown: '', speedUp: 10 })).error).toMatch(/Скорость/);
-    expect(validateSetup(hy2({ declareSpeed: true, speedDown: SPEED_MAX + 1, speedUp: 10 })).error)
-      .toMatch(new RegExp(String(SPEED_MAX)));
-  });
-
-  it('ручной режим у других протоколов ничего не меняет (Brutal есть только у Hysteria2)', () => {
-    const r = validateSetup(fields({ declareSpeed: true, speedDown: 80, speedUp: 20 }));
-    expect(r.args.awg_conf).toBe('[Interface]\nPrivateKey = x');
-  });
-
-  // Предупреждение показывается в мастере и в панели. Две копии одного текста разъезжаются при
-  // первой правке, поэтому оно одно — и обязано называть последствие («хуже»), иначе человек не
-  // свяжет завышенную цифру с обрывами: ошибок в логах при этом не будет.
-  it('предупреждение про завышенную скорость одно на весь UI и называет последствие', () => {
-    expect(BRUTAL_WARNING).toMatch(/хуже/);
-    expect(BRUTAL_WARNING).toMatch(/реально держит/);
-  });
-
-  it('консервативные подсказки существуют и отдача не больше приёма', () => {
-    expect(SPEED_DEFAULTS.down).toBeGreaterThan(0);
-    expect(SPEED_DEFAULTS.up).toBeGreaterThan(0);
-    expect(SPEED_DEFAULTS.up).toBeLessThanOrEqual(SPEED_DEFAULTS.down);
-  });
-});
-
-describe('withDeclaredSpeed — наши локальные параметры полосы', () => {
-  it('добавляет параметры к ссылке без query и с query', () => {
-    expect(withDeclaredSpeed('hysteria2://pw@h:443', 50, 10)).toBe('hysteria2://pw@h:443?down=50&up=10');
-    expect(withDeclaredSpeed('hy2://pw@h:443?sni=s', 50, 10)).toBe('hy2://pw@h:443?sni=s&down=50&up=10');
-  });
-
-  // #fragment — метка подключения; параметры ПОСЛЕ него парсер не увидит вовсе.
-  it('вставляет параметры ДО #метки, а не в конец строки', () => {
-    expect(withDeclaredSpeed('hysteria2://pw@h:443?sni=s#Дом', 50, 10))
-      .toBe('hysteria2://pw@h:443?sni=s&down=50&up=10#Дом');
-  });
-
-  it('уже указанную владельцем полосу не переписываем (уважаем вставленное)', () => {
-    const link = 'hysteria2://pw@h:443?up=5&down=5';
-    expect(withDeclaredSpeed(link, 100, 100)).toBe(link);
-  });
-
-  it('не-hy2 вход не трогаем вовсе (JSON-конфиг, vless, пусто)', () => {
-    expect(withDeclaredSpeed('{"outbounds":[]}', 50, 10)).toBe('{"outbounds":[]}');
-    expect(withDeclaredSpeed('vless://u@h:443', 50, 10)).toBe('vless://u@h:443');
-    expect(withDeclaredSpeed('', 50, 10)).toBe('');
-    expect(withDeclaredSpeed(null, 50, 10)).toBe('');
-  });
-
-  it('мусорные значения → ссылка без полосы (лучше BBR, чем выдуманный Brutal)', () => {
-    expect(withDeclaredSpeed('hysteria2://pw@h:443', 0, 10)).toBe('hysteria2://pw@h:443');
-    expect(withDeclaredSpeed('hysteria2://pw@h:443', 'быстро', 10)).toBe('hysteria2://pw@h:443');
-    expect(withDeclaredSpeed('hysteria2://pw@h:443', SPEED_MAX + 1, 10)).toBe('hysteria2://pw@h:443');
   });
 });
 
@@ -531,26 +450,8 @@ describe('endpoint / tunnelSummary — сводка без секретов', ()
     expect(s).not.toContain('pbk');
   });
 
-  // В hy2-ссылке до '@' стоит ПАРОЛЬ — он не должен попасть ни на экран подтверждения, ни в
-  // скриншот, который человек пришлёт с вопросом.
-  it('hysteria2-сводка: host:port без пароля и параметров обфускации', () => {
-    const s = tunnelSummary({
-      protocol: 'hysteria2',
-      hysteria2_conf: 'hysteria2://SUPERSECRET@srv.example.net:8443?obfs=salamander&obfs-password=OBFSSECRET#дом',
-    });
-    expect(s).toBe('Hysteria2 → srv.example.net:8443');
-    expect(s).not.toContain('SUPERSECRET');
-    expect(s).not.toContain('OBFSSECRET');
-  });
-
-  it('hysteria2 с port hopping: показываем адрес как есть, диапазон не теряем', () => {
-    expect(tunnelSummary({ protocol: 'hysteria2', hysteria2_conf: 'hysteria2://pw@srv.example.net:443,5000-6000' }))
-      .toBe('Hysteria2 → srv.example.net:443,5000-6000');
-  });
-
   it('Full-протокол без разбираемого хоста → просто имя протокола', () => {
     expect(tunnelSummary({ protocol: 'reality', reality_conf: '{"json": true}' })).toBe('VLESS+Reality');
-    expect(tunnelSummary({ protocol: 'hysteria2', hysteria2_conf: '{"json": true}' })).toBe('Hysteria2');
   });
 });
 
@@ -623,18 +524,19 @@ describe('heroKind / tunnelFallback / switchTargets / tunnelRowText — сост
     expect(f.targets).not.toContain('hysteria2');
   });
 
-  it('с активного Full-протокола предлагаем и другой Full, и возврат на AmneziaWG', () => {
+  it('с Reality предлагаем возврат на AmneziaWG; с заморожённой Hysteria2 — и Reality, и AWG', () => {
     expect(tunnelFallback(st({ protocol: 'reality', full_installed: true })))
-      .toEqual({ action: 'switch', targets: ['hysteria2', 'awg'] });
+      .toEqual({ action: 'switch', targets: ['awg'] });
     expect(tunnelFallback(st({ protocol: 'hysteria2', full_installed: true })))
       .toEqual({ action: 'switch', targets: ['reality', 'awg'] });
   });
 
   it('switchTargets: активный протокол не показываем; Full — только когда компонент стоит', () => {
     expect(switchTargets(st({ full_installed: false })).map((p) => p.id)).toEqual([]);
-    expect(switchTargets(st({ full_installed: true })).map((p) => p.id)).toEqual(['reality', 'hysteria2']);
+    expect(switchTargets(st({ full_installed: true })).map((p) => p.id)).toEqual(['reality']);
     expect(switchTargets(st({ protocol: 'reality', full_installed: true })).map((p) => p.id))
-      .toEqual(['awg', 'hysteria2']);
+      .toEqual(['awg']);
+    // С заморожённой Hysteria2 уходят на любой из поддерживаемых — её самой в списке нет и не было.
     expect(switchTargets(st({ protocol: 'hysteria2', full_installed: true })).map((p) => p.id))
       .toEqual(['awg', 'reality']);
   });
@@ -697,7 +599,7 @@ describe('installPlan — план шагов для чеклиста Installing
   });
 
   it('у каждого шага плана есть человеческая подпись из STEP_LABELS', () => {
-    for (const s of installPlan({ protocol: 'hysteria2', ssid: 'x' })) expect(s.label).toBeTruthy();
+    for (const s of installPlan({ protocol: 'reality', ssid: 'x' })) expect(s.label).toBeTruthy();
   });
 });
 
@@ -715,15 +617,6 @@ describe('validateSetup — field называет виновное поле', (
     const r = validateSetup(fields(patch));
     expect(r.error).toBeTruthy();
     expect(r.field).toBe(field);
-  });
-
-  it('speed — при кривых цифрах ручного режима Hysteria2', () => {
-    const r = validateSetup(fields({
-      protocol: 'hysteria2', fullAvailable: true,
-      confs: { hysteria2: 'hy2://pw@h:443' },
-      declareSpeed: true, speedDown: 0, speedUp: 10,
-    }));
-    expect(r.field).toBe('speed');
   });
 });
 

@@ -9,7 +9,7 @@
 Set up an OpenWrt router once — every device on the Wi-Fi is covered: phones, laptops, smart TVs,
 consoles. No app to install per device. The router decides per request: domains on **your** direct
 list take the plain route (full speed, real IP — banks and local services keep working), all other
-traffic goes into an encrypted tunnel. Three VPN protocols to pick from, switchable in the web
+traffic goes into an encrypted tunnel. Two VPN protocols to pick from, switchable in the web
 panel without reinstalling.
 
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12%2B-blue?logo=openwrt)](https://openwrt.org/)
@@ -33,10 +33,12 @@ panel without reinstalling.
   never out.
 - **No resident proxy on the fast path.** The data plane is pure kernel: dnsmasq + nftables +
   `ip rule` + AmneziaWG. Runs on a 128 MB RAM router; throughput is not bound by a userspace hop.
-- **Three protocols by failure mode, not by menu.** AmneziaWG (default, kernel, fastest),
-  VLESS+Reality (when the connection is not established at all), Hysteria2 (when the link is lossy
-  — measured: holds ~100% of throughput at 5% packet loss vs 9–14% for TCP-based transports).
-  The extra two run on `sing-box-tiny` and are gated by a hardware preflight.
+- **Two protocols by failure mode, not by menu.** AmneziaWG (default, kernel, fastest) and
+  VLESS+Reality (when the connection is not established at all). Reality runs on `sing-box-tiny`
+  and is gated by a hardware preflight. Hysteria2 used to be a third option and is now frozen
+  (tag `hysteria2-final`, [ADR 0009](docs/kb/decisions/0009-freeze-hysteria2.md)).
+- **Several AmneziaWG servers with failover.** Keep configs for different countries, switch in one
+  click, or let the watchdog move to the next server when the current one stops answering.
 - **Engine written in [ucode](https://github.com/jow-/ucode)**, not shell or Python: real types and
   exceptions, native uci/ubus bindings, zero runtime footprint, architecture-independent package
   (`PKGARCH:=all`). Setup wizard is Svelte talking to the router over ubus RPC.

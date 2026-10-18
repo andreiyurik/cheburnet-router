@@ -17,7 +17,7 @@ import { list_descriptor, validate_request, requires_token, make_error } from ".
 import { cidr_overlap, suggest_lan, valid_lan_ip, full_hw_missing } from "../preflight/preflight.uc";
 import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
 import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
-import { default_protocol, tunnel_info, tunnel_health, uses_singbox } from "../install/install.uc";
+import { default_protocol, tunnel_info, tunnel_health, uses_singbox, is_legacy } from "../install/install.uc";
 import { restart_tunnel_cmd } from "../watchdog/watchdog.uc";
 import { find as profile_find, add as profile_add, rename as profile_rename, remove as profile_remove,
          reorder as profile_reorder, public_view as profiles_view } from "../profiles/profiles.uc";
@@ -144,19 +144,24 @@ function proto_name(p) {
 	return PROTO_NAMES[p] ?? (p ?? "?");
 }
 
+// mismatch_error(active, target) — «меняйте сервер того протокола» неверно для замороженного
+// (ADR 0009): у него сервер не меняется, выход один — переключиться.
+function mismatch_error(active, target) {
+	if (is_legacy(active))
+		return make_error(sprintf("%s больше не поддерживается — сменить его сервер нельзя; переключитесь на %s",
+			proto_name(active), proto_name(target)));
+	return make_error(sprintf("активный туннель — %s; меняйте сервер того протокола или переключитесь на %s",
+		proto_name(active), proto_name(target)));
+}
+
 // validate_tunnel_conf(protocol, conf) → { ok, error } — СИНХРОННАЯ проверка туннель-конфига
 // ДО фона: битый вход отбиваем сразу, с ПОНЯТНОЙ причиной, а не заставляя пользователя ждать
-// провала всей установки и читать лог. Full-протоколы: собираем ERROR-строки singbox/plan.uc
-// точечно («нет pbk», «obfs без пароля», «pinSHA256 не поддерживается»); awg: генерик (INI-конфиг
-// обычно бит целиком) — как в replace_awg_conf.
-// Ветвимся по uses_singbox, а не по имени: один валидатор на все протоколы Full-тира.
+// провала всей установки и читать лог. Full-тир: собираем ERROR-строки singbox/plan.uc точечно
+// («нет pbk», «нет sni»); awg: генерик (INI-конфиг обычно бит целиком) — как в replace_awg_conf.
 function validate_tunnel_conf(protocol, conf) {
 	if (uses_singbox(protocol)) {
-		let expect = (protocol == "hysteria2")
-			? "нужна ссылка hysteria2://… или JSON-конфиг sing-box"
-			: "нужна ссылка vless://… или JSON-конфиг sing-box";
 		if (length(trim(conf ?? "")) == 0)
-			return { ok: false, error: expect };
+			return { ok: false, error: "нужна ссылка vless://… или JSON-конфиг sing-box" };
 		// Секрет (credentials сервера) → 600-temp, чистим сразу. plan.uc печатает ERROR: <причина>
 		// и выходит 1; ловим и код, и текст.
 		let tmp = STATE_DIR + "/tunnel-validate.txt";
@@ -374,7 +379,7 @@ function m_install(v) {
 	// DNS-провайдер (фильтрация): валидность id уже проверил enum на границе; нет → дефолт каталога.
 	let dns_provider = (type(v.dns_provider) == "string" && length(v.dns_provider) > 0)
 		? v.dns_provider : default_provider();
-	// Туннель: protocol awg (Light, дефолт) | reality | hysteria2 (Full). Валидность enum проверил
+	// Туннель: protocol awg (Light, дефолт) | reality (Full). Валидность enum проверил
 	// ubus.uc; нет → дефолт. run.uc по нему выбирает туннель-шаг (vpn/singbox) и tunnel_if.
 	let protocol = (type(v.protocol) == "string" && length(v.protocol) > 0)
 		? v.protocol : default_protocol();
@@ -672,8 +677,7 @@ function m_replace_awg_conf(v) {
 		respond(make_error("операция уже выполняется"));
 	let active_awg = load_cfg().protocol;
 	if (active_awg != "awg")
-		respond(make_error(sprintf("активный туннель — %s; меняйте сервер того протокола или переключитесь на AmneziaWG",
-			proto_name(active_awg))));
+		respond(mismatch_error(active_awg, "awg"));
 	if (length(trim(sh("uci -q get network.awg0 2>/dev/null"))) == 0)
 		respond(make_error("VPN не установлен — пройдите мастер установки"));
 
@@ -692,8 +696,7 @@ function m_replace_awg_conf(v) {
 }
 
 // replace_singbox_conf(protocol, conf) — замена сервера Full-протокола без переустановки.
-// ОДНА реализация на reality и hysteria2: у них общий config.json, общий шаг и общая проба, значит
-// и защитный пояс общий (ADR 0004). Методы-обёртки различаются только именем аргумента.
+// Одна реализация на весь Full-тир (общий config.json, шаг и проба — ADR 0004); сейчас это Reality.
 function replace_singbox_conf(protocol, conf) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
@@ -704,8 +707,7 @@ function replace_singbox_conf(protocol, conf) {
 	// switch_to_* (он переприменяет весь data-plane и умеет откатиться).
 	let active = load_cfg().protocol;
 	if (active != protocol)
-		respond(make_error(sprintf("активный туннель — %s; смените конфиг того протокола или переключитесь на %s",
-			proto_name(active), proto_name(protocol))));
+		respond(mismatch_error(active, protocol));
 	if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) != "y")
 		respond(make_error(sprintf("Full-тир не установлен — пройдите мастер с протоколом %s", proto_name(protocol))));
 
@@ -740,7 +742,7 @@ function m_install_full_tier(v) {
 
 // switch_tunnel(protocol, conf) — in-place смена активного туннеля на protocol.
 //
-// ОДНА реализация на все переходы (awg↔reality↔hysteria2): переиспользуем run.uc целиком — он
+// ОДНА реализация на все переходы (awg↔reality, и уход с замороженного hysteria2): run.uc целиком — он
 // делает snapshot → teardown НЕактивного туннеля → apply туннель+dns+doh+firewall(его интерфейс) →
 // health (handshake для awg / connectivity-probe для Full) → commit/rollback. Домены/DNS/режим
 // берём из сохранённого cfg (мастер НЕ проходим), пароль/Wi-Fi не трогаем.
@@ -1002,10 +1004,8 @@ else if (method == "replace_awg_conf")      m_replace_awg_conf(v);
 // Замена сервера и смена туннеля — тонкие обёртки над ОДНОЙ реализацией каждая: различаются
 // только протоколом и именем аргумента (оно же — имя формата конфига).
 else if (method == "replace_reality_conf")    replace_singbox_conf("reality", v.reality_conf);
-else if (method == "replace_hysteria2_conf")  replace_singbox_conf("hysteria2", v.hysteria2_conf);
 else if (method == "install_full_tier")     m_install_full_tier(v);
 else if (method == "switch_to_reality")     switch_tunnel("reality", v.reality_conf);
-else if (method == "switch_to_hysteria2")   switch_tunnel("hysteria2", v.hysteria2_conf);
 else if (method == "switch_to_awg")         switch_tunnel("awg", v.awg_conf);
 else if (method == "list_profiles")         m_list_profiles();
 else if (method == "add_profile")           m_add_profile(v);

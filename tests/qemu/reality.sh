@@ -15,8 +15,6 @@
 # проба обязана его отвергнуть. Полный трафик через живой Reality-сервер — только на железе с
 # внешним VPS (см. ADR 0004, раздел «что НЕ подтверждено живьём»).
 #
-# Замер потерь/goodput — отдельный стенд (make qemu-netem); Hysteria2-обвязка — qemu-hysteria.
-#
 # Запуск: make qemu-reality (нужен интернет для apk). ~4-6 мин с KVM.
 
 set -e -u -o pipefail
@@ -62,8 +60,8 @@ for pkg in kmod-tun ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus ip-full; do
 done
 
 FREE_BEFORE_SB="$(free_kb)"
-# sing-box-tiny — предпочтительная сборка Full-тира (ADR 0004): те же нужные теги (with_utls для
-# Reality, with_quic для Hysteria2), но легче. Она объявляет PROVIDES:=sing-box и ставит ТОТ ЖЕ
+# sing-box-tiny — предпочтительная сборка Full-тира (ADR 0004): тот же нужный тег (with_utls для
+# Reality), но легче. Она объявляет PROVIDES:=sing-box и ставит ТОТ ЖЕ
 # /usr/bin/sing-box — на это допущение опирается весь детект Full-тира, поэтому проверяем фактом.
 echo "→ Ставлю sing-box-tiny (замер веса Full-тира)"
 apk_try "apk add sing-box-tiny" || { echo "  ✗ sing-box-tiny не ставится из feed"; exit 1; }

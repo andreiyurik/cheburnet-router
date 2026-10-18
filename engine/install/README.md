@@ -57,8 +57,8 @@ ucode -R engine/install/run.uc --dry-run < install.json   # показать п�
 ```
 
 Вход: `{ protocol, <conf_key>, root_password, ssid, wifi_key, domains, routing_opts{wan_if,...},
-disable:[шаги], ... }`, где `protocol` ∈ `awg` | `reality` | `hysteria2`, а конфиг лежит под ключом
-этого протокола (`awg_conf` / `reality_conf` / `hysteria2_conf` — соответствие задаёт `PROTOCOLS` в
+disable:[шаги], ... }`, где `protocol` ∈ `awg` | `reality` (`hysteria2` — legacy, не ставится: ADR 0009), а конфиг лежит под ключом
+этого протокола (`awg_conf` / `reality_conf` — соответствие задаёт `PROTOCOLS` в
 [install.uc](install.uc), см. `tunnel_conf`). Домены обычно готовит [list](../list/)
 (user + community); конфиг туннеля, пароли и SSID приносит пользователь (через ubus-payload 600 —
 содержит секреты).
@@ -68,11 +68,10 @@ disable:[шаги], ... }`, где `protocol` ∈ `awg` | `reality` | `hysteria2
 - **`replace_vpn.uc`** — замена AWG-конфига без переустановки: snapshot → vpn-шаг → ждать
   **свежий** handshake (новее старта, до 30 с) → commit / restore (авто-rollback: пользователь
   не остаётся без туннеля). Запускает ubus-метод `replace_awg_conf` (фон+poll).
-- **`replace_singbox.uc`** — то же для Full-тира, ОДИН скрипт на оба протокола (у Reality и
-  Hysteria2 общий `config.json`, общий шаг и общая проба): бэкап `config.json` → snapshot →
+- **`replace_singbox.uc`** — то же для Full-тира (общий `config.json`, шаг и проба для любого
+  протокола на sing-box): бэкап `config.json` → snapshot →
   singbox-шаг → connectivity-probe через туннель (до 30 с) → commit / restore. `config.json`
-  бэкапим руками: uci-снимок внешний файл не покрывает. Запускают методы `replace_reality_conf` /
-  `replace_hysteria2_conf`.
+  бэкапим руками: uci-снимок внешний файл не покрывает. Запускает метод `replace_reality_conf`.
 - **`install-singbox.sh`** — догрузка бинаря Full-тира (`sing-box-tiny` → `sing-box`, критерий
   успеха = появился бинарь). Зовётся кнопкой `install_full_tier` и самим `run.uc` первым шагом,
   когда выбран Full-протокол, а бинаря нет: до snapshot, поэтому провал = чистый abort.

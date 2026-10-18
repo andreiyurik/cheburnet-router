@@ -50,7 +50,7 @@ let calls = [];
 // Аргументы последнего install — сценарий проверяет, что accept_risk реально доехал до движка
 // (без него preflight в run.uc откажет второй раз, и «красная кнопка» была бы обманом).
 let lastInstall = null;
-// Аргументы последней фоновой операции панели — ассерт «объявленная скорость доехала до движка».
+// Аргументы последней фоновой операции панели — ассерт «нужное поле доехало до движка».
 let lastBg = null;
 // Железо роутера для preflight: 'ok' | 'weak' (провалены только soft — флеш/RAM, пропуск
 // разрешён) | 'unsupported' (hard-провал arch — пропуск невозможен).
@@ -75,8 +75,8 @@ const profView = () => ({
 
 const ADMIN_METHODS = new Set([
   'set_mode', 'update_list', 'service_restart', 'set_dns_provider',
-  'replace_awg_conf', 'replace_reality_conf', 'replace_hysteria2_conf', 'install_full_tier',
-  'switch_to_reality', 'switch_to_hysteria2', 'switch_to_awg', 'factory_reset',
+  'replace_awg_conf', 'replace_reality_conf', 'install_full_tier',
+  'switch_to_reality', 'switch_to_awg', 'factory_reset',
   // Диагностика — read, но admin: даже вычищенная, она раскрывает топологию и логи.
   'diagnostics',
   // install_token — тем более admin: токен и есть признак «это владелец» на пути установки.
@@ -128,10 +128,8 @@ function ubusReply(method, args, session) {
     // Фоновые операции панели: старт → done за 2 поллинга, исход по bgResult.
     case 'install_full_tier':
     case 'switch_to_reality':
-    case 'switch_to_hysteria2':
     case 'switch_to_awg':
     case 'replace_reality_conf':
-    case 'replace_hysteria2_conf':
     case 'replace_awg_conf':
       bg = { polls: 0, method, args };
       lastBg = { method, args };
