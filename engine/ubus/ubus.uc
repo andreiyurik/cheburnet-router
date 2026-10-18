@@ -96,6 +96,35 @@ const REGISTRY = [
 	{ name: "replace_awg_conf", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
 	] },
+	// Профили AWG-серверов («страны», engine/profiles). id сверяет импурный слой со списком (p<N>
+	// из счётчика) — в путь файла ввод не попадает. Применение — фоном через replace_vpn.uc (автооткат).
+	{ name: "list_profiles", access: "read", auth: "admin", token: false, args: [] },
+	{ name: "add_profile", access: "write", auth: "admin", token: false, args: [
+		{ name: "name",     type: "string", required: true, maxlen: 64 },
+		{ name: "awg_conf", type: "string", required: true },
+	] },
+	{ name: "rename_profile", access: "write", auth: "admin", token: false, args: [
+		{ name: "id",   type: "string", required: true },
+		{ name: "name", type: "string", required: true, maxlen: 64 },
+	] },
+	// У активного профиля новый .conf применяется с автооткатом (фон), у остальных — просто сохраняется.
+	{ name: "update_profile_conf", access: "write", auth: "admin", token: false, args: [
+		{ name: "id",       type: "string", required: true },
+		{ name: "awg_conf", type: "string", required: true },
+	] },
+	{ name: "delete_profile", access: "write", auth: "admin", token: false, args: [
+		{ name: "id", type: "string", required: true },
+	] },
+	// Приоритет автосмены = порядок списка; ids — перестановка всех id.
+	{ name: "order_profiles", access: "write", auth: "admin", token: false, args: [
+		{ name: "ids", type: "array", required: true },
+	] },
+	{ name: "activate_profile", access: "write", auth: "admin", token: false, args: [
+		{ name: "id", type: "string", required: true },
+	] },
+	{ name: "set_failover", access: "write", auth: "admin", token: false, args: [
+		{ name: "enabled", type: "bool", required: true },
+	] },
 	// Смена сервера без переустановки (Full): снапшот → применить → probe → commit/restore
 	// (общий replace_singbox.uc).
 	{ name: "replace_reality_conf", access: "write", auth: "admin", token: false, args: [

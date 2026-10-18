@@ -555,3 +555,25 @@ export function hs(age) {
   if (age < 120) return `отвечал ${age} с назад`;
   return `отвечал ${Math.floor(age / 60)} мин назад`;
 }
+
+// moveProfile(ids, id, delta) → новый порядок серверов (delta −1 = выше по приоритету). Край
+// списка — без изменений: кнопка «выше» у первого ничего не ломает.
+export function moveProfile(ids, id, delta) {
+  const i = ids.indexOf(id), j = i + delta;
+  if (i < 0 || j < 0 || j >= ids.length) return ids;
+  const out = [...ids];
+  [out[i], out[j]] = [out[j], out[i]];
+  return out;
+}
+
+// lastSwitchText(ls, now) → '' | фраза о последней смене сервера (profiles.json last_switch,
+// unix-секунды). Автоматическую называем прямо: иначе человек не поймёт, почему «страна сменилась сама».
+export function lastSwitchText(ls, now) {
+  if (!ls || !ls.to) return '';
+  const min = Math.max(0, Math.floor((now - ls.at) / 60));
+  const when = min < 1 ? 'только что' : min < 60 ? `${min} мин назад`
+    : min < 1440 ? `${Math.floor(min / 60)} ч назад` : `${Math.floor(min / 1440)} дн назад`;
+  if (ls.auto)
+    return `Переключился сам ${when}: сервер «${ls.from ?? 'прежний'}» не отвечал, подключён «${ls.to}».`;
+  return `Подключён «${ls.to}» ${when}.`;
+}

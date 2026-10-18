@@ -561,6 +561,66 @@ test("check_lan_conflict без фактов сети → conflict=false с пр
 	ok(type(r.reason) == "string", "причина объяснена");
 });
 
+// === профили AWG-серверов ===
+
+const AWG_OK = "[Interface]\nPrivateKey = k=\nAddress = 10.0.0.2/32\n[Peer]\nPublicKey = p=\nEndpoint = 192.0.2.1:51820\n";
+
+test("профили: add/list/rename/order/set_failover — без секретов в ответе, .conf с правами 600", () => {
+	reset_sb();
+	put_cfg({ protocol: "awg", routing_opts: {} });
+	let r = rpc("add_profile", { name: "Германия", awg_conf: AWG_OK });
+	eq(r.profiles[0].name, "Германия", sprintf("%J", r));
+	ok(index(sprintf("%J", r), "PrivateKey") < 0, "конфиг в ответ не уезжает");
+	eq(trim(sh(sprintf("stat -c %%a %s/profiles/p1.conf", shq(ETC)))), "600", "приватный ключ — 600");
+	rpc("add_profile", { name: "Нидерланды", awg_conf: AWG_OK });
+	eq(rpc("rename_profile", { id: "p2", name: "Амстердам" }).profiles[1].name, "Амстердам");
+	eq(rpc("order_profiles", { ids: [ "p2", "p1" ] }).profiles[0].id, "p2");
+	eq(rpc("set_failover", { enabled: true }).auto, true);
+	eq(rpc("list_profiles", {}).auto, true, "флаг пережил перечитывание");
+});
+
+test("профили: битый .conf и дубль имени отбиты синхронно; чужой id — отказ", () => {
+	reset_sb();
+	err_has(rpc("add_profile", { name: "X", awg_conf: "мусор" }), "AWG-конфиг не разобран", "битый conf");
+	ok(!access(ETC + "/profiles.json"), "ничего не записано");
+	rpc("add_profile", { name: "X", awg_conf: AWG_OK });
+	err_has(rpc("add_profile", { name: "X", awg_conf: AWG_OK }), "уже есть", "дубль");
+	err_has(rpc("activate_profile", { id: "../../etc/shadow" }), "нет такого", "чужой id");
+	err_has(rpc("update_profile_conf", { id: "p9", awg_conf: AWG_OK }), "нет такого", "несуществующий id");
+});
+
+test("профили: активный удалить нельзя, неактивный — удаляется вместе с .conf", () => {
+	reset_sb();
+	rpc("add_profile", { name: "A", awg_conf: AWG_OK });
+	rpc("add_profile", { name: "B", awg_conf: AWG_OK });
+	let st = json(readfile(ETC + "/profiles.json")); st.active = "p1";
+	writefile(ETC + "/profiles.json", sprintf("%J", st));
+	err_has(rpc("delete_profile", { id: "p1" }), "подключён", "активный");
+	eq(length(rpc("delete_profile", { id: "p2" }).profiles), 1);
+	ok(!access(ETC + "/profiles/p2.conf"), "секрет удалённого профиля не остаётся на флеше");
+});
+
+// stub_replace() → «движок», где replace_vpn.uc лишь записывает, с чем его позвали.
+function stub_replace() {
+	let dir = SB + "/engine";
+	sh(sprintf("rm -rf %s; mkdir -p %s/install", shq(dir), shq(dir)));
+	writefile(dir + "/install/replace_vpn.uc",
+		sprintf("import { stdin, writefile } from \"fs\";\nwritefile(%s, join(\" \", ARGV) + \"|\" + stdin.read(\"all\"));\n",
+			shq(SB + "/replace-seen.txt")));
+	return dir;
+}
+
+test("activate_profile на AWG: фоном replace_vpn.uc --profile <id> с .conf профиля", () => {
+	reset_sb();
+	put_cfg({ protocol: "awg", routing_opts: {} });
+	rpc("add_profile", { name: "A", awg_conf: AWG_OK });
+	unlink(SB + "/replace-seen.txt");
+	let r = rpc("activate_profile", { id: "p1" }, { engine: stub_replace() });
+	eq(r.status, "started", sprintf("%J", r));
+	for (let i = 0; i < 50 && !access(SB + "/replace-seen.txt"); i++) sh("sleep 0.1");
+	eq(readfile(SB + "/replace-seen.txt"), "--profile p1|" + AWG_OK);
+});
+
 let rc = summary();
 sh(sprintf("rm -rf %s", SB));
 exit(rc);

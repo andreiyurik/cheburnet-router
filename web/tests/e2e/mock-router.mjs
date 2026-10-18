@@ -62,6 +62,16 @@ let forced = [];
 let fullMissing = null;
 // Свой список сайтов напрямую — движок хранит его между вызовами, панель читает его после входа.
 let userDomains = ['example.com'];
+// Сохранённые AWG-серверы (engine/profiles). Мок держит минимум логики движка: активный не
+// удаляется, активным сервер становится только после успешной фоновой операции.
+const freshProfiles = () => ({ profiles: [{ id: 'p1', name: 'Германия' }, { id: 'p2', name: 'Нидерланды' }],
+  active: 'p1', auto: false, next: 3, last_switch: null });
+let prof = freshProfiles();
+let failoverFails = false; // отказ set_failover — галочка обязана вернуться
+const profView = () => ({
+  profiles: prof.profiles.map((p) => ({ ...p, active: protocol === 'awg' && p.id === prof.active })),
+  active: prof.active, auto: prof.auto, max: 16, last_switch: prof.last_switch,
+});
 
 const ADMIN_METHODS = new Set([
   'set_mode', 'update_list', 'service_restart', 'set_dns_provider',
@@ -74,6 +84,8 @@ const ADMIN_METHODS = new Set([
   // Свой список — admin в обе стороны (rpcd-acl.json: get_domains в read, set_domains в write):
   // он говорит о привычках дома, поэтому не отдаётся без сессии.
   'get_domains', 'set_domains',
+  'list_profiles', 'add_profile', 'rename_profile', 'update_profile_conf', 'delete_profile',
+  'order_profiles', 'activate_profile', 'set_failover',
 ]);
 
 const PROVIDERS = [
@@ -153,6 +165,27 @@ function ubusReply(method, args, session) {
       userDomains = given.filter((d) => !rejected.includes(d));
       return [0, { user_domains: userDomains.length, direct_domains: userDomains.length, rejected }];
     }
+    case 'list_profiles':
+      return [0, profView()];
+    case 'add_profile':
+      if (prof.profiles.some((p) => p.name === args.name)) return [0, { error: `сервер «${args.name}» уже есть` }];
+      prof.profiles.push({ id: `p${prof.next++}`, name: args.name });
+      return [0, profView()];
+    case 'delete_profile':
+      if (args.id === prof.active) return [0, { error: 'этот сервер сейчас подключён — сначала переключитесь на другой' }];
+      prof.profiles = prof.profiles.filter((p) => p.id !== args.id);
+      return [0, profView()];
+    case 'order_profiles':
+      prof.profiles = args.ids.map((id) => prof.profiles.find((p) => p.id === id));
+      return [0, profView()];
+    case 'set_failover':
+      if (failoverFails) return [0, { error: 'не удалось сохранить' }];
+      prof.auto = args.enabled;
+      return [0, profView()];
+    case 'activate_profile':
+      bg = { polls: 0, method, args };
+      lastBg = { method, args };
+      return [0, { status: 'started', pid: 333 }];
     case 'check_lan_conflict':
       return [0, { conflict: false }];
     case 'preflight':
@@ -216,6 +249,7 @@ function ubusReply(method, args, session) {
           // новый протокол (и он не может «забыть» один из них).
           const sw = op.method.match(/^switch_to_(.+)$/);
           if (sw) protocol = sw[1];
+          if (op.method === 'activate_profile') prof.active = op.args.id;
           return [0, { done: true, result: 'ok', step: 'готово', log: `${op.method}: ok` }];
         }
         return [0, { done: true, result: 'fail', reason: bgReason, step: op.method,
@@ -259,6 +293,8 @@ createServer(async (req, res) => {
     forced = [];
     fullMissing = null;
     userDomains = ['example.com'];
+    prof = freshProfiles();
+    failoverFails = false;
     res.end('ok');
     return;
   }
@@ -277,6 +313,7 @@ createServer(async (req, res) => {
     if ('hw' in st) hw = st.hw;
     if ('forced' in st) forced = st.forced;
     if ('fullMissing' in st) fullMissing = st.fullMissing;
+    if ('failoverFails' in st) failoverFails = st.failoverFails;
     res.end('ok');
     return;
   }

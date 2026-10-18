@@ -56,6 +56,37 @@ test("replace_vpn: свежий handshake → commit (снимок выброш�
 	eq(r.rc, 0, "exit 0: " + r.out);
 	ok(index(r.out, "новый конфиг работает") >= 0, "успех подтверждён handshake'ом");
 	ok(!access(sb.snap), "commit: снимок выброшен");
+	let st = json(readfile(sb.etc + "/profiles.json"));
+	eq(st.active, "p1", "подтверждённый сервер запомнен активным профилем «Сервер 1»");
+	eq(readfile(sb.etc + "/profiles/p1.conf"), GOOD_AWG, "его .conf сохранён для переключения обратно");
+	cleanup(sb);
+});
+
+// two_profiles(sb) — «Германия» (активна) и «Нидерланды» уже сохранены.
+function two_profiles(sb) {
+	writefile(sb.etc + "/profiles.json", sprintf("%J", { profiles: [ { id: "p1", name: "Германия" },
+		{ id: "p2", name: "Нидерланды" } ], active: "p1", next_id: 3 }));
+}
+
+test("replace_vpn --profile --auto: commit отмечает профиль активным, смену — автоматической", () => {
+	let sb = mk_sandbox();
+	two_profiles(sb);
+	writefile(sb.fake + "/awg.out", sprintf("PUBKEY\t%d\n", time() + 3600));
+	let r = run_uc(sb, "install/replace_vpn.uc", "--profile p2 --auto", GOOD_AWG);
+	eq(r.rc, 0, r.out);
+	let st = json(readfile(sb.etc + "/profiles.json"));
+	eq(st.active, "p2");
+	eq(st.last_switch.from, "Германия");
+	eq(st.last_switch.auto, true);
+	cleanup(sb);
+});
+
+test("replace_vpn --profile: нет handshake → активный профиль НЕ меняется", () => {
+	let sb = mk_sandbox();
+	two_profiles(sb);
+	let r = run_uc(sb, "install/replace_vpn.uc", "--profile p2", GOOD_AWG);
+	eq(r.rc, 1, r.out);
+	eq(json(readfile(sb.etc + "/profiles.json")).active, "p1", "откатился — значит и не подключён");
 	cleanup(sb);
 });
 

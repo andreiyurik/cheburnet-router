@@ -17,6 +17,7 @@
 #   make qemu-route-fallback — T3i: маршрут туннеля переживает переподключение WAN (~5-8мин, интернет).
 #   make qemu-dns-fallback — T3j: DNS переживает смерть туннеля (~6-9мин, интернет).
 #   make qemu-emergency    — T3k: аварийный режим возвращает интернет и обратим (~6-9мин, интернет).
+#   make qemu-profiles — T3l: поля AWG 3.1 доходят до ядра; профили и автосмена откатываются (~5-8мин, интернет).
 #   make qemu-reality  — T3d: обвязка VLESS+Reality на живом OpenWrt (~4-6мин, интернет).
 #   make qemu-hysteria — T3e: обвязка Hysteria2 + замер веса Full-тира (~4-6мин, интернет).
 #   make qemu-netem    — T3f: ЗАМЕР goodput/CPU при потерях (netem), QUIC против TCP
@@ -25,7 +26,7 @@
 #                            поднятый стенд (tests/vps/) — не для CI.
 #   make qemu-live-install— T4b: успешная установка целиком + ребут поверх неё (стенд tests/vps/).
 
-.PHONY: lint test-engine test-netns test-shell poc-split qemu-smoke qemu-webui qemu-install qemu-rollback qemu-reboot qemu-route-fallback qemu-dns-fallback qemu-emergency qemu-reality qemu-hysteria qemu-netem qemu-live-vps qemu-live-install
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-smoke qemu-webui qemu-install qemu-rollback qemu-reboot qemu-route-fallback qemu-dns-fallback qemu-emergency qemu-profiles qemu-reality qemu-hysteria qemu-netem qemu-live-vps qemu-live-install
 
 lint:
 	@bash tests/lint.sh
@@ -113,6 +114,9 @@ qemu-emergency:
 # применяет config.json + netifd-маршрут singtun0 (half-routes), connectivity-probe
 # корректно отвергает недостижимый сервер (fail-safe), teardown чистит. Рабочий
 # Reality-сервер НЕ нужен (герметично). Нужен интернет для apk. ~4-6 мин с KVM.
+qemu-profiles:
+	@bash tests/qemu/profiles.sh
+
 qemu-reality:
 	@bash tests/qemu/reality.sh
 

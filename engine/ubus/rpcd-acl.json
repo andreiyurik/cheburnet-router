@@ -31,6 +31,7 @@
                     "check_lan_conflict",
                     "install_progress",
                     "get_domains",
+                    "list_profiles",
                     "diagnostics"
                 ]
             }
@@ -53,6 +54,13 @@
                     "switch_to_hysteria2",
                     "switch_to_awg",
                     "replace_awg_conf",
+                    "add_profile",
+                    "rename_profile",
+                    "update_profile_conf",
+                    "delete_profile",
+                    "order_profiles",
+                    "activate_profile",
+                    "set_failover",
                     "replace_reality_conf",
                     "replace_hysteria2_conf",
                     "install_token",

@@ -185,6 +185,15 @@ test("validate: switch_to_hysteria2 — admin, hysteria2_conf обязателе
 	eq(requires_token("switch_to_hysteria2"), false, "admin-метод — токен не нужен");
 });
 
+test("validate: профили — обязательные поля, типы, длина имени", () => {
+	eq(validate_request("add_profile", { name: "Германия", awg_conf: "[Interface]\n" }).ok, true);
+	eq(validate_request("add_profile", { name: "Германия" }).ok, false, "без конфига — отказ");
+	eq(validate_request("rename_profile", { id: "p1", name: "" }).ok, false, "пустое имя");
+	eq(validate_request("order_profiles", { ids: "p1,p2" }).ok, false, "ids — массив");
+	eq(validate_request("set_failover", { enabled: "yes" }).ok, false, "enabled — bool");
+	eq(validate_request("set_failover", { enabled: true }).ok, true);
+});
+
 test("validate: switch_to_awg — admin, awg_conf обязателен, без токена (обратный свитч)", () => {
 	eq(validate_request("switch_to_awg", { awg_conf: "[Interface]\n" }).ok, true);
 	eq(validate_request("switch_to_awg", {}).ok, false, "awg_conf обязателен");
@@ -259,8 +268,11 @@ test("acl_split: тиры выведены из реестра", () => {
 	ok(index(s.admin.write, "install") >= 0, "install тоже доступен admin");
 	ok(index(s.admin.write, "service_restart") >= 0, "service_restart в admin write");
 	ok(index(s.admin.write, "factory_reset") >= 0, "factory_reset в admin write");
-	deep_eq(s.admin.read, [ "preflight", "status", "check_lan_conflict", "install_progress", "get_domains", "diagnostics" ],
-		"admin read = все read");
+	deep_eq(s.admin.read, [ "preflight", "status", "check_lan_conflict", "install_progress", "get_domains",
+		"list_profiles", "diagnostics" ], "admin read = все read");
+	// Профили серверов — только admin: имена стран и сам факт VPN соседу по LAN не отдаём.
+	for (let m in [ "list_profiles", "add_profile", "activate_profile", "set_failover" ])
+		ok(index(s.unauth.read, m) < 0 && index(s.unauth.write, m) < 0, m + " недоступен без входа");
 	// install_token — write, а не read: метод ВЫПУСКАЕТ токен, если его нет. Классифицировать
 	// создание состояния как чтение было бы нечестно по отношению к ACL.
 	ok(index(s.admin.write, "install_token") >= 0, "install_token в admin write (он создаёт состояние)");

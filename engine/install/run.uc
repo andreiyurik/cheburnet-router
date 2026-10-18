@@ -14,6 +14,7 @@ import { detect_wan } from "../lib/wan.uc";
 import { evaluate, soft_failed_ids } from "../preflight/preflight.uc";
 import { config_path as sb_config_path } from "../steps/singbox/singbox.uc";
 import { tunnel_connectivity } from "./probe.uc";
+import { commit_conf, clear_active } from "../profiles/store.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -292,6 +293,12 @@ if (outcome.action == "commit") {
 	if (tunnel_applied)
 		run_stdin(step_cmd(tinfo.step, " --arm"), "");
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
+	// AWG-сервер подтверждён health-check'ом — запоминаем его профилем (engine/profiles): к нему
+	// можно будет вернуться из панели, и автосмена знает, с какого сервера начинать перебор.
+	if (tunnel_applied && protocol == "awg" && cfg.awg_conf)
+		commit_conf(cfg.awg_conf, cfg.profile_id, false);
+	else if (tunnel_applied && protocol != "awg")
+		clear_active();
 	// Сторож: с этого момента роутер живёт годами сам, и раз в 5 минут кто-то должен смотреть,
 	// на месте ли data-plane (engine/watchdog). Ставим ТОЛЬКО на успешном пути — на откате
 	// сторожить нечего.

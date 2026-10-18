@@ -16,6 +16,7 @@ import {
   fullMissingText, FULL_MISSING_LABELS,
   PROTOCOLS, PROTOCOL_ORDER, protocolList, protocolInfo, requiresFull, defaultProtocol,
   withDeclaredSpeed, SPEED_DEFAULTS, SPEED_MAX, SUPPORT, checkConf, BRUTAL_WARNING,
+  moveProfile, lastSwitchText,
 } from './logic.js';
 
 // Контакт поддержки показывается на трёх экранах и вшивается в прошивку на годы. Проверяем
@@ -723,5 +724,23 @@ describe('validateSetup — field называет виновное поле', (
       declareSpeed: true, speedDown: 0, speedUp: 10,
     }));
     expect(r.field).toBe('speed');
+  });
+});
+
+describe('серверы (профили AWG)', () => {
+  it('moveProfile: соседи меняются местами, край — без изменений', () => {
+    expect(moveProfile(['p1', 'p2', 'p3'], 'p2', -1)).toEqual(['p2', 'p1', 'p3']);
+    expect(moveProfile(['p1', 'p2', 'p3'], 'p2', 1)).toEqual(['p1', 'p3', 'p2']);
+    expect(moveProfile(['p1', 'p2'], 'p1', -1)).toEqual(['p1', 'p2']);
+    expect(moveProfile(['p1', 'p2'], 'p9', 1)).toEqual(['p1', 'p2']);
+  });
+
+  it('lastSwitchText: автосмену называет прямо, ручную — коротко', () => {
+    const now = 10000;
+    expect(lastSwitchText(null, now)).toBe('');
+    expect(lastSwitchText({ from: 'Германия', to: 'Нидерланды', at: now - 300, auto: true }, now))
+      .toBe('Переключился сам 5 мин назад: сервер «Германия» не отвечал, подключён «Нидерланды».');
+    expect(lastSwitchText({ from: 'A', to: 'B', at: now - 7200, auto: false }, now)).toBe('Подключён «B» 2 ч назад.');
+    expect(lastSwitchText({ from: null, to: 'B', at: now, auto: true }, now)).toContain('«прежний»');
   });
 });

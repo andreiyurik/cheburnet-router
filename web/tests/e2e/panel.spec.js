@@ -328,3 +328,65 @@ test('панель: без сессии — блок входа, «Сохран�
   await expect(page.getByText('Сохранено: своих сайтов 2', { exact: false })).toBeVisible();
   await expect(page.getByText('пропущены: !!!', { exact: false })).toBeVisible();
 });
+
+// Серверы («страны»): переключение — фоновая операция с откатом, итог печатается у списка.
+// Список стран — только после входа (как и свой список доменов), поэтому сценарии входят.
+async function openServers(page, request) {
+  await openPanel(page, request, { adminLocked: true });
+  await expand(page, 'servers-group');
+  await page.locator('#servers-group').getByRole('button', { name: 'Войти' }).click();
+  const modal = page.getByRole('dialog');
+  await modal.getByLabel('Пароль').fill('panel-pass-1');
+  await modal.getByRole('button', { name: 'Войти' }).click();
+  await expect(page.locator('[data-slot=profiles]')).toBeVisible();
+}
+
+test('панель: серверы — подключить другой, сбой возвращает прежний, активный не удалить', async ({ page, request }) => {
+  await openServers(page, request);
+
+  const list = page.locator('[data-slot=profiles]');
+  const row = (name) => list.getByRole('listitem').filter({ hasText: name });
+  await expect(row('Германия').getByText('подключён')).toBeVisible();
+  // Подключённый сервер удалить нельзя — кнопки просто нет.
+  await expect(row('Германия').getByRole('button', { name: 'Удалить' })).toHaveCount(0);
+
+  await row('Нидерланды').getByRole('button', { name: 'Подключить' }).click();
+  await expect(page.getByText('Подключён «Нидерланды» — трафик идёт через него.')).toBeVisible({ timeout: 15_000 });
+  await expect(row('Нидерланды').getByText('подключён')).toBeVisible();
+
+  // Сбой: прежний сервер вернулся, и панель говорит это прямо.
+  await request.post('/__set', { data: { bgResult: 'fail' } });
+  await row('Германия').getByRole('button', { name: 'Подключить' }).click();
+  await expect(page.getByText('Сервер «Германия» не ответил — прежний подключён обратно', { exact: false }))
+    .toBeVisible({ timeout: 15_000 });
+  await expect(row('Нидерланды').getByText('подключён')).toBeVisible();
+});
+
+test('панель: серверы — добавить, поднять приоритет, включить автосмену', async ({ page, request }) => {
+  await openServers(page, request);
+
+  await page.getByRole('button', { name: '+ Добавить сервер' }).click();
+  await page.getByLabel('Название').fill('Финляндия');
+  await page.getByLabel('Конфиг AmneziaWG').fill('[Interface]\nPrivateKey = k=\nAddress = 10.0.0.2/32\n[Peer]\nPublicKey = p=\nEndpoint = 192.0.2.1:51820\n');
+  await page.getByRole('button', { name: 'Сохранить сервер' }).click();
+  await expect(page.getByText('Сервер «Финляндия» сохранён.')).toBeVisible();
+
+  const items = page.locator('[data-slot=profiles] > li');
+  await expect(items).toHaveCount(3);
+  await items.nth(2).getByRole('button', { name: 'Выше по приоритету' }).click();
+  await expect(items.nth(1)).toContainText('Финляндия');
+
+  const auto = page.getByRole('checkbox', { name: /Переключаться самому/ });
+  await auto.check();
+  await expect(page.getByText('Автосмена включена.')).toBeVisible();
+  await expect(auto).toBeChecked();
+});
+
+test('панель: серверы — отказ сохранить автосмену возвращает галочку', async ({ page, request }) => {
+  await openServers(page, request);
+  await request.post('/__set', { data: { failoverFails: true } });
+  const auto = page.getByRole('checkbox', { name: /Переключаться самому/ });
+  await auto.click();
+  await expect(page.getByText('не удалось сохранить')).toBeVisible();
+  await expect(auto).not.toBeChecked();
+});
