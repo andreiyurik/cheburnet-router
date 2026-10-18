@@ -13,27 +13,25 @@
 #     обещание «настроил один раз — работает годами», проверенное целиком, а не по частям
 #     (T3h проверяет персистентность всего, КРОМЕ самого туннеля: там сервера нет).
 #
-# Протокол — Hysteria2: он подтверждён насквозь на этом стенде. Reality на пути разработки
-# непроверяем (ClientHello переписывается — см. ADR 0004), а AmneziaWG требует ключа владельца.
+# Протокол — AmneziaWG (дефолт продукта): стенд поднимает её сервер, fetch-links.sh кладёт клиентский
+# конфиг в tests/vps/awg-client.conf. До заморозки (ADR 0009) здесь была Hysteria2; Reality на пути
+# разработки непроверяем (ClientHello переписывается — см. ADR 0004).
 #
-# Нужен поднятый стенд: tests/vps/provision-lab.sh + tests/vps/fetch-links.sh → tests/vps/links.env.
+# Нужен поднятый стенд: tests/vps/provision-lab.sh + tests/vps/fetch-links.sh → tests/vps/awg-client.conf.
 # В CI НЕ входит (зависит от арендованного сервера). ~10-14 мин с KVM.
 
 set -e -u -o pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-LINKS="$HERE/../vps/links.env"
-[ -f "$LINKS" ] || {
-    echo "✗ нет $LINKS — поднимите стенд (tests/vps/README.md) и заберите ссылки fetch-links.sh"
+AWG_CONF_FILE="$HERE/../vps/awg-client.conf"
+[ -s "$AWG_CONF_FILE" ] || {
+    echo "✗ нет $AWG_CONF_FILE — поднимите стенд (tests/vps/README.md) и заберите конфиг fetch-links.sh"
     exit 1; }
-# shellcheck source=/dev/null
-. "$LINKS"
-[ -n "${HYSTERIA2:-}" ] || { echo "✗ в links.env нет HYSTERIA2"; exit 1; }
 
-# Адрес VPS — из самой ссылки: единственный источник, не дублируем руками.
-VPS_IP="$(printf '%s' "$HYSTERIA2" | sed -n 's|.*@\([^:/?#]*\).*|\1|p')"
-[ -n "$VPS_IP" ] || { echo "✗ не удалось извлечь адрес сервера из ссылки"; exit 1; }
-echo "→ Стенд: $VPS_IP (протокол Hysteria2)"
+# Адрес VPS — из Endpoint самого конфига: единственный источник, не дублируем руками.
+VPS_IP="$(sed -n 's/^Endpoint *= *\[\([^]]*\)\].*/\1/p; t; s/^Endpoint *= *\([^:]*\):.*/\1/p' "$AWG_CONF_FILE" | head -1)"
+[ -n "$VPS_IP" ] || { echo "✗ не удалось извлечь адрес сервера из Endpoint"; exit 1; }
+echo "→ Стенд: $VPS_IP (протокол AmneziaWG)"
 
 . "$HERE/lib.sh"
 
@@ -56,10 +54,8 @@ for pkg in ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus rpcd rpcd-mod-file nf
     apk_try "apk add $pkg" || { echo "  ✗ не встал $pkg"; exit 1; }
 done
 
-# AmneziaWG нужна не для туннеля (он Hysteria2), а чтобы прошёл preflight: в его deps есть
-# kmod-amneziawg, и `apk add --simulate` на него отвечает успехом только когда пакет доступен.
-# На роутере его ставит bootstrap независимо от выбранного протокола — здесь тот же путь.
-echo "→ AmneziaWG (для preflight-deps; туннель будет Hysteria2)"
+# AmneziaWG — и туннель, и preflight-deps: ставим тем же путём, что bootstrap на роутере.
+echo "→ AmneziaWG (vendored awg-инсталлятор, как bootstrap)"
 vm_scp "$REPO_ROOT/vendor/amneziawg-install.sh" "/tmp/awg-install.sh"
 awg_ok=0
 for attempt in 1 2 3; do
@@ -95,13 +91,13 @@ ok "без туннеля выходим с $DIRECT_IP (≠ $VPS_IP)"
 
 # ─── УСТАНОВКА через ubus, как из мастера ─────────────────────────────────────
 echo
-echo "→ ПОЛНАЯ установка через ubus (protocol=hysteria2, живой сервер)"
+echo "→ ПОЛНАЯ установка через ubus (protocol=awg, живой сервер)"
 vm_ssh "echo live-install-token > /etc/cheburnet/install-token"
-python3 - "$HYSTERIA2" > "$WORK/install-args.json" <<'PY'
+python3 - "$AWG_CONF_FILE" > "$WORK/install-args.json" <<'PY'
 import json, sys
 print(json.dumps({
-    "protocol": "hysteria2",
-    "hysteria2_conf": sys.argv[1],
+    "protocol": "awg",
+    "awg_conf": open(sys.argv[1]).read(),
     "root_password": "live-install-pass",
     "domains": ["example.com"],
     "accept_risk": True,
@@ -111,7 +107,7 @@ PY
 vm_scp "$WORK/install-args.json" /tmp/install-args.json
 out="$(vm_ssh "ubus call cheburnet install \"\$(cat /tmp/install-args.json)\"")"
 echo "$out" | grep -q 'started' || { bad "install не запустился: $out"; exit 1; }
-ok "установка запущена (sing-box догрузится сам, затем шаги и health-check)"
+ok "установка запущена (шаги, затем health-check по рукопожатию)"
 
 # Завершение ждём через SERIAL-консоль, а не по ssh. Успешная установка МЕНЯЕТ доступ к роутеру:
 # ставит пароль root (шаг rootpass идёт только на commit-пути) и уводит весь непрямой трафик в
@@ -162,9 +158,9 @@ serial_check rc0 "grep -qx 0 /tmp/cheburnet/done" \
 ok "код выхода 0 — впервые проверяется ветка commit"
 
 echo "→ ПРОВЕРКА 1: конфигурация записана, протокол верный"
-serial_check cfg "grep -q hysteria2 /etc/cheburnet/install.json" \
-    || { bad "install.json не сохранил protocol=hysteria2"; serial_show "cat /etc/cheburnet/install.json"; exit 1; }
-ok "install.json записан с protocol=hysteria2"
+serial_check cfg "grep -q '\"protocol\": *\"awg\"' /etc/cheburnet/install.json" \
+    || { bad "install.json не сохранил protocol=awg"; serial_show "cat /etc/cheburnet/install.json"; exit 1; }
+ok "install.json записан с protocol=awg"
 
 echo "→ ПРОВЕРКА 2: одноразовый токен СНЯТ (пропуск использован)"
 # На откате токен ОСТАЁТСЯ (проверено в T3g), на успехе обязан исчезнуть — иначе он продолжает
@@ -187,9 +183,9 @@ ok "installed=true, tunnel_health=up"
 
 echo "→ ПРОВЕРКА 5: трафик ВЫХОДИТ в интернет через сервер"
 # Пин host-route на туннель — тот же приём, что в пробе: без него запрос ушёл бы на WAN и соврал.
-serial_check exitip "ip route replace $ECHO_IP dev singtun0 >/dev/null 2>&1; uclient-fetch -q -T 20 -O - https://$ECHO_HOST/ 2>/dev/null | grep -q $VPS_IP" \
+serial_check exitip "ip route replace $ECHO_IP dev awg0 >/dev/null 2>&1; uclient-fetch -q -T 20 -O - https://$ECHO_HOST/ 2>/dev/null | grep -q $VPS_IP" \
     || { bad "внешний адрес не равен адресу VPS — туннель поднят, но трафик через него не идёт"
-         serial_show "logread | grep -i sing-box | tail -8"; exit 1; }
+         serial_show "awg show awg0 | grep -v -i key; logread | grep -iE 'amneziawg|awg0' | tail -8"; exit 1; }
 ok "внешний адрес = $VPS_IP — байты реально дошли через туннель"
 
 # ─── ПЕРЕЗАГРУЗКА поверх РАБОЧЕЙ установки ───────────────────────────────────
@@ -205,22 +201,22 @@ sleep 3
 ok "роутер загрузился"
 
 echo "→ ПРОВЕРКА 6: туннель поднялся САМ (без вмешательства)"
-# Ждём с лимитом: sing-box стартует по procd, интерфейс появляется через секунды после загрузки.
+# Ждём с лимитом: netifd поднимает awg0 после загрузки, рукопожатие — через секунды после него.
 tun_up=0
 for _ in $(seq 1 20); do
-    if serial_check tun "ip link show dev singtun0 2>/dev/null | grep -qE '[<,]UP[,>]' && pgrep sing-box >/dev/null 2>&1"; then
+    if serial_check tun "awg show awg0 latest-handshakes 2>/dev/null | awk '\$2 > 0 {f=1} END {exit !f}'"; then
         tun_up=1; break
     fi
     sleep 5
 done
 [ "$tun_up" = "1" ] || {
     bad "туннель НЕ поднялся сам после ребута — для пользователя это «после перезагрузки нет интернета»"
-    serial_show "logread | grep -i sing-box | tail -10"; exit 1; }
-ok "singtun0 поднят, sing-box работает — автостарт сработал"
+    serial_show "logread | grep -iE 'amneziawg|awg0' | tail -10"; exit 1; }
+ok "awg0 поднят, рукопожатие есть — автостарт сработал"
 
 echo "→ ПРОВЕРКА 7: трафик СНОВА идёт через сервер после ребута"
-serial_check exitip2 "ip route replace $ECHO_IP dev singtun0 >/dev/null 2>&1; uclient-fetch -q -T 25 -O - https://$ECHO_HOST/ 2>/dev/null | grep -q $VPS_IP" \
-    || { bad "после ребута трафик через туннель не идёт"; serial_show "logread | grep -i sing-box | tail -10"; exit 1; }
+serial_check exitip2 "ip route replace $ECHO_IP dev awg0 >/dev/null 2>&1; uclient-fetch -q -T 25 -O - https://$ECHO_HOST/ 2>/dev/null | grep -q $VPS_IP" \
+    || { bad "после ребута трафик через туннель не идёт"; serial_show "logread | grep -iE 'amneziawg|awg0' | tail -10"; exit 1; }
 ok "внешний адрес = $VPS_IP — связь через сервер восстановилась сама"
 
 echo "→ ПРОВЕРКА 8: панель после ребута не врёт"

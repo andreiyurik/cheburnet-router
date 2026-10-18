@@ -1,5 +1,5 @@
 // replace_singbox.uc — замена конфига Full-тира без переустановки (импурно, router-side).
-//   printf '%s' "$conf" | ucode -R replace_singbox.uc   # vless://… | hysteria2://… | JSON sing-box
+//   printf '%s' "$conf" | ucode -R replace_singbox.uc   # vless://… | JSON sing-box
 //
 // Один скрипт на все протоколы Full-тира: общий шаг, config.json и проба (ADR 0004). Защитный
 // пояс (аналог replace_vpn.uc): бэкап config.json → snapshot UCI → singbox-шаг → connectivity-

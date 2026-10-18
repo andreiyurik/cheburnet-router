@@ -74,33 +74,20 @@ test('мастер: полный проход от проверки до пан�
 });
 
 // Full-железо: мастер даёт выбор туннеля ПО СИМПТОМУ и предвыбирает VLESS+Reality — самая частая
-// поломка в фильтрующей сети — «VPN вообще не поднимается». Здесь же проверяем весь путь Hysteria2,
-// включая осознанный опт-ин объявленной скорости (Brutal).
-test('мастер на Full-железе: выбор по симптому, дефолт Reality, установка Hysteria2 со скоростью', async ({ page, request }) => {
+// поломка в фильтрующей сети — «VPN вообще не поднимается». Заморожённой Hysteria2 (ADR 0009) нет.
+test('мастер на Full-железе: выбор по симптому, дефолт Reality, установка Reality', async ({ page, request }) => {
   await request.post('/__set', { data: { hw: 'full' } });
   await page.goto('/cheburnet/?token=TESTTOKEN');
   await page.getByRole('button', { name: 'Продолжить' }).click();
 
   // Варианты названы через поломку, а не через протокол; название протокола — подписью.
   await expect(page.getByText('Интернет через VPN вообще не открывается')).toBeVisible();
-  await expect(page.getByText('Интернет открывается, но тормозит и рвётся')).toBeVisible();
   await expect(page.getByText('Роутер слабый или хочется максимально быстро')).toBeVisible();
+  await expect(page.getByText('Интернет открывается, но тормозит и рвётся')).toHaveCount(0);
   // Дефолт на подходящем железе — Reality (и поле просит именно vless://).
   await expect(page.getByRole('radio', { name: /Интернет через VPN вообще не открывается/ })).toBeChecked();
-  await expect(page.getByLabel('Ссылка vless:// или конфиг sing-box')).toBeVisible();
-
-  // Выбираем «тормозит и рвётся» → поле меняется на hysteria2://.
-  await page.getByRole('radio', { name: /Интернет открывается, но тормозит/ }).check();
-  await page.getByLabel('Ссылка hysteria2:// или конфиг sing-box')
-    .fill('hysteria2://pw@hy2.example.com:443,5000-6000?sni=example.com');
-
-  // Скорость: по умолчанию автоматически; включаем ручной режим — обязано появиться
-  // предупреждение, что завышение делает ХУЖЕ (иначе поле вредит молча).
-  await expect(page.getByRole('radio', { name: /Подбирать автоматически/ })).toBeChecked();
-  await page.getByRole('radio', { name: /Указать вручную/ }).check();
-  await expect(page.getByText('связь станет', { exact: false })).toBeVisible();
-  await page.getByLabel('Скорость приёма (Мбит/с)').fill('80');
-  await page.getByLabel('Скорость отдачи (Мбит/с)').fill('20');
+  await page.getByLabel('Ссылка vless:// или конфиг sing-box')
+    .fill('vless://uuid-secret@srv.example.com:443?security=reality&pbk=k&sni=example.com');
 
   await page.getByLabel('Пароль администратора (root)').fill('secret-pass-1');
   await page.getByLabel('Повторите пароль').fill('secret-pass-1');
@@ -108,25 +95,23 @@ test('мастер на Full-железе: выбор по симптому, д�
   await page.getByLabel('Пароль Wi-Fi').fill('wifi-pass-1');
   await page.getByRole('button', { name: 'Установить' }).click();
 
-  // Сводка: протокол и адрес сервера — БЕЗ пароля (он в hy2-ссылке стоит до '@').
-  await expect(page.getByText('Hysteria2 → hy2.example.com:443,5000-6000')).toBeVisible();
-  await expect(page.getByText('pw@')).toHaveCount(0);
+  // Сводка: протокол и адрес сервера — БЕЗ uuid (он в ссылке стоит до '@' и по сути пароль).
+  await expect(page.getByText('VLESS+Reality → srv.example.com:443')).toBeVisible();
+  await expect(page.getByText('uuid-secret')).toHaveCount(0);
   await page.getByRole('button', { name: 'Установить' }).click();
   await expect(page.getByText('Готово! Роутер настроен')).toBeVisible({ timeout: 15_000 });
 
-  // Аргументы доехали до движка: правильный протокол, правильное поле, объявленная скорость.
   const args = await (await request.get('/__last-install')).json();
-  expect(args.protocol).toBe('hysteria2');
-  expect(args.hysteria2_conf).toContain('down=80');
-  expect(args.hysteria2_conf).toContain('up=20');
-  expect('reality_conf' in args).toBe(false);
+  expect(args.protocol).toBe('reality');
+  expect(args.reality_conf).toContain('vless://');
+  expect('awg_conf' in args).toBe(false);
 });
 
 // Пограничное железо (дефолт мока: RAM хватает на Light, не хватает на Full) — самый частый
-// реальный случай жалобы «не мог выбрать протокол»: строки VLESS+Reality/Hysteria2 не спрятаны,
+// реальный случай жалобы «не мог выбрать протокол»: строка VLESS+Reality не спрятана,
 // а честно задизейблены, и раньше единственным сигналом была мелкая серая подпись — на глаз не
 // отличить от рабочей строки. Проверяем, что сейчас есть явный бейдж и что клик по замку не выбирает.
-test('мастер на пограничном железе: Full-протоколы задизейблены с явным бейджем «недоступно»', async ({ page }) => {
+test('мастер на пограничном железе: Full-протокол задизейблен с явным бейджем «недоступно»', async ({ page }) => {
   await page.goto('/cheburnet/?token=TESTTOKEN');
   await page.getByRole('button', { name: 'Продолжить' }).click();
 
@@ -135,13 +120,11 @@ test('мастер на пограничном железе: Full-протоко
   await expect(page.getByRole('radio', { name: /Роутер слабый или хочется максимально быстро/ })).toBeEnabled();
 
   const reality = page.getByRole('radio', { name: /Интернет через VPN вообще не открывается/ });
-  const hysteria = page.getByRole('radio', { name: /Интернет открывается, но тормозит/ });
   await expect(reality).toBeDisabled();
-  await expect(hysteria).toBeDisabled();
 
   // Бейдж — видимый сигнал у самой строки, а не только мелкий текст под ней.
-  await expect(page.locator('[data-slot=badge]')).toHaveCount(2);
-  await expect(page.getByText('недоступно', { exact: true })).toHaveCount(2);
+  await expect(page.locator('[data-slot=badge]')).toHaveCount(1);
+  await expect(page.getByText('недоступно', { exact: true })).toHaveCount(1);
 
   // Причина недоступности напечатана явно (движок отдал её из preflight.tiers.full_checks).
   await expect(page.getByText('RAM ≈ 120 МБ', { exact: false })).toBeVisible();

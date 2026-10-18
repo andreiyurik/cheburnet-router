@@ -5,7 +5,7 @@ import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { pick_wan_fallback } from "../../lib/route.uc";
 import { route_uses_iface, fresh_handshake,
          enabled_steps, snapshot_scope, dirty_steps,
-         decide_outcome, protocol_ids, default_protocol, tunnel_info, tunnel_ifs,
+         decide_outcome, protocol_ids, is_legacy, default_protocol, tunnel_info, tunnel_ifs,
          uses_singbox, tunnel_conf,
          disabled_tunnels, handshake_state, tunnel_health,
          HANDSHAKE_FRESH_S } from "../install.uc";
@@ -75,17 +75,18 @@ test("disabled_tunnels возвращает только туннель-шаги
 });
 
 // --- модель протокола (три оси покрытия, ADR 0004) ---
-test("protocol_ids / default_protocol: awg (дефолт), reality, hysteria2", () => {
-	deep_eq(protocol_ids(), [ "awg", "reality", "hysteria2" ]);
+test("protocol_ids / default_protocol: awg (дефолт), reality; legacy hysteria2 не устанавливается", () => {
+	deep_eq(protocol_ids(), [ "awg", "reality" ], "enum ubus: заморожённый протокол не поставить заново");
 	eq(default_protocol(), "awg", "дефолт — лёгкий туннель в ядре, а не userspace");
+	ok(is_legacy("hysteria2") && !is_legacy("reality") && !is_legacy("bogus"));
 });
 
 test("tunnel_info: шаг, интерфейс и conf_key каждого протокола; неизвестный → дефолт", () => {
 	deep_eq(tunnel_info("awg"), { step: "vpn", tunnel_if: "awg0", conf_key: "awg_conf" });
 	deep_eq(tunnel_info("reality"),
 		{ step: "singbox", tunnel_if: "singtun0", conf_key: "reality_conf" });
-	deep_eq(tunnel_info("hysteria2"),
-		{ step: "singbox", tunnel_if: "singtun0", conf_key: "hysteria2_conf" });
+	// ШАГ и интерфейс legacy остаются: живой роутер на Hysteria2 продолжает работать (ADR 0009).
+	deep_eq(tunnel_info("hysteria2"), { step: "singbox", tunnel_if: "singtun0", legacy: true });
 	deep_eq(tunnel_info("bogus"), { step: "vpn", tunnel_if: "awg0", conf_key: "awg_conf" },
 		"fail-safe на дефолт");
 });
@@ -112,8 +113,8 @@ test("tunnel_conf: конфиг берётся по conf_key активного 
 	let cfg = { awg_conf: "AWG", reality_conf: "vless://x", hysteria2_conf: "hy2://y" };
 	eq(tunnel_conf("awg", cfg), "AWG");
 	eq(tunnel_conf("reality", cfg), "vless://x");
-	eq(tunnel_conf("hysteria2", cfg), "hy2://y");
-	eq(tunnel_conf("hysteria2", {}), "", "нет ключа → пусто (шаг честно упадёт, а не возьмёт чужой)");
+	eq(tunnel_conf("hysteria2", cfg), "", "у legacy нет conf_key: новый конфиг ему не подать");
+	eq(tunnel_conf("reality", {}), "", "нет ключа → пусто (шаг честно упадёт, а не возьмёт чужой)");
 	eq(tunnel_conf("reality", { reality_conf: 42 }), "", "не строка → пусто");
 	eq(tunnel_conf("bogus", cfg), "AWG", "неизвестный протокол → ключ дефолтного");
 });

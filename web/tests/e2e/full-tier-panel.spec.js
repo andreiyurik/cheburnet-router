@@ -1,11 +1,11 @@
 // full-tier-panel.spec.js — e2e: запасные туннели (Full-тир) в панели.
 //
 // Продуктовая рамка: у человека сломано что-то конкретное, и панель обязана вести к тому туннелю,
-// который ЭТУ поломку лечит (ADR 0004, три оси покрытия). Проверяем именно это:
+// который ЭТУ поломку лечит (ADR 0004). Проверяем именно это:
 //   • на РАБОТАЮЩЕМ Full-туннеле панель не кричит «не работает» (регресс: судила по AWG-рукопожатию,
-//     которого у VLESS/Hysteria2 нет, и вела заменять AWG-конфиг — движок такую замену не принимает);
+//     которого у VLESS нет, и вела заменять AWG-конфиг — движок такую замену не принимает);
 //   • когда активный туннель мёртв, панель ведёт к запасному пути ровно в этот момент;
-//   • с AmneziaWG подсказка НЕ предлагает Hysteria2: он тоже UDP и упал бы вместе с AWG;
+//   • заморожённая Hysteria2 (ADR 0009) нигде не предлагается, а роутер на ней ведут уйти;
 //   • мёртвый Full-туннель ведёт к своей починке (своя ссылка), а не к AWG-конфигу;
 //   • слабое железо получает честное объяснение, почему кнопки нет;
 //   • провал догрузки различает «нет места» и «нет интернета».
@@ -51,16 +51,31 @@ test('рабочий Reality: панель не врёт про «туннель
   await expect(page.getByRole('heading', { name: 'Замена сервера (AmneziaWG)' })).toHaveCount(0);
 });
 
-// Тот же регресс для второго Full-протокола: у Hysteria2 рукопожатия тоже нет.
-test('рабочий Hysteria2: свой зелёный статус и своя починка', async ({ page, request }) => {
+// Роутер, оставшийся на заморожённой Hysteria2 (ADR 0009): туннель работает и назван своим именем
+// (не «AmneziaWG» по fail-safe каталога), но замены сервера нет — только уход на поддерживаемый.
+test('legacy Hysteria2: зелёный статус под своим именем, вместо замены сервера — путь уйти', async ({ page, request }) => {
   await openPanel(page, request, { installed: true, protocol: 'hysteria2', fullCapable: true, fullInstalled: true });
   await expandTunnel(page);
 
   await expect(page.getByText('Hysteria2 активен')).toBeVisible();
   await expandDetails(page);
   await expect(page.getByText('поднят (Hysteria2)')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Замена сервера (Hysteria2)' })).toBeVisible();
-  await expect(page.getByLabel('Ссылка hysteria2:// или конфиг sing-box')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Hysteria2 больше не поддерживается' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Заменить конфиг' })).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: /Протокол: VLESS\+Reality/ })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /Протокол: AmneziaWG/ })).toBeVisible();
+});
+
+test('мёртвый legacy Hysteria2: «Что делать» ведёт сменить туннель, а не вставить свежий конфиг', async ({ page, request }) => {
+  await request.post('/__vpn-down');
+  await openPanel(page, request, { installed: true, protocol: 'hysteria2', fullCapable: true, fullInstalled: true });
+
+  const banner = page.locator('[data-slot=alert][data-variant=destructive]');
+  await expect(banner.getByRole('link', { name: /переключитесь/ })).toBeVisible();
+  await expect(banner.getByRole('link', { name: /свежий конфиг/ })).toHaveCount(0);
+  const hint = page.getByText('Попробуйте поддерживаемый туннель', { exact: false });
+  await expect(hint.getByRole('link', { name: 'VLESS+Reality' })).toBeVisible();
+  await expect(hint.getByRole('link', { name: 'AmneziaWG' })).toBeVisible();
 });
 
 test('мёртвый AWG на подходящем железе: панель ведёт доустановить компонент', async ({ page, request }) => {
@@ -76,7 +91,7 @@ test('мёртвый AWG на подходящем железе: панель в
   // в закрытый <details> и человек оказывался бы на пустом месте.
   await hint.getByRole('link', { name: 'добавить VLESS+Reality' }).click();
   await expect(page.locator('#tunnel-group')).toHaveJSProperty('open', true);
-  await expect(page.getByRole('heading', { name: /Запасные туннели/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Запасной туннель/ })).toBeVisible();
 });
 
 test('мёртвый AWG, компонент уже стоит: ведёт переключиться, а не ставить заново', async ({ page, request }) => {
@@ -89,9 +104,9 @@ test('мёртвый AWG, компонент уже стоит: ведёт пе�
   // КЛЮЧЕВОЕ: Hysteria2 в подсказке «не открывается» быть НЕ должно — он работает по UDP, как и
   // AmneziaWG, значит сеть, которая режет UDP, ломает их вместе. Предлагать его тут = гонять по кругу.
   await expect(hint.getByRole('link', { name: 'Hysteria2' })).toHaveCount(0);
-  // Но в общем блоке «Сменить туннель» он доступен — как осознанный выбор, а не как лечение.
+  // И в общем блоке «Сменить туннель» его нет: протокол заморожен (ADR 0009).
   await expandTunnel(page);
-  await expect(page.getByRole('radio', { name: /Протокол: Hysteria2/ })).toBeVisible();
+  await expect(page.getByRole('radio', { name: /Протокол: Hysteria2/ })).toHaveCount(0);
 });
 
 test('мёртвый Reality: починка — свежая ссылка, есть куда уйти', async ({ page, request }) => {
@@ -103,17 +118,17 @@ test('мёртвый Reality: починка — свежая ссылка, ес
   // Плашка «Что делать» ведёт к замене ссылки этого же протокола.
   const banner = page.locator('[data-slot=alert][data-variant=destructive]');
   await expect(banner.getByRole('link', { name: /свежий конфиг/ })).toBeVisible();
-  // С Full-туннеля предлагаем и второй Full, и возврат на лёгкий AmneziaWG.
+  // С Reality уйти можно на лёгкий AmneziaWG; заморожённой Hysteria2 среди вариантов нет.
   const hint = page.getByText('дело, скорее всего, не в сервере', { exact: false });
-  await expect(hint.getByRole('link', { name: 'Hysteria2' })).toBeVisible();
   await expect(hint.getByRole('link', { name: 'AmneziaWG' })).toBeVisible();
+  await expect(hint.getByRole('link', { name: 'Hysteria2' })).toHaveCount(0);
 });
 
-test('мало RAM: честно объясняем, почему запасных туннелей нет', async ({ page, request }) => {
+test('мало RAM: честно объясняем, почему запасного туннеля нет', async ({ page, request }) => {
   await openPanel(page, request, { installed: true, protocol: 'awg', fullCapable: false, fullInstalled: false });
   await expandTunnel(page);
 
-  await expect(page.getByText('на этом роутере недоступны', { exact: false })).toBeVisible();
+  await expect(page.getByText('на этом роутере недоступен', { exact: false })).toBeVisible();
   await expect(page.getByText('от 256 МБ оперативной памяти', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Установить компонент' })).toHaveCount(0);
 });
@@ -168,7 +183,7 @@ test('здоровый AWG, компонент не докачан: в свод�
 
   await link.click();
   await expect(page.locator('#tunnel-group')).toHaveJSProperty('open', true);
-  await expect(page.getByRole('heading', { name: /Запасные туннели/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Запасной туннель/ })).toBeVisible();
 });
 
 test('здоровый Reality, компонент уже стоит: в сводке видна ссылка «сменить»', async ({ page, request }) => {
