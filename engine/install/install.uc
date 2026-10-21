@@ -10,8 +10,8 @@ import { is_clean_config } from "../rollback/rollback.uc";
 // rollback: clean = откатывается uci-snapshot'ом; dirty = состояние ядра, safe-fail через teardown.
 // needs — что шагу подать на stdin (для run.uc): awg_conf | domains | none.
 const STEPS = [
-	// needs=tunnel_conf у ОБОИХ туннель-шагов: какой именно текст подать (AWG .conf / vless://),
-	// решает conf_key активного протокола — см. PROTOCOLS и step_stdin в run.uc.
+	// needs=tunnel_conf у ОБОИХ туннель-шагов: текст подаёт conf_key активного протокола (см. PROTOCOLS
+	// и step_stdin в run.uc); у legacy-протоколов ключа нет — шаг sing-box новый конфиг не принимает.
 	// Так добавление протокола не требует новой ветки в раздаче stdin.
 	{ name: "vpn",      configs: [ "network" ],                  rollback: "clean", needs: "tunnel_conf" },
 	// singbox — альтернативный туннель (Full-тир). Взаимоисключающий с vpn (см. PROTOCOLS).
@@ -26,15 +26,14 @@ const STEPS = [
 	{ name: "firewall", configs: [ "firewall" ],                 rollback: "dirty", needs: "domains" },
 ];
 
-// Туннельные протоколы — оси покрытия, каждая лечит свою поломку (ADR 0004): awg — ядро, слабое
-// железо, дефолт; reality — трафик не проходит (DPI/блок UDP). conf_key — ключ конфига в payload.
-// ИНВАРИАНТ: протоколы на sing-box делят ОДИН шаг и интерфейс — data-plane, здоровье, сторож и
-// сброс не зависят от имени протокола, только от шага.
-// legacy — заморожен (hysteria2, ADR 0009): установить/переключиться нельзя, но уже работающий
-// роутер живёт на том же шаге sing-box, пока владелец не уйдёт на другой протокол.
+// Туннельные протоколы. Ставится только awg (ядро, дефолт). conf_key — ключ конфига в payload.
+// ИНВАРИАНТ: протоколы на sing-box делят ОДИН шаг и интерфейс — здоровье, сторож и сброс зависят
+// от шага, не от имени протокола.
+// legacy — заморожен (reality, hysteria2: [[0010-freeze-full-tier]]): установить/переключиться нельзя,
+// но уже работающий роутер живёт на шаге sing-box, пока владелец не уйдёт на AWG.
 const PROTOCOLS = {
 	awg:       { step: "vpn",     tunnel_if: "awg0",     conf_key: "awg_conf" },
-	reality:   { step: "singbox", tunnel_if: "singtun0", conf_key: "reality_conf" },
+	reality:   { step: "singbox", tunnel_if: "singtun0", legacy: true },
 	hysteria2: { step: "singbox", tunnel_if: "singtun0", legacy: true },
 };
 const DEFAULT_PROTOCOL = "awg";
@@ -190,8 +189,7 @@ const HANDSHAKE_FRESH_S = 300;
 // протокол. ЧИСТАЯ. Шрам: раньше судили только по AWG-рукопожатию — рабочий Reality (нет awg0)
 // показывался как «не работает». Ветвится по ШАГУ (см. ИНВАРИАНТ у PROTOCOLS), не по имени.
 // facts: hs_age (сек с рукопожатия|null), sb_running, tun_up. awg — свежий hs = up. sing-box —
-// процесс+TUN живы = up (слабее: не тождественно трафику; настоящая достижимость — probe.uc,
-// дороже, не на каждый поллинг).
+// процесс+TUN живы = up (legacy Full-тир; слабее: не тождественно трафику, но дёшево для поллинга).
 function tunnel_health(protocol, facts) {
 	let f = facts ?? {};
 	if (uses_singbox(protocol ?? default_protocol()))
@@ -218,22 +216,7 @@ function fresh_handshake(hs, started) {
 	return false;
 }
 
-// route_uses_iface(route_out, iface) — идёт ли маршрут через iface по выводу `ip route get <ip>`.
-// ЧИСТАЯ: probe.uc этим подтверждает, что форсированный host-route лёг именно на туннель, а не
-// утёк на WAN. Формат первой строки: "<ip> dev <iface> ..."; токен берём строго ПОСЛЕ "dev" —
-// не подстрокой (dev singtun0 ≠ dev singtun00).
-function route_uses_iface(route_out, iface) {
-	let s = trim(route_out ?? "");
-	if (length(s) == 0 || length(iface ?? "") == 0) return false;
-	let first = split(s, "\n")[0];
-	let toks = split(trim(first), /[ \t]+/);
-	for (let i = 0; i + 1 < length(toks); i++)
-		if (toks[i] == "dev" && toks[i + 1] == iface)
-			return true;
-	return false;
-}
 
 export { protocol_ids, is_legacy, default_protocol, tunnel_info, tunnel_ifs, uses_singbox, tunnel_conf,
          disabled_tunnels, enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
-         handshake_state, fresh_handshake, tunnel_health, HANDSHAKE_FRESH_S,
-         route_uses_iface };
+         handshake_state, fresh_handshake, tunnel_health, HANDSHAKE_FRESH_S };

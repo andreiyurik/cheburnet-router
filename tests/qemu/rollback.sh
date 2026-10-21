@@ -231,4 +231,4 @@ echo "✓ T3g pass — полная установка и откат на жив
 echo "  оркестратор доходит до health-check, мёртвый сервер НЕ выдаётся за успех,"
 echo "  steps/vpn/apply.uc применяется по-настоящему (модуль в ядре), откат возвращает"
 echo "  network/dnsmasq/install.json как было, токен остаётся, интернет на роутере цел."
-echo "  Успешный commit (живой сервер) — qemu-live-vps."
+echo "  Успешный commit (живой сервер) — qemu-live-install."

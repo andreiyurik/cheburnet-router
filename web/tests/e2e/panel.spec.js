@@ -1,5 +1,5 @@
-// panel.spec.js — e2e панели управления: Full-тир (opt-in), переключение и замена туннеля,
-// уход с заморожённой Hysteria2, серверы AWG, модалка входа. Ветки, которые не исполняет ни vitest (нет DOM),
+// panel.spec.js — e2e панели управления: уход с legacy Full-тира, серверы AWG, диагностика, сброс,
+// модалка входа. Ветки, которые не исполняет ни vitest (нет DOM),
 // ни wizard.spec (happy-path мастера): стейт-машина busy/poll в Status.svelte и протокол-зависимый
 // выбор ubus-метода.
 
@@ -25,102 +25,18 @@ async function expand(page, id) {
   await expect(g).toHaveJSProperty('open', true);
 }
 
-test('панель: кнопка догрузки ставит компонент и открывает переключение', async ({ page, request }) => {
-  await openPanel(page, request, { fullCapable: true, fullInstalled: false });
+// Fail-safe смены туннеля: не поднялся AWG — legacy Full-туннель возвращён, и панель так и говорит.
+test('панель: уход с legacy Reality на AWG не удался → прежний туннель возвращён', async ({ page, request }) => {
+  await openPanel(page, request, { protocol: 'reality', bgResult: 'fail' });
   await expand(page, 'tunnel-group');
 
-  // Слабое железо кнопку не видит (гейт full_capable) — здесь она обязана быть.
-  const btn = page.getByRole('button', { name: 'Установить компонент' });
-  await expect(btn).toBeVisible();
-  await btn.click();
+  await page.getByLabel('VPN-конфиг (AmneziaWG, файл .conf)').last()
+    .fill('[Interface]\nPrivateKey = k=\nAddress = 10.0.0.2/32\n[Peer]\nPublicKey = p=\nEndpoint = 192.0.2.1:51820\n');
+  await page.getByRole('button', { name: 'Переключиться на AmneziaWG' }).click();
 
-  // Фон + поллинг → успех: подсказка про переключение, а после refresh статус
-  // full_installed=true открывает блок «Сменить туннель» с VLESS+Reality.
-  await expect(page.getByText('Компонент установлен. Ниже появился блок', { exact: false })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('heading', { name: 'Сменить туннель' })).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('radio', { name: /Протокол: VLESS\+Reality/ })).toBeVisible();
-  // Заморожённая Hysteria2 (ADR 0009) среди вариантов не появляется.
-  await expect(page.getByRole('radio', { name: /Протокол: Hysteria2/ })).toHaveCount(0);
-
-  const calls = await (await request.get('/__calls')).json();
-  expect(calls).toContain('install_full_tier');
-});
-
-test('панель: сбой догрузки → честное сообщение, текущий туннель не тронут', async ({ page, request }) => {
-  await openPanel(page, request, { fullCapable: true, fullInstalled: false, bgResult: 'fail' });
-  await expand(page, 'tunnel-group');
-
-  await page.getByRole('button', { name: 'Установить компонент' }).click();
-  await expect(page.getByText('Не удалось скачать компонент', { exact: false })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Текущий туннель не затронут', { exact: false })).toBeVisible();
-  // Кнопка снова доступна для повтора.
-  await expect(page.getByRole('button', { name: 'Установить компонент' })).toBeEnabled();
-});
-
-test('панель: переключение AWG→Reality — успех меняет протокол на месте', async ({ page, request }) => {
-  await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'awg' });
-  await expand(page, 'tunnel-group');
-
-  await expect(page.getByRole('heading', { name: 'Сменить туннель' })).toBeVisible();
-  await page.getByRole('radio', { name: /Протокол: VLESS\+Reality/ }).check();
-  await page.getByLabel('Ссылка vless:// или конфиг sing-box')
-    .fill('vless://uuid@reality.example.com:443?security=reality&pbk=k&sni=example.com');
-  await page.getByRole('button', { name: 'Переключиться на VLESS+Reality' }).click();
-
-  await expect(page.getByText('Переключено на VLESS+Reality — туннель работает.')).toBeVisible({ timeout: 15_000 });
-  // После refresh протокол reality → секция замены становится Reality-вариантом.
-  await expect(page.getByRole('heading', { name: 'Замена сервера (VLESS+Reality)' })).toBeVisible({ timeout: 10_000 });
-
-  const calls = await (await request.get('/__calls')).json();
-  expect(calls).toContain('switch_to_reality');
-});
-
-test('панель: переключение не удалось → fail-safe-сообщение, протокол остался AWG', async ({ page, request }) => {
-  await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'awg', bgResult: 'fail' });
-  await expand(page, 'tunnel-group');
-
-  await page.getByRole('radio', { name: /Протокол: VLESS\+Reality/ }).check();
-  await page.getByLabel('Ссылка vless:// или конфиг sing-box')
-    .fill('vless://uuid@dead.example.com:443?security=reality&pbk=k&sni=example.com');
-  await page.getByRole('button', { name: 'Переключиться на VLESS+Reality' }).click();
-
-  // Ключевое обещание UI: прежний туннель возвращён автоматически.
-  await expect(page.getByText('прежний туннель (AmneziaWG) возвращён автоматически', { exact: false }))
+  await expect(page.getByText('прежний туннель (VLESS+Reality) возвращён автоматически', { exact: false }))
     .toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('heading', { name: 'Замена сервера (AmneziaWG)' })).toBeVisible();
-});
-
-test('панель: при protocol=reality замена конфига зовёт replace_reality_conf, не awg', async ({ page, request }) => {
-  await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'reality' });
-  await expand(page, 'tunnel-group');
-
-  await expect(page.getByRole('heading', { name: 'Замена сервера (VLESS+Reality)' })).toBeVisible();
-  await page.getByLabel('Ссылка vless:// или конфиг sing-box').first()
-    .fill('vless://uuid@new.example.com:443?security=reality&pbk=k&sni=example.com');
-  await page.getByRole('button', { name: 'Заменить конфиг' }).click();
-
-  await expect(page.getByText('Новый сервер применён (VLESS+Reality)', { exact: false })).toBeVisible({ timeout: 15_000 });
-
-  const calls = await (await request.get('/__calls')).json();
-  expect(calls).toContain('replace_reality_conf');
-  expect(calls).not.toContain('replace_awg_conf');
-});
-
-// Роутер на заморожённой Hysteria2 (ADR 0009) уходит обычным switch_to_*: тот же путь с откатом.
-test('панель: с legacy Hysteria2 переключение на Reality зовёт switch_to_reality', async ({ page, request }) => {
-  await openPanel(page, request, { fullCapable: true, fullInstalled: true, protocol: 'hysteria2' });
-  await expand(page, 'tunnel-group');
-
-  await expect(page.getByRole('button', { name: 'Заменить конфиг' })).toHaveCount(0);
-  await page.getByRole('radio', { name: /Протокол: VLESS\+Reality/ }).check();
-  await page.getByLabel('Ссылка vless:// или конфиг sing-box')
-    .fill('vless://uuid@new.example.com:443?security=reality&pbk=k&sni=example.com');
-  await page.getByRole('button', { name: 'Переключиться на VLESS+Reality' }).click();
-
-  await expect(page.getByText('Переключено на VLESS+Reality', { exact: false })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole('heading', { name: 'Замена сервера (VLESS+Reality)' })).toBeVisible({ timeout: 10_000 });
-  const bg = await (await request.get('/__last-bg')).json();
-  expect(bg.method).toBe('switch_to_reality');
+  await expect(page.getByRole('heading', { name: 'VLESS+Reality больше не поддерживается' })).toBeVisible();
 });
 
 // Результат действия обязан появляться У СВОЕЙ кнопки. Раньше он печатался единственным абзацем

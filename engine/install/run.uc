@@ -13,8 +13,7 @@ import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
 import { detect_wan } from "../lib/wan.uc";
 import { evaluate, soft_failed_ids } from "../preflight/preflight.uc";
 import { config_path as sb_config_path } from "../steps/singbox/singbox.uc";
-import { tunnel_connectivity } from "./probe.uc";
-import { commit_conf, clear_active } from "../profiles/store.uc";
+import { commit_conf } from "../profiles/store.uc";
 
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
@@ -56,14 +55,10 @@ function step_stdin(s, cfg) {
 	return "{}";
 }
 
-// tunnel_ok(cfg, iface) → { ok, reason }. Одна проба готовности туннеля (без ожидания). Full-тир:
-// connectivity-probe (probe.uc) — reason у неё адресный (process/route/fetch). awg: latest-
-// handshakes, готово только на "up" — "none" (awg0 только что применялся, интерфейса ещё нет) НЕ
-// считаем готовностью, иначе commit ловил бы мёртвую установку; reason у awg всегда null — там
-// нет отдельных стадий отказа, только «рукопожатия нет».
+// tunnel_ok(cfg, iface) → { ok, reason }. Одна проба готовности туннеля (без ожидания): latest-handshakes,
+// готово только на "up" — "none" (awg0 только что применялся, интерфейса ещё нет) НЕ считаем готовностью,
+// иначе commit ловил бы мёртвую установку. Ставится только AWG (Full-тир заморожен) — reason всегда null.
 function tunnel_ok(cfg, iface) {
-	if (uses_singbox(cfg.protocol ?? default_protocol()))
-		return tunnel_connectivity(iface);
 	let up = handshake_state(sh(sprintf("awg show %s latest-handshakes 2>/dev/null", iface))) == "up";
 	return { ok: up, reason: null };
 }
@@ -103,13 +98,15 @@ function rollback_all(steps, cfg) {
 	for (let i = 0; i < length(dirty); i++)
 		run_stdin(step_cmd(dirty[i], " --teardown"), step_stdin({ name: dirty[i], needs: "domains" }, cfg));
 
-	// config.json — внешний файл, uci-snapshot его не покрывает (тот же приём, что в
-	// replace_singbox.uc). Вернуть, если установка поверх рабочего Full-тира его перезаписала.
+	// config.json — внешний файл, uci-snapshot его не покрывает. Вернуть, если уход с legacy Full-тира
+	// на AWG откатился, — иначе роутер остался бы на sing-box без конфига.
 	let sb = SB_CONF;
+	// ШРАМ (ревью): teardown шага sing-box делает `init.d disable` — без enable после отката сервис не
+	// поднимался после следующего ребута, и kill-switch держал LAN без интернета до тика сторожа.
 	if (access(sb + ".prev")) {
 		sh(sprintf("mv %s.prev %s 2>/dev/null", sb, sb));
 		if (trim(sh("uci -q get sing-box.main.enabled 2>/dev/null")) == "1")
-			sh("/etc/init.d/sing-box restart >/dev/null 2>&1");
+			sh("/etc/init.d/sing-box enable >/dev/null 2>&1; /etc/init.d/sing-box restart >/dev/null 2>&1");
 	}
 
 	// Snapshot вернул uci-конфиги, но рантайм не сойдётся сам: netifd держит маршруты снятого
@@ -134,7 +131,7 @@ let raw = trim(stdin.read("all") ?? "");
 let cfg = (substr(raw, 0, 1) == "{") ? json(raw) : {};
 let dry = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
 
-// Протокол туннеля: awg (Light, дефолт) | reality (Full, sing-box); hysteria2 — legacy (ADR 0009). tunnel_if
+// Протокол туннеля: awg (ставится только он); reality/hysteria2 — legacy ([[0010-freeze-full-tier]]). tunnel_if
 // кладём в routing_opts — health-check и firewall (fw_opts) его используют, routing игнорирует.
 let protocol = cfg.protocol ?? default_protocol();
 let tinfo = tunnel_info(protocol);
@@ -173,12 +170,12 @@ function restore_cfg_truth() {
 		unlink(f);
 }
 
-// --rollback: только откат, без установки. stdin — {domains?, routing_opts?, protocol?}.
-// Teardown'им дирти-шаги ВСЕХ туннелей, не только активного протокола: отменённая установка
-// могла быть любого, а teardown идемпотентен — иначе отмена reality без protocol оставляла бы
-// живой sing-box с credentials.
+// --rollback: только откат, без установки. stdin — {domains?, routing_opts?, protocol?} — protocol ПОПЫТКИ.
+// Неактивный туннель не трогаем, как и в обычном пути. ШРАМ (ревью): teardown ОБОИХ туннелей после
+// restore снимал восстановленный legacy sing-box — отмена ухода на AWG оставляла роутер без туннеля.
 if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
-	let rb_steps = enabled_steps({ disable: (type(cfg.disable) == "array") ? cfg.disable : [] });
+	let rb_steps = enabled_steps({ disable: [ ...disabled_tunnels(protocol),
+		...((type(cfg.disable) == "array") ? cfg.disable : []) ] });
 	rollback_all(rb_steps, cfg);
 	restore_cfg_truth();
 	reapply_data_plane();
@@ -228,25 +225,11 @@ if (dry) {
 	exit(0);
 }
 
-// --- 1b. Full-тир: догрузка sing-box ДО любых изменений ---
-// sing-box — userspace-бинарь, opt-in (не при bootstrap). Первая установка Full → качаем ПЕРВЫМ,
-// до snapshot и шагов: провал apk (нет интернета) = чистый abort, роутер не тронут. Идемпотентно
-// (бинарь уже есть на switch_to_*/переустановке — пропуск). install-singbox.sh несёт ретраи.
-if (uses_singbox(protocol) && length(trim(sh("command -v sing-box 2>/dev/null"))) == 0) {
-	set_step("singbox-download");
-	if (run_stdin(sprintf("sh %s/install/install-singbox.sh", ENGINE), "") != 0) {
-		restore_cfg_truth();
-		set_reason("singbox-download");
-		warn("install: не удалось догрузить sing-box — проверьте интернет на роутере\n");
-		exit(1);
-	}
-}
-
 // --- 2. snapshot UCI (для чистого отката) ---
 set_step("snapshot");
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
 
-// Full-тир: config.json бэкапим ДО teardown'ов — uci-snapshot внешний файл не покрывает, а
+// Legacy Full-тир (уход с Reality/Hysteria2 на AWG): config.json бэкапим ДО teardown'ов — uci-snapshot внешний файл не покрывает, а
 // teardown удаляет его безвозвратно. Возврат — в rollback_all; на commit зачищается ниже.
 if (access(SB_CONF))
 	sh(sprintf("cp %s %s.prev 2>/dev/null", SB_CONF, SB_CONF));
@@ -297,8 +280,6 @@ if (outcome.action == "commit") {
 	// можно будет вернуться из панели, и автосмена знает, с какого сервера начинать перебор.
 	if (tunnel_applied && protocol == "awg" && cfg.awg_conf)
 		commit_conf(cfg.awg_conf, cfg.profile_id, false);
-	else if (tunnel_applied && protocol != "awg")
-		clear_active();
 	// Сторож: с этого момента роутер живёт годами сам, и раз в 5 минут кто-то должен смотреть,
 	// на месте ли data-plane (engine/watchdog). Ставим ТОЛЬКО на успешном пути — на откате
 	// сторожить нечего.

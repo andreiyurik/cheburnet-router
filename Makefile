@@ -18,12 +18,9 @@
 #   make qemu-dns-fallback — T3j: DNS переживает смерть туннеля (~6-9мин, интернет).
 #   make qemu-emergency    — T3k: аварийный режим возвращает интернет и обратим (~6-9мин, интернет).
 #   make qemu-profiles — T3l: поля AWG 3.1 доходят до ядра; профили и автосмена откатываются (~5-8мин, интернет).
-#   make qemu-reality  — T3d: обвязка VLESS+Reality на живом OpenWrt (~4-6мин, интернет).
-#   make qemu-live-vps    — T4a: трафик НАСКВОЗЬ через настоящий сервер Full-тира. Нужен
-#                            поднятый стенд (tests/vps/) — не для CI.
 #   make qemu-live-install— T4b: успешная установка целиком + ребут поверх неё (стенд tests/vps/).
 
-.PHONY: lint test-engine test-netns test-shell poc-split qemu-smoke qemu-webui qemu-install qemu-rollback qemu-reboot qemu-route-fallback qemu-dns-fallback qemu-emergency qemu-profiles qemu-reality qemu-live-vps qemu-live-install
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-smoke qemu-webui qemu-install qemu-rollback qemu-reboot qemu-route-fallback qemu-dns-fallback qemu-emergency qemu-profiles qemu-live-install
 
 lint:
 	@bash tests/lint.sh
@@ -32,10 +29,8 @@ lint:
 test-engine:
 	@sh engine/run-tests.sh
 
-# Тесты shell-скриптов роутера с изоляцией через фейки (без сети/пакетов): ретраи/код
-# выхода install-singbox.sh (кнопка Full-тира) — самое глючеопасное место.
+# Тесты shell-скриптов роутера с изоляцией через фейки (без сети/пакетов): ретраи и код выхода bootstrap.
 test-shell:
-	@bash tests/install-singbox-test.sh
 	@bash tests/bootstrap-test.sh
 
 # T2.5 — поведение split-routing на живом ядре БЕЗ роутера/QEMU/VPN (форвард-путь в netns):
@@ -111,21 +106,6 @@ qemu-emergency:
 # подключение молчащего сервера и автосмена откатываются честно (endpoint из RFC 5737). ~5-8 мин.
 qemu-profiles:
 	@bash tests/qemu/profiles.sh
-
-# T3d — Full-тир (VLESS+Reality) data-plane WIRING на живом OpenWrt: singbox-шаг
-# применяет config.json + netifd-маршрут singtun0 (half-routes), connectivity-probe
-# корректно отвергает недостижимый сервер (fail-safe), teardown чистит, вес сверяется с порогом
-# preflight. Рабочий Reality-сервер НЕ нужен (герметично). Нужен интернет для apk. ~4-6 мин с KVM.
-qemu-reality:
-	@bash tests/qemu/reality.sh
-
-# T4a — единственная проверка, доказывающая не «обвязка применилась», а «байты дошли до интернета
-# через туннель»: тянем «какой у меня IP» ЧЕРЕЗ туннель и сверяем с адресом VPS, плюс крупная
-# загрузка (ловит фрагментацию/PMTU). Нужен поднятый стенд: tests/vps/provision-lab.sh на чистом
-# VPS (ключи он генерирует сам) + tests/vps/fetch-links.sh. В CI НЕ входит — зависит от
-# арендованного сервера, см. tests/vps/README.md.
-qemu-live-vps:
-	@bash tests/qemu/live-vps.sh
 
 # T4b — УСПЕШНАЯ установка целиком через ubus против живого сервера + ПЕРЕЗАГРУЗКА поверх неё:
 # commit-ветка оркестратора (install.json записан, одноразовый токен снят, панель честна), трафик

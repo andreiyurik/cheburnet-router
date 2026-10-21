@@ -8,6 +8,9 @@ date: 2026-10-18
 
 # ADR 0009 — Заморозка Hysteria2
 
+> [!note] Продолжение — [[0010-freeze-full-tier|ADR 0010]] (2026-10-21): вслед за Hysteria2 заморожен и
+> VLESS+Reality, то есть весь Full-тир.
+
 > [!info] Статус: принято · Hysteria2 убрана из поддерживаемых протоколов. Код заморожен: тег
 > **`hysteria2-final`** и ветка **`archive/hysteria2`**. Частично заменяет
 > [[0004-multi-protocol-tiers]]: остаются AmneziaWG (Light) и VLESS+Reality (Full).

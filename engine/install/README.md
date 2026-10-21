@@ -17,7 +17,7 @@ preflight → snapshot UCI → шаги по порядку → health-check →
 поднят, health-check может его проверить, но дом ещё не переключён. Half-routes вооружаются
 (`apply.uc --arm`) только на commit-пути, после подтверждённого health — см.
 [reliability](../../docs/kb/architecture/reliability.md#поверх-всего-fail-safe-направление).
-`replace_vpn.uc`/`replace_singbox.uc` это не касается — они всегда вооружают сразу.
+`replace_vpn.uc` это не касается — он всегда вооружает сразу.
 
 **Пароль root** (`steps/rootpass`) применяется НЕ как шаг реестра, а на **commit-пути** `run.uc`
 (после успешных шагов+health): смена пароля — всегда-безопасный runtime-акт, не транзакция; сбой
@@ -57,8 +57,8 @@ ucode -R engine/install/run.uc --dry-run < install.json   # показать п�
 ```
 
 Вход: `{ protocol, <conf_key>, root_password, ssid, wifi_key, domains, routing_opts{wan_if,...},
-disable:[шаги], ... }`, где `protocol` ∈ `awg` | `reality` (`hysteria2` — legacy, не ставится: ADR 0009), а конфиг лежит под ключом
-этого протокола (`awg_conf` / `reality_conf` — соответствие задаёт `PROTOCOLS` в
+disable:[шаги], ... }`, где `protocol` — только `awg` (`reality`/`hysteria2` — legacy, не ставятся:
+ADR 0010), а конфиг лежит под ключом этого протокола (`awg_conf` — соответствие задаёт `PROTOCOLS` в
 [install.uc](install.uc), см. `tunnel_conf`). Домены обычно готовит [list](../list/)
 (user + community); конфиг туннеля, пароли и SSID приносит пользователь (через ubus-payload 600 —
 содержит секреты).
@@ -68,13 +68,6 @@ disable:[шаги], ... }`, где `protocol` ∈ `awg` | `reality` (`hysteria2`
 - **`replace_vpn.uc`** — замена AWG-конфига без переустановки: snapshot → vpn-шаг → ждать
   **свежий** handshake (новее старта, до 30 с) → commit / restore (авто-rollback: пользователь
   не остаётся без туннеля). Запускает ubus-метод `replace_awg_conf` (фон+poll).
-- **`replace_singbox.uc`** — то же для Full-тира (общий `config.json`, шаг и проба для любого
-  протокола на sing-box): бэкап `config.json` → snapshot →
-  singbox-шаг → connectivity-probe через туннель (до 30 с) → commit / restore. `config.json`
-  бэкапим руками: uci-снимок внешний файл не покрывает. Запускает метод `replace_reality_conf`.
-- **`install-singbox.sh`** — догрузка бинаря Full-тира (`sing-box-tiny` → `sing-box`, критерий
-  успеха = появился бинарь). Зовётся кнопкой `install_full_tier` и самим `run.uc` первым шагом,
-  когда выбран Full-протокол, а бинаря нет: до snapshot, поэтому провал = чистый abort.
 - **`reapply.uc`** — вернуть runtime-часть data-plane (policy-routing) из сохранённой
   конфигурации. Зовётся hotplug-хуком при подъёме WAN (перезагрузка роутера, реконнект канала) и
   самим `run.uc` при откате поверх рабочей системы — ОДНА реализация на оба случая, иначе
@@ -90,9 +83,7 @@ disable:[шаги], ... }`, где `protocol` ∈ `awg` | `reality` (`hysteria2`
 
 ## Границы
 
-- **health-check** минимальный: DNS резолвится + туннель готов. Чем мерить туннель, решает
-  протокол (`uses_singbox`): у AWG — свежий handshake, у Full-тира — connectivity-probe через TUN
-  ([probe.uc](probe.uc)). Расширяемо.
+- **health-check** минимальный: DNS резолвится + у AWG свежий handshake. Расширяемо.
 - Вызов оркестраторов из web — задача **ubus-обработчика**.
 
 ## Тесты

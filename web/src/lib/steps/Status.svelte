@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { cheburnet, login, isLoggedIn, logout, isAccessDenied } from '../ubus.js';
   import { hs, FORCED_LABELS, heroKind, tunnelFallback, switchTargets, tunnelRowText,
-           explainFullTierFail, fullMissingText, protocolInfo, checkConf,
+           protocolInfo, checkConf,
            SUPPORT, parseDomains } from '../logic.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import Button from '$lib/components/ui/button/button.svelte';
@@ -65,10 +65,8 @@
   let replaceLog = $state('');
   let resetWord = $state('');
   let resetArmed = $state(false);
-  let fullPhase = $state('idle'); // догрузка компонента: idle | running | ok | fail
-  let fullLog = $state('');
   // Смена туннеля: конфиги хранятся ПО ПРОТОКОЛАМ (переключение выбора не теряет вставленное).
-  let switchConfs = $state({ awg: '', reality: '' });
+  let switchConfs = $state({ awg: '' });
   // switchPick — ВЫБРАННОЕ направление (радио), switchTarget — то, что уже переключается.
   // Раньше блоков было по одному на протокол: три похожих поля для ссылок на одной странице, и
   // вставить в чужое — обычное дело. Теперь как в мастере: сначала выбор по симптому, потом одно поле.
@@ -78,7 +76,6 @@
   let switchLog = $state('');
   let timer = null;
   let replaceTimer = null;
-  let fullTimer = null;
   let switchTimer = null;
 
   // Вход (admin-сессия root).
@@ -227,8 +224,6 @@
     if (targets.length > 0 && !targets.some((p) => p.id === switchPick)) switchPick = targets[0].id;
   });
   const pick = $derived(protocolInfo(switchPick));
-  // Чего не хватает железу для Full-тира (status.full_missing) — человеческими словами.
-  const fullMissing = $derived(fullMissingText(s?.full_missing));
   const setProvider = () =>
     admin(`DNS-провайдер: ${providerSel}`, () => cheburnet('set_dns_provider', { provider: providerSel }), 'dns');
 
@@ -319,7 +314,7 @@
           // один конфиг на другой по кругу без понимания, почему все падают.
           action = 'Новый сервер тоже не отозвался — прежний возвращён автоматически. Проверьте, что '
             + 'конфиг свежий и сервер жив. Если несколько серверов подряд не работают, дело, скорее '
-            + 'всего, не в них: попробуйте другой туннель — блок «Сменить туннель» ниже.';
+            + 'всего, не в них, а в сети: если она не пропускает UDP, AmneziaWG в ней не поднимется ни с каким сервером.';
         }
         await refresh();
       }
@@ -400,7 +395,6 @@
   onDestroy(() => {
     if (timer) clearInterval(timer);
     if (replaceTimer) clearInterval(replaceTimer);
-    if (fullTimer) clearInterval(fullTimer);
     if (switchTimer) clearInterval(switchTimer);
     if (resetTimer) clearInterval(resetTimer);
   });
@@ -452,40 +446,6 @@
     } catch { pollLost('switch'); }
   }
 
-  // Full-тир (opt-in): кнопка догружает компонент sing-box фоном. Прогресс — тот же канал
-  // install_progress. Работающий туннель при этом не трогается (ставим только пакет).
-  async function enableFullTier() {
-    busy = true; action = ''; fullLog = '';
-    try {
-      await cheburnet('install_full_tier');
-      fullPhase = 'running';
-      fullTimer = setInterval(pollFull, 2000);
-    } catch (e) {
-      needLogin(e, 'Установка запасного туннеля', 'full');
-    }
-  }
-
-  async function pollFull() {
-    try {
-      const p = await cheburnet('install_progress');
-      pollFails = 0;
-      fullLog = p.log ?? '';
-      if (p.done) {
-        clearInterval(fullTimer); fullTimer = null; busy = false;
-        actionScope = 'full';
-        if (p.result === 'ok') {
-          fullPhase = 'ok';
-          action = 'Компонент установлен. Ниже появился блок «Сменить туннель» — вставьте туда ссылку от вашего сервера.';
-        } else {
-          fullPhase = 'fail';
-          // Причина из движка (install-singbox.sh пишет REASON_FILE): совет «проверьте интернет»
-          // на забитом флеше отправлял чинить не то, а компонент реально может не влезть.
-          action = explainFullTierFail(p.reason);
-        }
-        await refresh();
-      }
-    } catch { pollLost('full'); }
-  }
 </script>
 
 <!-- Результат действия печатается только у той группы кнопок, которая его вызвала (actionScope).
@@ -554,14 +514,9 @@
             сторож вернёт DNS в него сам.</p>
         {/if}
 
-        <!-- Ведём к запасному пути ровно тогда, когда он нужен: с AmneziaWG (UDP) — на VLESS+Reality (TCP). -->
-        {#if fallback?.action === 'install'}
-          <p class="text-sm text-muted-foreground">Не помог и свежий конфиг? Похоже, сеть режет сам протокол AmneziaWG (он работает по UDP).
-            Тогда помогает <a href="#full-tier" onclick={() => (tunnelOpen = true)}>добавить VLESS+Reality</a> —
-            снаружи он выглядит как обычный HTTPS.</p>
-        {:else if fallback?.action === 'switch'}
-          <p class="text-sm text-muted-foreground">{#if active.legacy}Попробуйте поддерживаемый туннель:{:else}Не помог и свежий конфиг? Значит дело, скорее всего, не в сервере, а в сети —
-            попробуйте другой туннель:{/if}
+        <!-- С заморожённого Full-тира (ADR 0010) путь один — на AmneziaWG; с AWG помогают другой сервер или аварийный режим. -->
+        {#if fallback?.action === 'switch'}
+          <p class="text-sm text-muted-foreground">Попробуйте поддерживаемый туннель:
             {#each fallback.targets as t, i}{#if i > 0}, {/if}<a href="#switch-tunnel"
               onclick={() => { switchPick = t; tunnelOpen = true; }}>{protocolInfo(t).name}</a>{/each}.
             Не поднимется — прежний вернётся сам.</p>
@@ -574,25 +529,15 @@
         <div><Button variant="destructive-outline" disabled={busy} onclick={pauseProtection}>Выключить защиту</Button></div>
         {@render actionNote('emergency')}
       {:else if hero === 'up' && active.full}
-        <!-- Формулировка слабее, чем у AWG, ОСОЗНАННО: у Full-протоколов нет рукопожатия — видно,
-             что туннель поднят, но не что сервер отвечает. Не обещаем «всё работает». -->
+        <!-- Формулировка слабее, чем у AWG, ОСОЗНАННО: у Full-тира нет рукопожатия — видно, что туннель
+             поднят, но не что сервер отвечает. Не обещаем «всё работает». Протокол заморожен (ADR 0010). -->
         <p class="font-display text-3xl">{active.name} активен</p>
-        <p class="text-muted-foreground">Трафик идёт через туннель · режим {s.mode === 'travel' ? '«в поездке»' : '«дома»'}
-          {#if s.full_capable && !s.full_installed}
-            · <a href="#full-tier" onclick={() => (tunnelOpen = true)}>другие протоколы</a>
-          {:else if targets.length > 0}
-            · <a href="#switch-tunnel" onclick={() => (tunnelOpen = true)}>сменить</a>
-          {/if}</p>
-        <p class="text-sm text-muted-foreground">Сайты не открываются? Сервер мог отключиться — вставьте свежий
-          конфиг, прежний вернётся сам при неудаче.</p>
+        <p class="text-muted-foreground">Трафик идёт через туннель · режим {s.mode === 'travel' ? '«в поездке»' : '«дома»'}</p>
+        <p class="text-sm text-muted-foreground">{active.name} больше не поддерживается: сменить его сервер нельзя.
+          Перейдите на <a href="#switch-tunnel" onclick={() => (tunnelOpen = true)}>AmneziaWG</a> — при сбое прежний вернётся сам.</p>
       {:else}
         <p class="font-display text-3xl">Всё работает</p>
-        <p class="text-muted-foreground">{active.name} · {tunnelRowText(s)} · режим {s.mode === 'travel' ? '«в поездке»' : '«дома»'}
-          {#if s.full_capable && !s.full_installed}
-            · <a href="#full-tier" onclick={() => (tunnelOpen = true)}>другие протоколы</a>
-          {:else if targets.length > 0}
-            · <a href="#switch-tunnel" onclick={() => (tunnelOpen = true)}>сменить</a>
-          {/if}</p>
+        <p class="text-muted-foreground">{active.name} · {tunnelRowText(s)} · режим {s.mode === 'travel' ? '«в поездке»' : '«дома»'}</p>
       {/if}
 
       <!-- Красная тревога — ТОЛЬКО когда direct-доменов нет вовсе: тогда split не работает и весь
@@ -724,7 +669,7 @@
         {#if active.legacy}
           <SectionTitle id="replace-tunnel">{active.name} больше не поддерживается</SectionTitle>
           <p class="mt-2 text-sm">Туннель работает, но сменить его сервер нельзя.
-            Переключитесь на VLESS+Reality или AmneziaWG в блоке «Сменить туннель» ниже — при сбое {active.name} вернётся сам.</p>
+            Переключитесь на AmneziaWG в блоке «Сменить туннель» ниже — при сбое {active.name} вернётся сам.</p>
         {:else}
           <!-- Замена сервера АКТИВНОГО туннеля. Метод, подпись и placeholder — из каталога протоколов. -->
           <SectionTitle id="replace-tunnel">Замена сервера ({active.name})</SectionTitle>
@@ -756,45 +701,7 @@
           {/if}
         {/if}
 
-        <!-- Full-тир не установлен: либо кнопка догрузки (железо тянет), либо честное объяснение,
-             почему её нет. Молчать нельзя — иначе непонятно, почему функции из документации нет. -->
-        {#if !s.full_installed}
-          <SectionTitle id="full-tier">Запасной туннель — если этот не выручает</SectionTitle>
-          {#if s.full_capable}
-            <p class="mt-2 text-sm text-muted-foreground"><strong>VLESS+Reality</strong> — если интернет через VPN
-              вообще не открывается. Кнопка скачает для него компонент <code class="rounded-sm bg-muted px-1 py-0.5 font-mono">sing-box</code>
-              (~11 МБ, на флеше ~42 МБ). Текущий туннель продолжит работать.</p>
-            <div class="mt-3">
-              <Button disabled={busy || fullPhase === 'running'} onclick={enableFullTier}>
-                {fullPhase === 'running' ? 'Устанавливаю…' : 'Установить компонент'}
-              </Button>
-            </div>
-            {#if fullPhase === 'running'}
-              <p class="mt-3 flex items-center gap-2"><Spinner /> Скачиваю компонент — это может занять минуту.</p>
-            {/if}
-            {#if fullLog && fullPhase !== 'idle'}
-              <details class="mt-3" open={fullPhase === 'fail'}>
-                <summary class="cursor-pointer text-sm text-muted-foreground">Журнал установки</summary>
-                <LogView text={fullLog} class="mt-2" />
-              </details>
-            {/if}
-          {:else}
-            <p class="mt-2 text-sm text-muted-foreground">Запасной туннель (VLESS+Reality)
-              <strong>на этом роутере недоступен</strong>{#if fullMissing}: {fullMissing}{/if}. Он считается
-              программой, а не ядром — на слабом железе это медленнее самого интернета.</p>
-            {#if s.full_missing?.includes('flash')}
-              <p class="mt-2 text-sm text-muted-foreground">Место можно освободить (по SSH
-                <code class="rounded-sm bg-muted px-1 py-0.5 font-mono">apk del</code> ненужные пакеты) или
-                подключить USB-флешку (extroot) — тогда кнопка появится.</p>
-            {/if}
-          {/if}
-        {/if}
-        <!-- ЗА пределами {#if !full_installed}: после успешной догрузки блок с кнопкой исчезает, и
-             сообщение об успехе исчезло бы вместе с ним — ровно когда его читают. -->
-        {@render actionNote('full')}
-
-        <!-- Смена туннеля: СНАЧАЛА выбор направления по симптому (как в мастере), потом одно поле.
-             Раньше здесь было по блоку на протокол — три похожих поля подряд на одной странице. -->
+        <!-- Смена туннеля — только уход с заморожённого Full-тира на AmneziaWG (ADR 0010). -->
         {#if targets.length > 0}
           <SectionTitle id="switch-tunnel">Сменить туннель</SectionTitle>
           <p class="mt-2 text-sm text-muted-foreground">Сейчас активен <strong>{active.name}</strong>. Сайты, DNS и
@@ -823,7 +730,6 @@
             <p class="mt-3 flex items-center gap-2"><Spinner /> Поднимаю {protocolInfo(switchTarget).name} — при сбое
               вернётся {active.name}.</p>
           {/if}
-          {@render actionNote('switch')}
           {#if switchLog && switchPhase !== 'idle'}
             <details class="mt-3" open={switchPhase === 'fail'}>
               <summary class="cursor-pointer text-sm text-muted-foreground">Журнал переключения</summary>
@@ -831,6 +737,9 @@
             </details>
           {/if}
         {/if}
+        <!-- ЗА пределами блока: после успешного ухода на AWG переключаться больше не на что, блок
+             исчезает — и сообщение об успехе исчезло бы вместе с ним, ровно когда его читают. -->
+        {@render actionNote('switch')}
       </DetailsGroup>
     </div>
 

@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
-# tests/vps/provision-lab.sh — поднять ОДНОРАЗОВЫЙ тестовый сервер Full-тира на чистом VPS.
+# tests/vps/provision-lab.sh — поднять ОДНОРАЗОВЫЙ тестовый сервер AmneziaWG на чистом VPS.
 #
 # Запускается НА VPS (Debian/Ubuntu, root), не на роутере и не на хосте разработчика:
 #
 #     scp tests/vps/provision-lab.sh root@<vps>:/root/
 #     ssh root@<vps> 'bash /root/provision-lab.sh'
 #
-# Печатает готовую ссылку `vless://…` и кладёт конфиг AmneziaWG — их вставляют в веб-мастер cheburnet.
-#
-# ЗАЧЕМ ЭТО ВООБЩЕ: ключи Reality НЕ выдаются провайдером, а генерируются самим
-# sing-box (`generate reality-keypair`, `generate uuid`). То есть для проверки нашего кода никакие
-# «ключи от сервера» просить не у кого — сервер поднимается за минуту, и он тоже sing-box.
+# Кладёт клиентский конфиг AmneziaWG (его вставляют в веб-мастер cheburnet). Ключи генерирует сам
+# awg — «ключей от сервера» просить не у кого. Full-тир (sing-box) заморожен — ADR 0010.
 #
 # ЧТО ЭТОТ СЕРВЕР ДАЁТ, ЧЕГО НЕ ДАЁТ ГЕРМЕТИЧНЫЙ СТЕНД (QEMU):
 #   • реальный интернет-путь: NAT провайдера, настоящий RTT, и главное — PMTU. У нас в TUN зашит
 #     mtu 1500, а туннель поверх PPPoE/оверхеда может фрагментироваться: стенд на veth этого не видит;
-#   • Reality против НАСТОЯЩЕГО заимствованного SNI (в лабе рукопожатие-цель недостижима);
 #   • долгий прогон: сутки, переживание reboot роутера, реконнект при смене IP.
 #
 # ЧТО ОН НЕ ПРОВЕРЯЕТ И НЕ МОЖЕТ: устойчивость к фильтрации. Ни один лабораторный сервер не
@@ -24,26 +20,14 @@
 #
 # > [!warning] Это ОДНОРАЗОВЫЙ стенд, а не сервер для эксплуатации
 # > Пароли и ключи генерируются случайными на каждый запуск и лежат в открытом виде в
-# > /root/cheburnet-lab/. Пока сервис жив, VPS работает прокси для любого, у кого есть ссылка.
+# > /root/cheburnet-lab/. Пока сервис жив, VPS работает VPN-сервером для любого, у кого есть конфиг.
 # > Закончили проверку — удалите VPS (или `bash provision-lab.sh --teardown`). В CI это не
 # > встраивается намеренно: постоянный джоб на арендованном VPS — это секреты, деньги и внимание
 # > каждый месяц, то есть прямо против «минимум поддержки одним человеком».
 
 set -e -u -o pipefail
 
-# Версию пиним под ту же ветку, что стоит на роутере из фида OpenWrt 25.12 (1.12.x) — так
-# серверная и клиентская стороны говорят на одном языке, и расхождение поведения нельзя списать
-# на разные мажорные версии.
-SB_VERSION="${SB_VERSION:-1.12.17}"
 LAB_DIR="${LAB_DIR:-/root/cheburnet-lab}"
-REALITY_PORT="${REALITY_PORT:-443}"
-# Заимствованный SNI для Reality: любой крупный сайт с настоящим TLS. Сервер РЕАЛЬНО ходит на
-# него во время рукопожатия (поле handshake в схеме — server only и обязательное), поэтому цель
-# обязана быть достижима с VPS.
-REALITY_SNI="${REALITY_SNI:-www.cloudflare.com}"
-# AmneziaWG (Light-тир) на том же стенде. Объявляем ЗДЕСЬ, а не в своём блоке: AWG_NET нужен
-# nft-таблице выше по файлу, и из локального блока он бы туда не дошёл (override молча терялся).
-# Параметры обфускации обязаны СОВПАДАТЬ с клиентскими — это часть формата пакета, не тюнинг.
 AWG_PORT="${AWG_PORT:-51820}"
 AWG_NET="${AWG_NET:-10.13.13}"
 AWG_JC="${AWG_JC:-4}";     AWG_JMIN="${AWG_JMIN:-40}"; AWG_JMAX="${AWG_JMAX:-70}"
@@ -68,7 +52,7 @@ if [ "${1:-}" = "--teardown" ]; then
     systemctl daemon-reload 2>/dev/null || true
     nft delete table inet cheburnet_lab 2>/dev/null || true
     rm -rf "$LAB_DIR"
-    ok "сервисы (sing-box + AWG), правила, sysctl и ключи удалены (бинари оставлены)"
+    ok "сервисы, правила, sysctl и ключи удалены (бинари оставлены)"
     exit 0
 fi
 
@@ -79,44 +63,9 @@ apt-get update -qq
 apt-get install -y -qq curl ca-certificates tar openssl nftables >/dev/null
 ok "готово"
 
-# ─── бинарь sing-box ──────────────────────────────────────────────────────────
-# Ставим релизный бинарь напрямую, а не из репозитория дистрибутива: нужна КОНКРЕТНАЯ версия,
-# совпадающая с роутером, иначе разница в поведении необъяснима.
-ARCH_RAW="$(uname -m)"
-case "$ARCH_RAW" in
-    x86_64)  SB_ARCH=amd64 ;;
-    aarch64) SB_ARCH=arm64 ;;
-    *) die "неподдерживаемая arch VPS: $ARCH_RAW (нужен x86_64 или aarch64)" ;;
-esac
-
-if ! command -v sing-box >/dev/null 2>&1 || ! sing-box version 2>/dev/null | grep -q "$SB_VERSION"; then
-    msg "Качаю sing-box $SB_VERSION ($SB_ARCH)"
-    TARBALL="sing-box-${SB_VERSION}-linux-${SB_ARCH}.tar.gz"
-    URL="https://github.com/SagerNet/sing-box/releases/download/v${SB_VERSION}/${TARBALL}"
-    tmp="$(mktemp -d)"
-    curl -fsSL "$URL" -o "$tmp/$TARBALL" || die "не удалось скачать $URL"
-    tar -C "$tmp" -xzf "$tmp/$TARBALL"
-    install -m 0755 "$tmp/sing-box-${SB_VERSION}-linux-${SB_ARCH}/sing-box" /usr/local/bin/sing-box
-    rm -rf "$tmp"
-fi
-ok "$(sing-box version | head -1)"
-
-# ─── ключи и пароли ───────────────────────────────────────────────────────────
-# ВСЁ генерируется здесь и сейчас, случайным на каждый запуск. Это и есть ответ на вопрос
-# «где взять ключи для Reality»: их негде взять, их создают.
-msg "Генерирую ключи и пароли (случайные на каждый запуск)"
+# ─── каталог стенда ───────────────────────────────────────────────────────────
 mkdir -p "$LAB_DIR"
 chmod 700 "$LAB_DIR"
-
-KEYPAIR="$(sing-box generate reality-keypair)"
-REALITY_PRIV="$(printf '%s\n' "$KEYPAIR" | awk '/PrivateKey/{print $2}')"
-REALITY_PUB="$(printf '%s\n' "$KEYPAIR" | awk '/PublicKey/{print $2}')"
-[ -n "$REALITY_PRIV" ] && [ -n "$REALITY_PUB" ] || die "sing-box не отдал пару ключей Reality"
-
-UUID="$(sing-box generate uuid)"
-SHORT_ID="$(openssl rand -hex 4)"
-# Reality сертификата не требует В ПРИНЦИПЕ — он занимает рукопожатие чужого сайта.
-ok "ключи в $LAB_DIR (режим 700)"
 
 # ─── публичный адрес ──────────────────────────────────────────────────────────
 # Определяем сами: в ссылку должен попасть адрес, по которому VPS реально виден снаружи, а не
@@ -129,40 +78,6 @@ if [ -z "$PUBIP" ]; then
 fi
 [ -n "$PUBIP" ] || die "не удалось определить адрес VPS (задайте PUBIP=…)"
 ok "$PUBIP"
-
-# ─── конфиг ───────────────────────────────────────────────────────────────────
-# Два инбаунда в одном процессе: клиент проверяет оба протокола против одного сервера, и разница
-# в результатах — это разница протоколов, а не двух разных серверов.
-msg "Пишу конфиг сервера"
-cat > "$LAB_DIR/config.json" <<EOF
-{
-  "log": { "level": "info", "timestamp": true },
-  "inbounds": [
-    {
-      "type": "vless",
-      "tag": "reality-in",
-      "listen": "::",
-      "listen_port": $REALITY_PORT,
-      "users": [ { "uuid": "$UUID", "flow": "xtls-rprx-vision" } ],
-      "tls": {
-        "enabled": true,
-        "server_name": "$REALITY_SNI",
-        "reality": {
-          "enabled": true,
-          "handshake": { "server": "$REALITY_SNI", "server_port": 443 },
-          "private_key": "$REALITY_PRIV",
-          "short_id": [ "$SHORT_ID" ]
-        }
-      }
-    }
-  ],
-  "outbounds": [ { "type": "direct", "tag": "direct" } ]
-}
-EOF
-chmod 600 "$LAB_DIR/config.json"
-
-sing-box check -c "$LAB_DIR/config.json" || die "sing-box отверг серверный конфиг (см. вывод выше)"
-ok "конфиг валиден"
 
 # ─── NAT и MSS для подсети AWG ────────────────────────────────────────────────
 msg "Включаю NAT для подсети AWG"
@@ -183,11 +98,7 @@ table inet cheburnet_lab {
 EOF
 ok "NAT для подсети AWG включён"
 
-# ─── AmneziaWG (Light-тир) на том же VPS ──────────────────────────────────────
-# ЗАЧЕМ здесь, а не отдельным сервером: протоколы с ОДНОГО стенда сравнимы между собой —
-# разница в результатах будет разницей ПРОТОКОЛОВ, а не двух машин. Порты не конфликтуют
-# (AWG UDP/51820, Reality TCP/443).
-#
+# ─── AmneziaWG ────────────────────────────────────────────────────────────────
 # Реализация — amneziawg-go (userspace), а НЕ модуль ядра: сборка модуля требует заголовков
 # ядра провайдера и ломается на любом их обновлении. Для стенда важна совместимость протокола,
 # а не скорость: клиент на роутере всё равно работает в ядре.
@@ -347,90 +258,10 @@ else
     die "awg0 не настроен (интерфейс без порта/peer — смотрите ошибку setconf выше)"
 fi
 
-# ─── сервис ───────────────────────────────────────────────────────────────────
-msg "Ставлю systemd-сервис"
-cat > /etc/systemd/system/cheburnet-lab.service <<EOF
-[Unit]
-Description=cheburnet test lab (sing-box: VLESS+Reality)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/sing-box run -c $LAB_DIR/config.json
-Restart=on-failure
-RestartSec=3
-LimitNOFILE=infinity
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-# enable + restart (см. пояснение у AWG-сервиса выше): повторный запуск обязан ПОДХВАТИТЬ новый
-# конфиг, иначе ключи в links.txt и ключи живого демона расходятся молча.
-systemctl enable cheburnet-lab.service >/dev/null 2>&1 || true
-systemctl restart cheburnet-lab.service >/dev/null 2>&1
-sleep 2
-systemctl is-active --quiet cheburnet-lab.service \
-    || { journalctl -u cheburnet-lab.service -n 20 --no-pager; die "сервис не поднялся"; }
-ok "cheburnet-lab.service запущен"
-
-# ─── самопроверка: стенд обязан принимать свои же ссылки ──────────────────────
-#
-# ЗАЧЕМ (оплачено часом живого прогона): стенд может отдать ссылки, которых сам не принимает —
-# например, если демон остался работать с прежними ключами. Снаружи это выглядит как «протокол не
-# проходит у провайдера» или «клиент сломан», и поиск уходит в роутер, где всё исправно.
-# Поэтому: поднимаем НАСТОЯЩИЙ клиент sing-box на этом же VPS, ходим через него в интернет и только
-# после успеха печатаем ссылки. Проверка локальная (127.0.0.1) — она проверяет ключи и конфиг, а не
-# сеть: сетевой путь проверяет уже роутер.
-selfcheck() {   # selfcheck <имя> <файл-конфига-клиента> <socks-порт>
-    local name="$1" cfg="$2" port="$3" code=""
-    sing-box check -c "$cfg" >/dev/null 2>&1 || { die "$name: клиентский конфиг самопроверки невалиден"; }
-    sing-box run -c "$cfg" >"$LAB_DIR/selfcheck-$name.log" 2>&1 &
-    local pid=$!
-    sleep 3
-    code="$(curl -sS --max-time 25 --socks5-hostname "127.0.0.1:$port" \
-        -o /dev/null -w '%{http_code}' https://api.ipify.org/ 2>/dev/null || true)"
-    kill "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
-    [ "$code" = "200" ] && return 0
-    printf '  \033[31m✗ %s: стенд НЕ принимает свою же ссылку (код «%s»)\033[0m\n' "$name" "${code:-нет ответа}" >&2
-    grep -iE "error|failed" "$LAB_DIR/selfcheck-$name.log" | tail -3 >&2 || true
-    return 1
-}
-
-msg "Самопроверка: принимает ли стенд свои же ссылки"
-
-cat > "$LAB_DIR/selfcheck-reality.json" <<EOF
+# ─── итог ─────────────────────────────────────────────────────────────────────
+# links.txt: путь к клиентскому конфигу на стенде (сам конфиг забирает fetch-links.sh отдельным файлом).
 {
-  "log": { "level": "error" },
-  "inbounds": [ { "type": "socks", "listen": "127.0.0.1", "listen_port": 11081 } ],
-  "outbounds": [ {
-    "type": "vless", "tag": "out",
-    "server": "127.0.0.1", "server_port": $REALITY_PORT,
-    "uuid": "$UUID", "flow": "xtls-rprx-vision",
-    "tls": { "enabled": true, "server_name": "$REALITY_SNI",
-             "utls": { "enabled": true, "fingerprint": "chrome" },
-             "reality": { "enabled": true, "public_key": "$REALITY_PUB", "short_id": "$SHORT_ID" } }
-  } ]
-}
-EOF
-chmod 600 "$LAB_DIR"/selfcheck-*.json
-
-selfcheck "reality" "$LAB_DIR/selfcheck-reality.json" 11081 \
-    || die "Reality не работает на самом стенде — ссылки не отдаю (иначе поиск уйдёт в роутер)"
-ok "Reality: стенд принимает свою ссылку"
-
-# ─── ссылки для мастера ───────────────────────────────────────────────────────
-VLESS_LINK="vless://${UUID}@${PUBIP}:${REALITY_PORT}?security=reality&encryption=none&type=tcp&flow=xtls-rprx-vision&sni=${REALITY_SNI}&fp=chrome&pbk=${REALITY_PUB}&sid=${SHORT_ID}#cheburnet-lab"
-
-# Значения в ОДИНАРНЫХ кавычках: файл предназначен для `. links.env` на стороне разработчика, а в
-# ссылках есть '&' и '#' — без кавычек shell разваливает их на фоновые команды и комментарии.
-{
-    echo "# Ссылки тестового стенда, $(date -u '+%Y-%m-%d %H:%M UTC')"
-    echo "VLESS_REALITY='$VLESS_LINK'"
-    # AmneziaWG передаётся не ссылкой, а .conf-файлом (так его и принимает мастер), поэтому в
-    # links.env кладём ПУТЬ, а сам конфиг забирает fetch-links.sh отдельным файлом.
+    echo "# Тестовый стенд, $(date -u '+%Y-%m-%d %H:%M UTC')"
     echo "AWG_CONF_REMOTE='$LAB_DIR/awg/client.conf'"
 } > "$LAB_DIR/links.txt"
 chmod 600 "$LAB_DIR/links.txt"
@@ -438,26 +269,18 @@ chmod 600 "$LAB_DIR/links.txt"
 cat <<EOF
 
 ════════════════════════════════════════════════════════════════════════════
-Стенд поднят. Вставляйте ссылки в веб-мастер cheburnet (или в панель).
+Стенд поднят. Клиентский конфиг AmneziaWG: $LAB_DIR/awg/client.conf
+(fetch-links.sh заберёт его сам в tests/vps/awg-client.conf).
 
-1) VLESS + Reality — ось «трафик вообще не проходит»:
-
-$VLESS_LINK
-
-2) AmneziaWG — конфиг $LAB_DIR/awg/client.conf (fetch-links.sh заберёт его сам).
-
-Копия: $LAB_DIR/links.txt        Логи: journalctl -u cheburnet-lab -f
-Снять стенд: bash $0 --teardown
+Логи: journalctl -u cheburnet-lab-awg -f        Снять стенд: bash $0 --teardown
 ════════════════════════════════════════════════════════════════════════════
 
 Что проверять на роутере (порядок — от самого важного):
-  1. MTU/PMTU. Наш TUN зашит на mtu 1500. Прогоните крупные страницы и скачивание файла;
-     симптом проблемы — «мелкие сайты открываются, крупные висят». Это главный риск,
-     которого герметичный стенд не видит.
-  2. Оба протокола (AWG и Reality) end-to-end: трафик реально идёт, проба подтверждает.
-  3. Переключение туда-обратно из панели (switch_to_*) с автооткатом.
-  4. Сутки без вмешательства + reboot роутера: туннель встаёт сам.
+  1. MTU/PMTU: крупные страницы и скачивание файла; симптом проблемы — «мелкие сайты
+     открываются, крупные висят». Это главный риск, которого герметичный стенд не видит.
+  2. Установка насквозь: make qemu-live-install (commit, трафик через сервер, ребут).
+  3. Сутки без вмешательства + reboot роутера: туннель встаёт сам.
 
-НАПОМИНАНИЕ: пока сервис жив, VPS работает прокси для любого, у кого есть ссылка.
+НАПОМИНАНИЕ: пока сервис жив, VPS работает VPN-сервером для любого, у кого есть конфиг.
 Закончили — снимите стенд и удалите VPS.
 EOF

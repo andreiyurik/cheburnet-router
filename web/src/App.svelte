@@ -36,15 +36,6 @@
   let dnsProviders = $state([]);
   let dnsProviderDefault = $state('');
 
-  // Full-тир (VLESS+Reality, ADR 0004): мастер предлагает выбор протокола, когда ЖЕЛЕЗО ТЯНЕТ
-  // (preflight.tiers.full — AES-arch + RAM/флеш + sing-box установим); Preflight отдаёт это в
-  // onReady. sing-box догружается автоматически при выборе Reality (run.uc, opt-in). Не тянет →
-  // false → только AmneziaWG (лёгкий дефолт). Дефолт выбора в мастере — всегда AmneziaWG.
-  let fullAvailable = $state(false);
-  // Почему Reality недоступен (строки из preflight.tiers.full_checks) — мастер объясняет причину
-  // вместо безликого «недоступно»: Reality это запасной путь, и человек должен знать, что мешает.
-  let fullReasons = $state([]);
-
   // Пользователь согласился установить на слабом железе (не пройдены soft-проверки preflight —
   // мало флеша/RAM). Setup донесёт это в аргументы install: движок проверяет preflight ЕЩЁ РАЗ
   // перед snapshot'ом и без флага откажет. Сбрасывается возвратом на экран проверки.
@@ -117,9 +108,9 @@
     <LanConflict info={lanConflict} {urlToken} onSkip={() => (step = 'preflight')} />
   {:else if step === 'preflight'}
     {#if bootError}<p class="mb-3 text-destructive">Статус недоступен: {bootError}</p>{/if}
-    <Preflight onReady={(full, risk, whyNot) => { fullAvailable = full; acceptRisk = risk === true; fullReasons = whyNot ?? []; step = 'setup'; }} />
+    <Preflight onReady={(risk) => { acceptRisk = risk === true; step = 'setup'; }} />
   {:else if step === 'setup'}
-    <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} {fullAvailable} {fullReasons} {acceptRisk} {urlToken} initial={installArgs} />
+    <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} {acceptRisk} {urlToken} initial={installArgs} />
   {:else if step === 'confirm'}
     <Confirm args={installArgs} {dnsProviders} onBack={() => (step = 'setup')} onConfirm={() => (step = 'installing')} />
   {:else if step === 'installing'}

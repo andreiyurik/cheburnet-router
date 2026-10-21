@@ -9,8 +9,8 @@
 Set up an OpenWrt router once — every device on the Wi-Fi is covered: phones, laptops, smart TVs,
 consoles. No app to install per device. The router decides per request: domains on **your** direct
 list take the plain route (full speed, real IP — banks and local services keep working), all other
-traffic goes into an encrypted tunnel. Two VPN protocols to pick from, switchable in the web
-panel without reinstalling.
+traffic goes into an encrypted AmneziaWG tunnel. Several servers can be saved and switched in the
+web panel without reinstalling.
 
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12%2B-blue?logo=openwrt)](https://openwrt.org/)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
@@ -33,10 +33,10 @@ panel without reinstalling.
   never out.
 - **No resident proxy on the fast path.** The data plane is pure kernel: dnsmasq + nftables +
   `ip rule` + AmneziaWG. Runs on a 128 MB RAM router; throughput is not bound by a userspace hop.
-- **Two protocols by failure mode, not by menu.** AmneziaWG (default, kernel, fastest) and
-  VLESS+Reality (when the connection is not established at all). Reality runs on `sing-box-tiny`
-  and is gated by a hardware preflight. Hysteria2 used to be a third option and is now frozen
-  (tag `hysteria2-final`, [ADR 0009](docs/kb/decisions/0009-freeze-hysteria2.md)).
+- **One protocol, in the kernel.** AmneziaWG only. VLESS+Reality and Hysteria2 (on `sing-box`) used
+  to be optional and are now frozen (tags `reality-final` / `hysteria2-final`,
+  [ADR 0010](docs/kb/decisions/0010-freeze-full-tier.md)). Honest limit: if a network blocks UDP
+  entirely, the tunnel will not come up there.
 - **Several AmneziaWG servers with failover.** Keep configs for different countries, switch in one
   click, or let the watchdog move to the next server when the current one stops answering.
 - **Engine written in [ucode](https://github.com/jow-/ucode)**, not shell or Python: real types and

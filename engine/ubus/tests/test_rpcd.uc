@@ -70,6 +70,19 @@ mkdir(BIN, 0o755);
 writefile(BIN + "/sing-box", "#!/bin/sh\nexit 0\n");
 sh(sprintf("chmod +x %s/sing-box", BIN));
 
+const AWG_OK = "[Interface]\nPrivateKey = k=\nAddress = 10.0.0.2/32\n[Peer]\nPublicKey = p=\nEndpoint = 192.0.2.1:51820\n";
+
+// stub_run() → «движок», где install/run.uc ничего не делает (switch_to_awg не трогает систему), а
+// валидатор AWG — настоящий (steps/vpn/plan.uc нужен валидации до фона).
+function stub_run() {
+	let dir = SB + "/engine-run";
+	sh(sprintf("rm -rf %s; mkdir -p %s/install %s/steps; cp -r %s/../../steps/vpn %s/steps/; cp -r %s/../../lib %s/",
+		shq(dir), shq(dir), shq(dir), shq(HERE), shq(dir), shq(HERE), shq(dir)));
+	writefile(dir + "/install/run.uc", "exit(0);\n");
+	sh(sprintf("cp -r %s/../../list %s/ 2>/dev/null", shq(HERE), shq(dir)));
+	return dir;
+}
+
 // === точка входа rpcd: list / call ===
 
 test("list: дескриптор методов — JSON со всеми методами реестра", () => {
@@ -77,11 +90,11 @@ test("list: дескриптор методов — JSON со всеми мет�
 	let out = sh(sprintf("ucode -R %s list", RPCD));
 	let d = json(out);
 	ok(type(d) == "object", "дескриптор — объект");
-	for (m in ["preflight", "status", "install", "install_progress", "factory_reset",
-	           "switch_to_reality", "switch_to_awg", "replace_reality_conf"])
+	for (m in ["preflight", "status", "install", "install_progress", "factory_reset", "switch_to_awg"])
 		ok(exists(d, m), "метод в дескрипторе: " + m);
-	for (m in [ "switch_to_hysteria2", "replace_hysteria2_conf" ])
-		ok(!exists(d, m), "заморожённого метода нет (ADR 0009): " + m);
+	for (m in [ "switch_to_hysteria2", "replace_hysteria2_conf", "switch_to_reality",
+	            "replace_reality_conf", "install_full_tier" ])
+		ok(!exists(d, m), "заморожённого метода нет (ADR 0009/0010): " + m);
 });
 
 test("call без метода в реестре → error (граница валидации подключена)", () => {
@@ -131,30 +144,15 @@ test("install: битый AWG-конфиг отбивается синхронн
 	ok(!access(STATE + "/pid"), "PID-файл не создан — фон не стартовал");
 });
 
-test("install: битая Reality-ссылка → адресная причина из singbox/plan.uc", () => {
-	reset_sb();
-	put_token("T");
-	let r = rpc("install", { protocol: "reality", reality_conf: "мусор",
-		root_password: "12345678", token: "T" });
-	err_has(r, "ссылка VLESS+Reality не разобрана", "битый reality");
-	ok(!access(STATE + "/tunnel-validate.txt"), "временный файл с секретом удалён");
-});
-
-test("install: пустой reality_conf → подсказка про vless://", () => {
-	reset_sb();
-	put_token("T");
-	let r = rpc("install", { protocol: "reality", reality_conf: "   ",
-		root_password: "12345678", token: "T" });
-	err_has(r, "vless://", "пустой reality-конфиг");
-});
-
-// Hysteria2 заморожена (ADR 0009): установить её через RPC нельзя — отбивает enum ДО любого I/O.
-test("install: protocol=hysteria2 → отказ на границе, фон не стартует", () => {
-	reset_sb();
-	put_token("T");
-	let r = rpc("install", { protocol: "hysteria2", root_password: "12345678", token: "T" });
-	err_has(r, "protocol must be one of", "enum без legacy");
-	ok(!access(STATE + "/pid"), "фон не стартовал");
+// Full-тир заморожен (ADR 0009/0010): установить Reality/Hysteria2 через RPC нельзя — отбивает enum ДО I/O.
+test("install: protocol=reality|hysteria2 → отказ на границе, фон не стартует", () => {
+	for (let proto in [ "reality", "hysteria2" ]) {
+		reset_sb();
+		put_token("T");
+		let r = rpc("install", { protocol: proto, root_password: "12345678", token: "T" });
+		err_has(r, "protocol must be one of", proto + ": enum без legacy");
+		ok(!access(STATE + "/pid"), proto + ": фон не стартовал");
+	}
 });
 
 // === взаимное исключение длинных операций (PID-файл) ===
@@ -247,83 +245,47 @@ test("factory_reset: верный confirm при занятой операции
 	err_has(r, "операция уже выполняется", "PID-гейт после confirm");
 });
 
-// === гейты переключения туннеля (switch_to_reality / switch_to_awg) ===
+// === уход с legacy Full-тира (ADR 0010): единственный путь — switch_to_awg ===
 
-test("switch_to_reality: без install.json → «сначала мастер»", () => {
+test("switch_to_awg: без install.json → «сначала мастер»", () => {
 	reset_sb();
-	let r = rpc("switch_to_reality", { reality_conf: "x" });
-	err_has(r, "ещё не настроена", "нет конфигурации");
+	err_has(rpc("switch_to_awg", { awg_conf: "x" }), "ещё не настроена", "нет конфигурации");
 });
 
-test("switch_to_reality: без sing-box → подсказка включить Full-тир", () => {
-	// На хосте с установленным sing-box ветка недостижима — честный скип, не ложный провал.
-	if (length(trim(sh("command -v sing-box"))) > 0) return;
+test("switch_to_awg: уже awg → отсылка к замене конфига", () => {
 	reset_sb();
 	put_cfg({ protocol: "awg" });
-	let r = rpc("switch_to_reality", { reality_conf: "x" });
-	err_has(r, "sing-box не установлен", "нет бинаря");
+	err_has(rpc("switch_to_awg", { awg_conf: "x" }), "уже используется AmneziaWG", "повторный свитч");
 });
 
-test("switch_to_reality: уже reality → отправляет в «Замену Reality-сервера»", () => {
-	reset_sb();
-	put_cfg({ protocol: "reality" });
-	let r = rpc("switch_to_reality", { reality_conf: "x" }, { with_singbox: true });
-	err_has(r, "уже используется VLESS+Reality", "повторный свитч");
+test("switch_to_awg с legacy reality/hysteria2: битый .conf → отказ, протокол не тронут", () => {
+	for (let proto in [ "reality", "hysteria2" ]) {
+		reset_sb();
+		put_cfg({ protocol: proto });
+		err_has(rpc("switch_to_awg", { awg_conf: "мусор" }), "AWG-конфиг не разобран", proto);
+		eq(json(readfile(ETC + "/install.json")).protocol, proto, proto + ": битый вход протокол не меняет");
+		ok(!access(ETC + "/install.json.prev"), proto + ": .prev не создан — до свитча не дошло");
+	}
 });
 
-test("switch_to_reality: битая ссылка → синхронный отказ, protocol в cfg не тронут", () => {
-	reset_sb();
-	put_cfg({ protocol: "awg" });
-	let r = rpc("switch_to_reality", { reality_conf: "мусор" }, { with_singbox: true });
-	err_has(r, "ссылка VLESS+Reality не разобрана", "битая ссылка");
-	let cfg = json(readfile(ETC + "/install.json"));
-	eq(cfg.protocol, "awg", "protocol не переключён при отказе");
-	ok(!access(ETC + "/install.json.prev"), ".prev не создан — до свитча не дошло");
-});
-
-// === гейты замены конфига активного туннеля ===
-
-test("replace_awg_conf: активен reality → отсылка к правильной кнопке", () => {
+// Роутер, оставшийся на заморожённом Full-тире: сервер не меняется, путь один — уйти на AWG.
+test("replace_awg_conf: активен legacy reality → «больше не поддерживается… переключитесь на AmneziaWG»", () => {
 	reset_sb();
 	put_cfg({ protocol: "reality" });
 	let r = rpc("replace_awg_conf", { awg_conf: "x" });
-	err_has(r, "VLESS+Reality", "не тот активный туннель");
+	err_has(r, "VLESS+Reality больше не поддерживается", "назван активный туннель и его статус");
+	err_has(r, "переключитесь на AmneziaWG", "и выход");
 });
 
-test("replace_reality_conf: активен awg → отказ (защита живого awg0 от half-routes)", () => {
+// ШРАМ (ревью): устаревший active с версии, где на Reality уходили из AWG-профиля, затёр бы чужой .conf.
+test("switch_to_awg с legacy без профиля: устаревший активный профиль сброшен до запуска", () => {
 	reset_sb();
-	put_cfg({ protocol: "awg" });
-	let r = rpc("replace_reality_conf", { reality_conf: "x" });
-	err_has(r, "AmneziaWG", "не тот активный туннель");
-});
-
-// Роутер, оставшийся на заморожённой Hysteria2: сервер не меняется, путь один — переключиться.
-// Сообщение «меняйте сервер того протокола» здесь было бы тупиком.
-test("replace_*: активна legacy hysteria2 → «больше не поддерживается», а не «меняйте сервер того протокола»", () => {
-	reset_sb();
-	put_cfg({ protocol: "hysteria2" });
-	let r = rpc("replace_reality_conf", { reality_conf: "x" });
-	err_has(r, "Hysteria2 больше не поддерживается", "назван активный туннель и его статус");
-	err_has(r, "переключитесь на VLESS+Reality", "и выход");
-	err_has(rpc("replace_awg_conf", { awg_conf: "x" }), "переключитесь на AmneziaWG", "то же для AWG");
-});
-
-test("switch_to_awg / switch_to_reality с legacy hysteria2 — пропускает к валидации (уйти можно)", () => {
-	reset_sb();
-	put_cfg({ protocol: "hysteria2" });
-	err_has(rpc("switch_to_awg", { awg_conf: "мусор" }), "AWG-конфиг не разобран", "дошло до проверки конфига");
-	err_has(rpc("switch_to_reality", { reality_conf: "мусор" }, { with_singbox: true }), "ссылка VLESS+Reality не разобрана",
-		"дошло до проверки ссылки");
-	eq(json(readfile(ETC + "/install.json")).protocol, "hysteria2", "битый вход протокол не меняет");
-});
-
-// === install_full_tier ===
-
-test("install_full_tier: sing-box уже стоит → отказ без запуска установщика", () => {
-	reset_sb();
-	let r = rpc("install_full_tier", {}, { with_singbox: true });
-	err_has(r, "уже установлен", "повторная догрузка");
-	ok(!access(STATE + "/pid"), "фон не стартовал");
+	put_cfg({ protocol: "reality", routing_opts: {} });
+	sh(sprintf("mkdir -p %s/profiles", shq(ETC)));
+	writefile(ETC + "/profiles.json", sprintf("%J", { profiles: [ { id: "p1", name: "Германия" } ], active: "p1", next_id: 2 }));
+	let r = rpc("switch_to_awg", { awg_conf: AWG_OK }, { engine: stub_run() });
+	eq(r.status, "started", sprintf("%J", r));
+	eq(json(readfile(ETC + "/profiles.json")).active, null, "вставленный .conf станет новым «Сервером N»");
 });
 
 // === status: дефолты воспроизводимой конфигурации (load_cfg) ===
@@ -494,8 +456,6 @@ test("check_lan_conflict без фактов сети → conflict=false с пр
 });
 
 // === профили AWG-серверов ===
-
-const AWG_OK = "[Interface]\nPrivateKey = k=\nAddress = 10.0.0.2/32\n[Peer]\nPublicKey = p=\nEndpoint = 192.0.2.1:51820\n";
 
 test("профили: add/list/rename/order/set_failover — без секретов в ответе, .conf с правами 600", () => {
 	reset_sb();

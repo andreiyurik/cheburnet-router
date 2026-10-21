@@ -17,7 +17,7 @@ test("list_descriptor: все методы реестра присутствую
 	ok(exists(d, "install"), "install в дескрипторе");
 	ok(exists(d, "set_mode"), "set_mode в дескрипторе");
 	// install объявляет свои аргументы; типы — образцы (string→"", array→[], object→{})
-	deep_eq(d.install, { protocol: "", awg_conf: "", reality_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, accept_risk: false, token: "" }, "сигнатура install");
+	deep_eq(d.install, { protocol: "", awg_conf: "", root_password: "", ssid: "", wifi_key: "", dns_provider: "", domains: [], routing_opts: {}, accept_risk: false, token: "" }, "сигнатура install");
 	deep_eq(d.set_mode, { mode: "" }, "сигнатура set_mode");
 	deep_eq(d.preflight, {}, "preflight без аргументов");
 });
@@ -48,13 +48,10 @@ test("validate: пустая строка в обязательном строк
 	eq(r.error, "root_password required", "сообщение");
 });
 
-test("validate: protocol enum + туннель-конфиги опциональны (шаг валидирует вход)", () => {
-	// awg_conf/reality_conf необязательны на границе ubus — активный туннель-шаг падает fail-safe.
+test("validate: protocol enum (только awg) + конфиг опционален (шаг валидирует вход)", () => {
+	// awg_conf необязателен на границе ubus — туннель-шаг падает fail-safe.
 	eq(validate_request("install", { root_password: "s3cretpass", token: "t" }).ok, true,
-		"без awg_conf/reality_conf — ubus пропускает (шаг провалится сам)");
-	eq(validate_request("install",
-		{ root_password: "s3cretpass", token: "t", protocol: "reality", reality_conf: "vless://x" }).ok,
-		true, "reality + reality_conf — ок");
+		"без awg_conf — ubus пропускает (шаг провалится сам)");
 	eq(validate_request("install",
 		{ root_password: "s3cretpass", token: "t", protocol: "awg", awg_conf: "[Interface]\n" }).ok,
 		true, "awg + awg_conf — ок");
@@ -164,24 +161,15 @@ test("validate: service_restart — только сервисы (без podkop/a
 	eq(validate_request("service_restart", {}).ok, false, "service обязателен");
 });
 
-test("validate: install_full_tier — admin, без аргументов и токена (opt-in sing-box)", () => {
-	eq(validate_request("install_full_tier", {}).ok, true, "без аргументов — ок");
-	eq(validate_request("install_full_tier", { junk: 1 }).ok, true, "лишнее отбрасывается");
-	eq(requires_token("install_full_tier"), false, "admin-метод, не pre-install — токен не нужен");
-});
-
-test("validate: switch_to_reality — admin, reality_conf обязателен, без токена", () => {
-	eq(validate_request("switch_to_reality", { reality_conf: "vless://…" }).ok, true);
-	eq(validate_request("switch_to_reality", {}).ok, false, "reality_conf обязателен");
-	eq(requires_token("switch_to_reality"), false, "admin-метод — токен не нужен");
-});
-
-// Hysteria2 заморожена (ADR 0009): ни установить, ни переключиться, ни сменить сервер через RPC.
-test("validate: hysteria2 — методов нет, install с protocol=hysteria2 отбит enum'ом", () => {
-	for (let m in [ "switch_to_hysteria2", "replace_hysteria2_conf" ])
-		eq(validate_request(m, { hysteria2_conf: "hysteria2://pw@h:443" }).error, "unknown method", m);
-	let r = validate_request("install", { protocol: "hysteria2", root_password: "12345678", token: "T" });
-	ok(!r.ok && index(r.error, "protocol must be one of") == 0, r.error);
+// Full-тир заморожен (ADR 0009/0010): ни поставить, ни переключиться, ни сменить сервер через RPC.
+test("validate: Full-тир — методов нет, install с protocol=reality|hysteria2 отбит enum'ом", () => {
+	for (let m in [ "install_full_tier", "switch_to_reality", "replace_reality_conf",
+	                "switch_to_hysteria2", "replace_hysteria2_conf" ])
+		eq(validate_request(m, {}).error, "unknown method", m);
+	for (let proto in [ "reality", "hysteria2" ]) {
+		let r = validate_request("install", { protocol: proto, root_password: "12345678", token: "T" });
+		ok(!r.ok && index(r.error, "protocol must be one of") == 0, proto + ": " + r.error);
+	}
 });
 
 test("validate: профили — обязательные поля, типы, длина имени", () => {
@@ -213,11 +201,9 @@ test("validate: set_dns_provider — enum из каталога; dns_provider в
 		false, "невалидный провайдер в install");
 });
 
-test("validate: replace_awg_conf/replace_reality_conf и factory_reset — обязательные строки", () => {
+test("validate: replace_awg_conf и factory_reset — обязательные строки", () => {
 	eq(validate_request("replace_awg_conf", { awg_conf: "[Interface]\n" }).ok, true);
 	eq(validate_request("replace_awg_conf", {}).ok, false, "awg_conf обязателен");
-	eq(validate_request("replace_reality_conf", { reality_conf: "vless://…" }).ok, true);
-	eq(validate_request("replace_reality_conf", {}).ok, false, "reality_conf обязателен");
 	eq(validate_request("factory_reset", { confirm: "RESET" }).ok, true);
 	eq(validate_request("factory_reset", {}).ok, false, "confirm обязателен");
 });
