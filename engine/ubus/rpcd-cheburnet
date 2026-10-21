@@ -14,16 +14,16 @@
 import { stdin, readfile, writefile, unlink, access, chmod, mkdir } from "fs";
 import { sh, run_stdin, shellquote } from "../lib/proc.uc";
 import { list_descriptor, validate_request, requires_token, make_error } from "./ubus.uc";
-import { cidr_overlap, suggest_lan, valid_lan_ip, full_hw_missing } from "../preflight/preflight.uc";
+import { cidr_overlap, suggest_lan, valid_lan_ip } from "../preflight/preflight.uc";
 import { default_provider, describe, catalog_for_ui } from "../steps/doh/providers.uc";
 import { owned_sections as dns_owned_sections } from "../steps/dns/dns.uc";
-import { default_protocol, tunnel_info, tunnel_health, uses_singbox, is_legacy } from "../install/install.uc";
+import { default_protocol, tunnel_info, tunnel_health, is_legacy } from "../install/install.uc";
 import { restart_tunnel_cmd } from "../watchdog/watchdog.uc";
 import { find as profile_find, add as profile_add, rename as profile_rename, remove as profile_remove,
          reorder as profile_reorder, public_view as profiles_view } from "../profiles/profiles.uc";
 import { load as profiles_load, save as profiles_save, read_conf as profile_read_conf,
          write_conf as profile_write_conf, drop_conf as profile_drop_conf,
-         conf_path as profile_conf_path } from "../profiles/store.uc";
+         conf_path as profile_conf_path, clear_active as profiles_clear_active } from "../profiles/store.uc";
 
 // engine/ — относительно этого файла (engine/ubus/rpcd-cheburnet). Тот же приём, что в run.uc.
 // ENGINE_DIR — override ТОЛЬКО для host-тестов: длинные операции подменяются заглушками.
@@ -95,7 +95,7 @@ function save_cfg(c) {
 }
 
 // accepted_risk(cfg) — этот роутер УЖЕ поставлен с пропуском soft-проверок железа?
-// Операции, которые переиспользуют run.uc (switch_to_reality/awg), проходят preflight ЗАНОВО —
+// Операции, которые переиспользуют run.uc (switch_to_awg), проходят preflight ЗАНОВО —
 // без этого флага они бы упирались в тот же отказ, и владелец, однажды осознанно согласившийся
 // на слабое железо, не смог бы сменить туннель из панели. Решение уже принято — не спрашиваем дважды.
 function accepted_risk(cfg) {
@@ -154,34 +154,9 @@ function mismatch_error(active, target) {
 		proto_name(active), proto_name(target)));
 }
 
-// validate_tunnel_conf(protocol, conf) → { ok, error } — СИНХРОННАЯ проверка туннель-конфига
-// ДО фона: битый вход отбиваем сразу, с ПОНЯТНОЙ причиной, а не заставляя пользователя ждать
-// провала всей установки и читать лог. Full-тир: собираем ERROR-строки singbox/plan.uc точечно
-// («нет pbk», «нет sni»); awg: генерик (INI-конфиг обычно бит целиком) — как в replace_awg_conf.
+// validate_tunnel_conf(protocol, conf) → { ok, error } — СИНХРОННАЯ проверка AWG-конфига ДО фона:
+// битый вход отбиваем сразу, а не после провала всей установки. Ставится только AWG (ADR 0010).
 function validate_tunnel_conf(protocol, conf) {
-	if (uses_singbox(protocol)) {
-		if (length(trim(conf ?? "")) == 0)
-			return { ok: false, error: "нужна ссылка vless://… или JSON-конфиг sing-box" };
-		// Секрет (credentials сервера) → 600-temp, чистим сразу. plan.uc печатает ERROR: <причина>
-		// и выходит 1; ловим и код, и текст.
-		let tmp = STATE_DIR + "/tunnel-validate.txt";
-		writefile(tmp, conf);
-		chmod(tmp, 0o600);
-		let out = sh(sprintf("%s < %s 2>&1; echo __rc=$?", engine_cli("steps/singbox/plan.uc"), tmp));
-		unlink(tmp);
-		let rc = match(out, /__rc=([0-9]+)/);
-		if (rc && rc[1] == "0")
-			return { ok: true };
-		let msgs = [], lines = split(out, "\n");
-		for (let i = 0; i < length(lines); i++) {
-			let m = match(trim(lines[i]), /^ERROR: (.+)$/);
-			if (m) push(msgs, m[1]);
-		}
-		return { ok: false, error: length(msgs) > 0
-			? sprintf("ссылка %s не разобрана: %s", proto_name(protocol), join("; ", msgs))
-			: sprintf("ссылка %s не разобрана — проверьте, что вставлена целиком", proto_name(protocol)) };
-	}
-	// awg (Light): sync-валидация через vpn/plan.uc (генерик-сообщение достаточно).
 	let rc = run_stdin(engine_cli("steps/vpn/plan.uc") + " >/dev/null 2>&1", conf ?? "");
 	return rc == 0 ? { ok: true }
 		: { ok: false, error: "AWG-конфиг не разобран — проверьте, что вставлен целиком" };
@@ -245,12 +220,8 @@ function m_status() {
 		"echo \"doh=$(/etc/init.d/https-dns-proxy status 2>/dev/null | grep -qi running && echo up)\"; " +
 		"echo \"radios=$(uci -q show wireless 2>/dev/null | grep -c '=wifi-device')\"; " +
 		"echo \"ssid=$(uci -q get wireless.@wifi-iface[0].ssid 2>/dev/null)\"; " +
-		// Full-тир (opt-in): бинарь sing-box стоит? + arch/ram для «потянет ли» (лёгкая проверка
-		// для видимости кнопки; авторитетный гейт — preflight при установке). arch — прокси AES.
-		"echo \"sbx=$(command -v sing-box)\"; " +
-		// Здоровье АКТИВНОГО туннеля (awg0 | singtun0 — имя из tunnel_info, не хардкод): процесс
-		// sing-box жив и TUN поднят. Для Reality это единственный ДЕШЁВЫЙ признак — рукопожатия у
-		// него нет, а connectivity-probe (пин host-route + fetch) слишком дорог для поллинга.
+		// Здоровье АКТИВНОГО туннеля (awg0 | singtun0 — имя из tunnel_info, не хардкод). Legacy Full-тир
+		// (ADR 0010): процесс sing-box жив и TUN поднят — рукопожатия у него нет.
 		// БЕЗ -x: busybox-pgrep сверяет argv[0] как запущено, а procd стартует демон по
 		// абсолютному пути — `pgrep -x sing-box` не совпадёт никогда, и панель показала бы
 		// «VPN не работает» на рабочем Reality (тот самый баг, ради которого признак и заводили).
@@ -260,17 +231,6 @@ function m_status() {
 		// Промах здесь = ложное «туннель не поднят» на рабочем Reality, то есть тот же баг обратно.
 		sprintf("echo \"tunup=$(ip link show dev %s 2>/dev/null | grep -qE '[<,]UP[,>]' && echo up)\"; ",
 			tunnel_info(cfg.protocol).tunnel_if) +
-		"echo \"march=$(uname -m)\"; " +
-		// $2 внутри одинарных кавычек awk НЕ экранировать: busybox awk прощал '\$2', а GNU и
-		// другие awk на нём падают → mram пуст → full_capable ложно false (поймано тестом на хосте).
-		"echo \"mram=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null)\"; " +
-		// Свободный флеш (МБ) для гейта кнопки Full-тира: sing-box ~42 МБ (замер qemu-reality),
-		// и раньше кнопка флеш ИГНОРИРОВАЛА — обещала то, что валилось на apk.
-		// Available = ТРЕТЬЕ целое поле строки данных, счётчик НЕ сбрасываем по строкам: так же,
-		// как parse_df, это переживает busybox-перенос длинного имени ФС на отдельную строку.
-		// $i внутри одинарных кавычек awk НЕ экранировать (урок mram: GNU awk на '\$i' падает).
-		"echo \"mfree=$( (df -k /overlay 2>/dev/null || df -k /) | " +
-		"awk 'NR>1{for(i=1;i<=NF;i++) if ($i ~ /^[0-9]+$/) {n++; if (n==3) {print int($i/1024); exit}}}' )\"; " +
 		// Пустой pid ОБЯЗАТЕЛЬНО отсекаем ДО kill: busybox парсит "" как 0 → kill(0,0) —
 		// сигнал собственной process-группе → всегда успех → ложный installing=true.
 		// Хостовый shell на "" отвечает ошибкой — юниты этот gap не видят (поймано в QEMU).
@@ -313,14 +273,6 @@ function m_status() {
 	// DNS-провайдер (= уровень фильтрации) из воспроизводимой конфигурации + каталог для UI.
 	let dns_provider = cfg.dns_provider;
 
-	// Full-тир (opt-in): full_installed — бинарь sing-box стоит (можно предлагать Reality);
-	// full_capable — железо потянет (показать кнопку «включить»). Логика гейта железа — чистая
-	// full_hw_missing (единый источник с preflight, под юнит-тестами: границы RAM/флеша, мусор из
-	// батча). Она же отдаёт СПИСОК причин, чтобы панель называла, чего не хватает.
-	let full_installed = length(facts.sbx ?? "") > 0;
-	let full_missing = full_hw_missing(facts.march, facts.mram, facts.mfree, null);
-	let full_capable = length(full_missing) == 0;
-
 	// Здоровье импортированного списка: кэш community-списка direct-доменов (list/fetch.uc).
 	// Пустой/отсутствующий кэш — повод для баннера в UI (direct-домены поедут через туннель —
 	// fail-safe, но пользователь должен знать).
@@ -355,11 +307,6 @@ function m_status() {
 		dns_providers: catalog_for_ui(),
 		direct_list_loaded: imported_domains > 0,
 		imported_domains: imported_domains,
-		full_capable: full_capable,      // железо потянет Full → показать кнопку включения
-		// ЧЕГО не хватает для Full ("arch"|"ram"|"flash"): панель говорит причину, а не молча
-		// прячет кнопку — иначе человек не понимает, почему у него нет описанной в docs функции.
-		full_missing: full_missing,
-		full_installed: full_installed,  // sing-box стоит → можно предлагать/переключать на Reality
 		// Проверки железа, пропущенные владельцем при установке (run.uc пишет в install.json).
 		// Панель показывает по ним честную плашку «стабильность не гарантируется» — и это же
 		// первое, что видно в присланном скриншоте статуса при разборе жалоб.
@@ -379,7 +326,7 @@ function m_install(v) {
 	// DNS-провайдер (фильтрация): валидность id уже проверил enum на границе; нет → дефолт каталога.
 	let dns_provider = (type(v.dns_provider) == "string" && length(v.dns_provider) > 0)
 		? v.dns_provider : default_provider();
-	// Туннель: protocol awg (Light, дефолт) | reality (Full). Валидность enum проверил
+	// Туннель: protocol — только awg (Full-тир заморожен, ADR 0010). Валидность enum проверил
 	// ubus.uc; нет → дефолт. run.uc по нему выбирает туннель-шаг (vpn/singbox) и tunnel_if.
 	let protocol = (type(v.protocol) == "string" && length(v.protocol) > 0)
 		? v.protocol : default_protocol();
@@ -616,8 +563,8 @@ function m_install_cancel(v) {
 	writefile(STATE_FILE, "cancelled\n");
 	// Прерванная установка = частично применённые шаги. Откат — ЕДИНОЙ реализацией движка
 	// (install/run.uc --rollback: snapshot restore + teardown грязных шагов), не копией здесь.
-	// protocol ОБЯЗАТЕЛЕН: без него run.uc берёт дефолт awg и НЕ teardown'ит singbox —
-	// отмена reality-установки оставляла бы живой sing-box с credentials (находка ревью).
+	// protocol — протокол ПОПЫТКИ (switch_tunnel пишет его в install.json до спавна): по нему
+	// run.uc не трогает неактивный туннель — в том числе восстановленный legacy sing-box.
 	let cc = load_cfg();
 	let td = sprintf("%J", { domains: [], routing_opts: cc.routing_opts, protocol: cc.protocol });
 	run_stdin(engine_cli("install/run.uc") + " --rollback >/dev/null 2>&1", td);
@@ -695,70 +642,16 @@ function m_replace_awg_conf(v) {
 	respond({ status: "started", pid: pid });
 }
 
-// replace_singbox_conf(protocol, conf) — замена сервера Full-протокола без переустановки.
-// Одна реализация на весь Full-тир (общий config.json, шаг и проба — ADR 0004); сейчас это Reality.
-function replace_singbox_conf(protocol, conf) {
-	if (pid_alive())
-		respond(make_error("операция уже выполняется"));
-	// Гейт по АКТИВНОМУ протоколу, не по наличию /etc/config/sing-box: после кнопки «Включить
-	// Full-тир» файл уже есть, а туннель ещё AWG — replace поверх живого awg0 перехватил бы весь
-	// LAN-трафик half-routes'ами при NAT-зоне на awg0 (UI это гейтит, но граница доверия — ubus RPC).
-	// Сверяем и с ДРУГИМ Full-протоколом: замена конфига — не смена протокола, для неё есть
-	// switch_to_* (он переприменяет весь data-plane и умеет откатиться).
-	let active = load_cfg().protocol;
-	if (active != protocol)
-		respond(mismatch_error(active, protocol));
-	if (trim(sh("[ -f /etc/config/sing-box ] && echo y || true")) != "y")
-		respond(make_error(sprintf("Full-тир не установлен — пройдите мастер с протоколом %s", proto_name(protocol))));
-
-	// Синхронная валидация ссылки/конфига ДО фона: битый вход отбиваем сразу с понятной
-	// причиной (нет pbk/sni/…), не тратя rollback-цикл. Тот же валидатор, что в m_install.
-	let vt = validate_tunnel_conf(protocol, conf);
-	if (!vt.ok)
-		respond(make_error(vt.error));
-
-	// Фон: replace_singbox.uc (бэкап config.json → snapshot → apply → probe → commit/restore).
-	// Конфиг содержит credentials сервера → payload 600.
-	writefile(PAYLOAD_FILE, conf);
-	chmod(PAYLOAD_FILE, 0o600);
-	let pid = spawn_bg(sprintf("%s < %s", engine_cli("install/replace_singbox.uc"), PAYLOAD_FILE),
-		"replacing-" + protocol);
-	respond({ status: "started", pid: pid });
-}
-
-function m_install_full_tier(v) {
-	if (pid_alive())
-		respond(make_error("операция уже выполняется"));
-	if (length(trim(sh("command -v sing-box"))) > 0)
-		respond(make_error("Full-тир уже установлен (sing-box стоит)"));
-
-	// Догрузка бинаря sing-box по кнопке (opt-in Full-тир) — вынесена в install-singbox.sh (ретраи,
-	// порядок предпочтения tiny→полный, код выхода по факту наличия бинаря; логика под
-	// tests/install-singbox-test.sh). Один бинарь открывает ОБА Full-протокола. Не трогает
-	// работающий AWG: ставит только пакет.
-	let pid = spawn_bg(sprintf("sh %s/install/install-singbox.sh", ENGINE), "installing-full");
-	respond({ status: "started", pid: pid });
-}
-
 // switch_tunnel(protocol, conf) — in-place смена активного туннеля на protocol.
 //
-// ОДНА реализация на все переходы (awg↔reality, и уход с замороженного hysteria2): run.uc целиком — он
-// делает snapshot → teardown НЕактивного туннеля → apply туннель+dns+doh+firewall(его интерфейс) →
-// health (handshake для awg / connectivity-probe для Full) → commit/rollback. Домены/DNS/режим
-// берём из сохранённого cfg (мастер НЕ проходим), пароль/Wi-Fi не трогаем.
-//
-// protocol в install.json меняем ЗАРАНЕЕ (+.prev): на commit run.uc допишет wan_if в этот же файл,
-// на откате вернёт .prev с прежним протоколом и восстановит config.json (см. run.uc rollback_all).
-// Копий этой последовательности по методам нет намеренно: три копии разъехались бы, а каждая из
-// них — путь, который умеет оставить роутер без интернета.
+// Уход на AWG с legacy Full-тира (ADR 0010) — через run.uc целиком; домены/DNS/режим берём из cfg.
+// protocol в install.json меняем ЗАРАНЕЕ (+.prev): откат вернёт .prev и config.json (run.uc rollback_all).
+// Копий этой последовательности по методам нет намеренно: каждая — путь, способный оставить без интернета.
 function switch_tunnel(protocol, conf, profile_id) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
 	if (!access(CFG_FILE))
 		respond(make_error("система ещё не настроена — сначала пройдите мастер"));
-	// Full-протоколы требуют бинаря; AWG в ядре — нет.
-	if (uses_singbox(protocol) && length(trim(sh("command -v sing-box"))) == 0)
-		respond(make_error("sing-box не установлен — сначала нажмите «Включить запасной туннель»"));
 
 	let cfg = load_cfg();
 	if (cfg.protocol == protocol)
@@ -769,6 +662,11 @@ function switch_tunnel(protocol, conf, profile_id) {
 	let vt = validate_tunnel_conf(protocol, conf);
 	if (!vt.ok)
 		respond(make_error(vt.error));
+
+	// ШРАМ (ревью): с версии, где на Reality уходили из AWG-профиля, остался устаревший active — вставленный
+	// .conf затёр бы чужой профиль. Уход с legacy без выбранного профиля = новый «Сервер N» на commit.
+	if (!profile_id)
+		profiles_clear_active();
 
 	cfg.protocol = protocol;
 	unlink(CFG_FILE + ".prev");
@@ -781,7 +679,7 @@ function switch_tunnel(protocol, conf, profile_id) {
 		protocol: protocol,
 		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
 		dns_provider: cfg.dns_provider,
-		accept_risk: accepted_risk(cfg),
+		accept_risk: true, // выход с legacy: пакеты уже стоят, гейт железа не должен закрыть единственный путь
 		profile_id: profile_id, // AWG-профиль, который станет активным на commit (engine/profiles)
 	};
 	payload[tunnel_info(protocol).conf_key] = conf;
@@ -1001,11 +899,6 @@ else if (method == "pause_protection")      toggle_protection(false);
 else if (method == "resume_protection")     toggle_protection(true);
 else if (method == "set_dns_provider")      m_set_dns_provider(v);
 else if (method == "replace_awg_conf")      m_replace_awg_conf(v);
-// Замена сервера и смена туннеля — тонкие обёртки над ОДНОЙ реализацией каждая: различаются
-// только протоколом и именем аргумента (оно же — имя формата конфига).
-else if (method == "replace_reality_conf")    replace_singbox_conf("reality", v.reality_conf);
-else if (method == "install_full_tier")     m_install_full_tier(v);
-else if (method == "switch_to_reality")     switch_tunnel("reality", v.reality_conf);
 else if (method == "switch_to_awg")         switch_tunnel("awg", v.awg_conf);
 else if (method == "list_profiles")         m_list_profiles();
 else if (method == "add_profile")           m_add_profile(v);

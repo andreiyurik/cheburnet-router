@@ -35,7 +35,7 @@ function has_substr(text, needle) {
 }
 
 // default_via_iface(route_text, iface) — есть ли дефолт ИМЕННО через этот интерфейс. Токен после
-// " dev " сравниваем целиком: dev eth1 ≠ dev eth10 (тот же приём, что route_uses_iface).
+// " dev " сравниваем целиком: dev eth1 ≠ dev eth10.
 function default_via_iface(route_text, iface) {
 	if (!iface) return false;
 	let lines = split(trim(route_text ?? ""), "\n");
@@ -134,7 +134,7 @@ function evaluate(facts) {
 	push(checks, check("tunnel_route", half_routes_present(f.route_main, f.tunnel_if),
 		"трафик уходит в туннель (half-routes)",
 		sprintf("0.0.0.0/1 + 128.0.0.0/1 через %s", f.tunnel_if ?? "?"),
-		"ucode -R engine/steps/vpn/apply.uc --arm (или steps/singbox для Full-тира)",
+		"ucode -R engine/steps/vpn/apply.uc --arm",
 		"critical", "arm"));
 
 	// 3. Kill-switch. ШРАМ: цепочка оставалась, но ПУСТЕЛА после fw4 reload — «зелёная» система

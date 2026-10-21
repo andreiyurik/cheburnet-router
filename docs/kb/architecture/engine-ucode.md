@@ -34,7 +34,7 @@ flowchart TB
 | Модуль (`engine/`) | Роль | Связь |
 |---|---|---|
 | `preflight/` | проверка arch/RAM/флеша/зависимостей | [[reliability]] |
-| `steps/` | идемпотентные шаги по компонентам (vpn, dns, doh, wifi, firewall, rootpass, singbox) | [[reliability]] |
+| `steps/` | идемпотентные шаги по компонентам (vpn, dns, doh, wifi, firewall, rootpass; singbox — legacy, ADR 0010) | [[reliability]] |
 | `routing/` | генерация [[dnsmasq-nftset]] + [[policy-routing]] | [[data-plane]] |
 | `rollback/` | snapshot/restore UCI там, где откат чистый | [[reliability]] |
 | `install/` | оркестратор: preflight → snapshot → шаги → health → commit/rollback | [[reliability]] |

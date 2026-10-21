@@ -79,7 +79,7 @@ echo '{"domains":["example.com"],"routing_opts":{"wan_if":"eth0"},"fw_opts":{"tu
   | ucode -R engine/steps/firewall/apply.uc --dry-run   # показать план, не применять
 ```
 
-`fw_opts.tunnel_if` обязателен для Full-тира (`singtun0`): без него NAT-зона строится под `awg0`.
+`fw_opts.tunnel_if` обязателен для legacy Full-тира (`singtun0`): без него NAT-зона строится под `awg0`.
 Все вызывающие (`run.uc`, `install/reapply.uc`) передают его; своих копий «переприменить firewall» в
 других слоях быть не должно.
 

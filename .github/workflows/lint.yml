@@ -20,6 +20,6 @@ jobs:
       - name: Run lint pipeline
         run: make lint
 
-      # Быстрые shell-тесты (стабы, без сети): install-singbox + bootstrap. Секунды.
+      # Быстрые shell-тесты (стабы, без сети): bootstrap. Секунды.
       - name: Shell tests
         run: make test-shell

@@ -3,7 +3,7 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../lib/assert.uc";
 import { pick_wan_fallback } from "../../lib/route.uc";
-import { route_uses_iface, fresh_handshake,
+import { fresh_handshake,
          enabled_steps, snapshot_scope, dirty_steps,
          decide_outcome, protocol_ids, is_legacy, default_protocol, tunnel_info, tunnel_ifs,
          uses_singbox, tunnel_conf,
@@ -75,16 +75,15 @@ test("disabled_tunnels возвращает только туннель-шаги
 });
 
 // --- модель протокола (три оси покрытия, ADR 0004) ---
-test("protocol_ids / default_protocol: awg (дефолт), reality; legacy hysteria2 не устанавливается", () => {
-	deep_eq(protocol_ids(), [ "awg", "reality" ], "enum ubus: заморожённый протокол не поставить заново");
+test("protocol_ids / default_protocol: ставится только awg; reality и hysteria2 — legacy", () => {
+	deep_eq(protocol_ids(), [ "awg" ], "enum ubus: заморожённый Full-тир не поставить заново (ADR 0010)");
 	eq(default_protocol(), "awg", "дефолт — лёгкий туннель в ядре, а не userspace");
-	ok(is_legacy("hysteria2") && !is_legacy("reality") && !is_legacy("bogus"));
+	ok(is_legacy("hysteria2") && is_legacy("reality") && !is_legacy("awg") && !is_legacy("bogus"));
 });
 
 test("tunnel_info: шаг, интерфейс и conf_key каждого протокола; неизвестный → дефолт", () => {
 	deep_eq(tunnel_info("awg"), { step: "vpn", tunnel_if: "awg0", conf_key: "awg_conf" });
-	deep_eq(tunnel_info("reality"),
-		{ step: "singbox", tunnel_if: "singtun0", conf_key: "reality_conf" });
+	deep_eq(tunnel_info("reality"), { step: "singbox", tunnel_if: "singtun0", legacy: true });
 	// ШАГ и интерфейс legacy остаются: живой роутер на Hysteria2 продолжает работать (ADR 0009).
 	deep_eq(tunnel_info("hysteria2"), { step: "singbox", tunnel_if: "singtun0", legacy: true });
 	deep_eq(tunnel_info("bogus"), { step: "vpn", tunnel_if: "awg0", conf_key: "awg_conf" },
@@ -112,10 +111,10 @@ test("tunnel_ifs: интерфейсы всех туннелей без дубл
 test("tunnel_conf: конфиг берётся по conf_key активного протокола", () => {
 	let cfg = { awg_conf: "AWG", reality_conf: "vless://x", hysteria2_conf: "hy2://y" };
 	eq(tunnel_conf("awg", cfg), "AWG");
-	eq(tunnel_conf("reality", cfg), "vless://x");
-	eq(tunnel_conf("hysteria2", cfg), "", "у legacy нет conf_key: новый конфиг ему не подать");
-	eq(tunnel_conf("reality", {}), "", "нет ключа → пусто (шаг честно упадёт, а не возьмёт чужой)");
-	eq(tunnel_conf("reality", { reality_conf: 42 }), "", "не строка → пусто");
+	eq(tunnel_conf("reality", cfg), "", "у legacy нет conf_key: новый конфиг ему не подать");
+	eq(tunnel_conf("hysteria2", cfg), "");
+	eq(tunnel_conf("awg", {}), "", "нет ключа → пусто (шаг честно упадёт, а не возьмёт чужой)");
+	eq(tunnel_conf("awg", { awg_conf: 42 }), "", "не строка → пусто");
 	eq(tunnel_conf("bogus", cfg), "AWG", "неизвестный протокол → ключ дефолтного");
 });
 
@@ -284,29 +283,6 @@ test("tunnel_health: неизвестный протокол → правила 
 	eq(tunnel_health(null, { hs_age: null }), "down");
 });
 
-// --- route_uses_iface (чистая часть connectivity-probe reality) ---
-test("route_uses_iface: маршрут через туннель → true (dev-токен, не подстрока)", () => {
-	ok(route_uses_iface("1.1.1.1 dev singtun0 src 172.19.0.1 uid 0 \n    cache", "singtun0"));
-	ok(route_uses_iface("1.1.1.1 via 10.0.0.1 dev singtun0 src 172.19.0.1", "singtun0"));
-});
-
-test("route_uses_iface: маршрут утёк на WAN → false (мёртвый туннель не выдаём за рабочий)", () => {
-	ok(!route_uses_iface("1.1.1.1 via 192.168.1.1 dev eth0 src 192.168.1.2", "singtun0"));
-});
-
-test("route_uses_iface: точное совпадение имени (dev singtun00 ≠ singtun0)", () => {
-	ok(!route_uses_iface("1.1.1.1 dev singtun00 src x", "singtun0"));
-});
-
-test("route_uses_iface: пустой вход / пустой iface → false (fail-safe)", () => {
-	ok(!route_uses_iface("", "singtun0"));
-	ok(!route_uses_iface(null, "singtun0"));
-	ok(!route_uses_iface("1.1.1.1 dev singtun0", ""));
-});
-
-test("route_uses_iface: 'dev' последним токеном (обрезанный вывод) → false", () => {
-	ok(!route_uses_iface("1.1.1.1 dev", "singtun0"));
-});
 
 // --- fresh_handshake (30с-гейт replace_vpn: multi-peer-корректность) ---
 test("fresh_handshake: multi-peer — свежий handshake у ВТОРОГО peer'а находится", () => {

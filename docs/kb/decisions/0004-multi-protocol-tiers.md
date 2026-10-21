@@ -5,14 +5,15 @@ aliases: [0004-multi-protocol-tiers, протоколы, тиры]
 status: accepted
 date: 2026-06-11
 updated: 2026-10-18
-superseded_in_part_by: 0009-freeze-hysteria2
+superseded_by: 0010-freeze-full-tier
 ---
 
 # ADR 0004 — Многопротокольность по тирам
 
-> [!warning] Частично заменён [[0009-freeze-hysteria2|ADR 0009]] (2026-10-18)
-> Hysteria2 заморожена: в продукте остаются AmneziaWG (Light) и VLESS+Reality (Full). Всё, что
-> ниже сказано про Hysteria2, — история решения и замеров; код лежит в теге `hysteria2-final`.
+> [!warning] Заменён: [[0009-freeze-hysteria2|ADR 0009]] (2026-10-18) и [[0010-freeze-full-tier|ADR 0010]] (2026-10-21)
+> Full-тир заморожен целиком: в продукте один протокол — AmneziaWG в ядре. Всё, что ниже сказано
+> про Reality и Hysteria2, — история решения и замеров; код лежит в тегах `reality-final` и
+> `hysteria2-final`. Уже установленные роутеры живут на legacy-шаге sing-box (см. ADR 0010).
 
 > [!info] Статус: принято · Light (AmneziaWG) + Full (VLESS+Reality, Hysteria2) · обновлено 2026-07-31
 > Расширяет [[0001-why-not-singbox]], **не отменяя его**. Light-тир (AmneziaWG на примитивах ядра)

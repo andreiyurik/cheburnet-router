@@ -29,12 +29,10 @@ const REGISTRY = [
 	] },
 	{ name: "install_progress", access: "read", auth: "anon", token: false, args: [] },
 	{ name: "install",   access: "write", auth: "anon",  token: true, args: [
-		// protocol: awg (Light, дефолт) | reality (Full, ADR 0004). Конфиг каждого —
-		// в своём поле, ВСЕ необязательны здесь: активный туннель-шаг валидирует вход сам,
-		// fail-safe при отсутствии.
+		// protocol: только awg (Full-тир заморожен, ADR 0010); конфиг необязателен здесь —
+		// туннель-шаг валидирует вход сам, fail-safe при отсутствии.
 		{ name: "protocol",       type: "string", enum: PROTOCOL_IDS },
-		{ name: "awg_conf",       type: "string" }, // AmneziaWG .conf (protocol=awg)
-		{ name: "reality_conf",   type: "string" }, // vless://… или JSON sing-box, секрет → payload 600
+		{ name: "awg_conf",       type: "string" }, // AmneziaWG .conf, секрет → payload 600
 		{ name: "root_password", type: "string", required: true, minlen: 8 }, // секрет → payload 600
 		// Wi-Fi необязателен: wired-only роутеры ставятся без него (UI спрашивает поля только
 		// при status.wireless_present; шаг wifi — no-op без них).
@@ -76,16 +74,8 @@ const REGISTRY = [
 	{ name: "set_dns_provider", access: "write", auth: "admin", token: false, args: [
 		{ name: "provider", type: "string", required: true, enum: PROVIDER_IDS },
 	] },
-	// Full-тир — opt-in: бинарь sing-box догружается по кнопке, не при bootstrap.
-	{ name: "install_full_tier", access: "write", auth: "admin", token: false, args: [] },
-	// In-place смена активного туннеля: приносим только конфиг нового, домены/DNS/режим — из
-	// сохранённой конфигурации. Метод на протокол вместо switch_tunnel(protocol, conf) — имя аргумента
-	// = имя формата (vless:// ≠ .conf); импурный путь под ними один общий.
-	// Требует уже установленного бинаря sing-box.
-	{ name: "switch_to_reality", access: "write", auth: "admin", token: false, args: [
-		{ name: "reality_conf", type: "string", required: true },
-	] },
-	// Обратная смена на AmneziaWG (зеркало переходов выше); sing-box остаётся установленным.
+	// Уход с legacy Full-тира (Reality/Hysteria2, ADR 0010) на AmneziaWG: приносим только .conf,
+	// домены/DNS/режим — из сохранённой конфигурации; путь — run.uc с автооткатом.
 	{ name: "switch_to_awg", access: "write", auth: "admin", token: false, args: [
 		{ name: "awg_conf", type: "string", required: true },
 	] },
@@ -120,11 +110,6 @@ const REGISTRY = [
 	] },
 	{ name: "set_failover", access: "write", auth: "admin", token: false, args: [
 		{ name: "enabled", type: "bool", required: true },
-	] },
-	// Смена сервера без переустановки (Full): снапшот → применить → probe → commit/restore
-	// (общий replace_singbox.uc).
-	{ name: "replace_reality_conf", access: "write", auth: "admin", token: false, args: [
-		{ name: "reality_conf", type: "string", required: true },
 	] },
 	// Диагностика: логи+состояние+версии с ВЫРЕЗАННЫМИ секретами (diagnostics.uc + lib/redact.uc).
 	// auth=admin: даже вычищенный пакет раскрывает топологию сети — соседу по LAN не отдаём.

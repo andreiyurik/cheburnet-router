@@ -4,7 +4,7 @@
 // --allow-soft: провалы флеша/RAM не блокируют (осознанный выбор владельца, install.accept_risk).
 
 import { stdin } from "fs";
-import { evaluate, render_report, evaluate_tiers } from "./preflight.uc";
+import { evaluate, render_report } from "./preflight.uc";
 
 // has_flag(name) — есть ли флаг среди аргументов (ARGV в ucode CLI доступен как глобал).
 function has_flag(name) {
@@ -23,9 +23,6 @@ let report = evaluate(facts, facts.requirements);
 let allow_soft = has_flag("--allow-soft");
 
 if (has_flag("--json")) {
-	// tiers — какие туннель-тиры потянет это железо (Light всегда, Full гейтится). Информационно
-	// для UI (показывать ли выбор VLESS+Reality); НЕ влияет на exit-код (блокирует только Light).
-	report.tiers = evaluate_tiers(facts, facts.requirements);
 	print(sprintf("%J\n", report));
 } else {
 	let lines = render_report(report, allow_soft);

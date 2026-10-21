@@ -1,16 +1,14 @@
 #!/bin/bash
 # tests/router/install.sh — ШАГ 3: установка на физический роутер конфигом со стенда VPS.
 #
-#     R_HOST=192.168.1.1 bash tests/router/install.sh awg
-#     R_HOST=192.168.1.1 bash tests/router/install.sh awg|reality
+#     R_HOST=192.168.1.1 bash tests/router/install.sh
 #
 # Зовёт ТОТ ЖЕ метод ubus, что и веб-мастер (`cheburnet install` с install-токеном), а не свои
 # команды: проверяем путь, которым пойдут люди. Отличие от мастера только во вводе — конфиг берётся
-# из tests/vps (links.env / awg-client.conf), а не из формы браузера.
+# из tests/vps/awg-client.conf, а не из формы браузера. Ставится только AmneziaWG (ADR 0010).
 #
-# ПОЧЕМУ СКРИПТОМ, А НЕ РУКАМИ В ПАНЕЛИ: прогон повторяется много раз (три протокола, до и после
-# перезагрузки, после откатa), и ручная копипаста ссылки в форму каждый раз — это и время, и
-# несравнимые между собой запуски.
+# ПОЧЕМУ СКРИПТОМ, А НЕ РУКАМИ В ПАНЕЛИ: прогон повторяется много раз (до и после перезагрузки,
+# после откатa), и ручная копипаста конфига в форму каждый раз — это и время, и несравнимые запуски.
 #
 # Меняет состояние роутера: network/dhcp/firewall, пароль root, Wi-Fi. Поэтому требует бэкапа
 # (шаг 2) и явного согласия (R_YES=1 — для неинтерактивных прогонов).
@@ -22,28 +20,16 @@
 set -e -u -o pipefail
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-PROTO="${1:-awg}"
-LINKS="$R_DIR/../vps/links.env"
+PROTO_ID="awg"
 AWG_CONF_FILE="$R_DIR/../vps/awg-client.conf"
 DOMAINS="${R_DOMAINS:-example.com}"
 
-[ -f "$LINKS" ] || { echo "✗ нет $LINKS — поднимите стенд (tests/vps/provision-lab.sh + fetch-links.sh)"; exit 1; }
-# shellcheck source=/dev/null
-. "$LINKS"
+[ -s "$AWG_CONF_FILE" ] || { echo "✗ нет $AWG_CONF_FILE — поднимите стенд (tests/vps/provision-lab.sh + fetch-links.sh)"; exit 1; }
 
-r_init "install-$PROTO"
+r_init "install-$PROTO_ID"
 
-# Конфиг туннеля: у каждого протокола своё поле в install — имя поля и есть формат конфига.
-case "$PROTO" in
-    awg)
-        [ -f "$AWG_CONF_FILE" ] || r_die "нет $AWG_CONF_FILE — fetch-links.sh его качает со стенда"
-        CONF_FIELD="awg_conf"; CONF_VALUE="$(cat "$AWG_CONF_FILE")" ;;
-    reality)
-        CONF_FIELD="reality_conf"; CONF_VALUE="${VLESS_REALITY:-}" ;;
-    *) r_die "неизвестный протокол «$PROTO» (awg|reality; hysteria2 заморожена — ADR 0009)" ;;
-esac
-[ -n "$CONF_VALUE" ] || r_die "в links.env нет конфига для «$PROTO» — стенд поднялся не полностью"
-PROTO_ID="$PROTO"
+CONF_FIELD="awg_conf"
+CONF_VALUE="$(cat "$AWG_CONF_FILE")"
 
 # Токен установки: доказательство «у меня есть SSH к роутеру». Его создаёт bootstrap (или postinst
 # пакета) и движок снимает его по завершении установки — повторная установка требует нового.
@@ -70,7 +56,7 @@ WIFI_KEY="${R_WIFI_KEY:-cheb-wifi-$(rand_str 'a-z0-9' 8)}"
 SSID="${R_SSID:-cheburnet-test}"
 
 r_msg "Что будет установлено"
-printf '    протокол:      %s (%s)\n' "$PROTO_ID" "$PROTO"
+printf '    протокол:      %s\n' "$PROTO_ID"
 printf '    direct-домены: %s\n' "$DOMAINS"
 [ "$WIFI" = "1" ] && printf '    Wi-Fi:         SSID «%s» (пароль будет в отчёте)\n' "$SSID"
 printf '    пароль root:   %s\n' "$ROOT_PASS"

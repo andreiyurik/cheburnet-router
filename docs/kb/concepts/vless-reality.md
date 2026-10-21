@@ -1,10 +1,17 @@
 ---
-title: "VLESS + Reality (Full-тир)"
+title: "VLESS + Reality (заморожен)"
 tags: [concept, data-plane, protocols, dpi]
 aliases: [vless-reality, reality, full-tier, sing-box]
 ---
 
 # VLESS + Reality — туннель, который выглядит как обычный HTTPS
+
+> [!warning] Протокол заморожен ([[0010-freeze-full-tier|ADR 0010]])
+> В cheburnet VLESS+Reality больше не устанавливается и не выбирается; код — в теге `reality-final` и
+> ветке `archive/reality`. Роутеры, уже работающие на нём, живут на legacy-шаге и уходят на AmneziaWG
+> из панели. Глава оставлена ради принципа: как туннель маскируется под HTTPS к настоящему сайту и
+> почему это другая ось, чем UDP у WireGuard, — знание переносимо и без нашего продукта. Команды и
+> имена методов ниже — исторические.
 
 > [!info] Когда это нужно
 > Когда трафик через VPN **вообще не проходит**: DPI режет WireGuard/UDP, работает активное

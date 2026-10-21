@@ -143,91 +143,119 @@ test("health-провал (DNS): rollback с reason=health:dns (роутер н�
 	cleanup(sb);
 });
 
-test("health-провал (Full-тир, туннель): rollback с reason=health:tunnel:process", () => {
-	let sb = mk_sandbox();
-	with_singbox(sb); // бинарь «есть» — догрузка не блокирует
-	// pgrep.rc не пишем — дефолт «процесса нет» (см. test_probe.uc): singbox-шаг применился,
-	// но сам туннельный процесс не встал.
-	seed_cfg(sb, "install.json", { routing_opts: {} });
-	let payload = sprintf("%J", {
-		protocol: "reality",
-		reality_conf: "vless://uuid-x@203.0.113.9:443?security=reality&pbk=YQ&sni=example.com",
-		disable: [ "dns", "doh", "wifi", "firewall" ], // singbox остаётся включённым
-		domains: [], routing_opts: {},
-	});
-	let r = run_uc(sb, "install/run.uc", null, payload);
-	eq(r.rc, 1, "exit 1");
-	eq(trim(readfile(sb.reason) ?? ""), "health:tunnel:process",
-		"reason адресный — процесс не поднялся, не общий «сервер молчит»");
-	cleanup(sb);
+// Full-тир заморожен (ADR 0010): у legacy-протоколов нет conf_key, а singbox-шаг новый конфиг не
+// применяет. ubus такой install и не пропустит (enum) — это второй рубеж.
+test("reality/hysteria2 (legacy): поставить заново нельзя — шаг sing-box отказывает, откат", () => {
+	for (let proto in [ "reality", "hysteria2" ]) {
+		let sb = mk_sandbox();
+		with_singbox(sb);
+		seed_cfg(sb, "install.json", { routing_opts: {} });
+		let payload = { protocol: proto, domains: [], routing_opts: {},
+			disable: [ "dns", "doh", "wifi", "firewall" ] };
+		payload[proto + "_conf"] = "SECRET-LINK";
+		let r = run_uc(sb, "install/run.uc", null, sprintf("%J", payload));
+		eq(r.rc, 1, proto + ": exit 1: " + r.out);
+		eq(trim(readfile(sb.reason) ?? ""), "step:singbox", proto + ": адресный reason");
+		ok(index(r.out, "больше не поддерживается") >= 0, proto + ": причина названа");
+		ok(index(calls(sb), "ifup singtun") < 0, proto + ": дом на туннель не переключался");
+		cleanup(sb);
+	}
 });
 
-test("reality без sing-box: провал догрузки = чистый abort ДО снимка, reason=singbox-download", () => {
+// Отмена ухода с legacy Reality на AWG: install.json уже несёт protocol попытки (awg), .prev — reality.
+// ШРАМ (ревью): откат сносил ОБА туннеля после restore — восстановленный sing-box выключался, и
+// legacy-роутер оставался без туннеля и без способа вернуть его (Reality больше не ставится).
+test("--rollback (отмена ухода на AWG): legacy sing-box НЕ снимается, install.json и config.json возвращены", () => {
 	let sb = mk_sandbox();
-	// apk «успешен», но бинарь sing-box так и не появился в PATH — критерий install-singbox.sh
-	// (наличие бинаря, не код apk) обязан сработать и здесь.
-	seed_cfg(sb, "install.json", { routing_opts: {} });
-	let payload = sprintf("%J", { protocol: "reality", reality_conf: "vless://x",
-		domains: [], routing_opts: {} });
-	let r = run_uc(sb, "install/run.uc", null, payload);
-	eq(r.rc, 1, "exit 1");
-	eq(trim(readfile(sb.reason) ?? ""), "singbox-download", "адресный reason");
-	ok(!access(sb.snap), "снимка нет — роутер не тронут (откатывать нечего)");
-	ok(!access(sb.etc + "/install.json"), "фантомный installed снят");
-	eq(trim(readfile(sb.state) ?? ""), "singbox-download", "прогресс показывал догрузку");
-	cleanup(sb);
-});
-
-// Гейт догрузки ветвится по uses_singbox, а не по имени «reality» — иначе выбор Hysteria2 на
-// системе без бинаря дошёл бы до шагов и упал бы уже ПОСЛЕ снимка, с невнятной причиной.
-test("hysteria2 без sing-box: тот же чистый abort ДО снимка (гейт по шагу, не по имени)", () => {
-	let sb = mk_sandbox();
-	seed_cfg(sb, "install.json", { routing_opts: {} });
-	let payload = sprintf("%J", { protocol: "hysteria2", hysteria2_conf: "hysteria2://pw@h:443",
-		domains: [], routing_opts: {} });
-	let r = run_uc(sb, "install/run.uc", null, payload);
-	eq(r.rc, 1, "exit 1");
-	eq(trim(readfile(sb.reason) ?? ""), "singbox-download", "адресный reason");
-	ok(!access(sb.snap), "снимка нет — роутер не тронут");
-	ok(!access(sb.etc + "/install.json"), "фантомный installed снят");
-	cleanup(sb);
-});
-
-// Hysteria2 — legacy (ADR 0009): conf_key нет, поэтому новый конфиг до singbox-шага не доезжает,
-// даже если payload его несёт. ubus такой install и не пропустит (enum), это второй рубеж.
-test("hysteria2 (legacy): поставить заново нельзя — singbox-шаг получает пустой вход и отказывает", () => {
-	let sb = mk_sandbox();
-	with_singbox(sb);
-	let r = run_uc(sb, "install/run.uc", "--dry-run", sprintf("%J", {
-		protocol: "hysteria2",
-		hysteria2_conf: "hysteria2://HY2PASS@203.0.113.5:8443?sni=example.com",
-		domains: [], routing_opts: {},
-	}));
-	ok(index(r.out, "HY2PASS") < 0, "старый ключ payload'а не читается: " + r.out);
-	ok(index(r.out, "\"type\": \"hysteria2\"") < 0, "hysteria2-outbound не собирается");
-	cleanup(sb);
-});
-
-test("--rollback (отмена): teardown ОБОИХ туннелей + возврат install.json и config.json", () => {
-	let sb = mk_sandbox();
-	let prev = { routing_opts: { wan_if: "eth0" }, protocol: "reality" };
-	seed_cfg(sb, "install.json", { routing_opts: {} });
-	seed_cfg(sb, "install.json.prev", prev);
-	// Рабочий Full-тир: config.json уже подменён установкой, .prev ждёт возврата.
-	writefile(sb.sbconf, "НОВЫЙ (от прерванной установки)\n");
-	writefile(sb.sbconf + ".prev", "ПРЕЖНИЙ РАБОЧИЙ\n");
-	let r = run_uc(sb, "install/run.uc", "--rollback",
-		'{"protocol":"reality","routing_opts":{}}');
+	seed_cfg(sb, "install.json", { routing_opts: {}, protocol: "awg" });
+	seed_cfg(sb, "install.json.prev", { routing_opts: { wan_if: "eth0" }, protocol: "reality" });
+	writefile(sb.sbconf + ".prev", "ПРЕЖНИЙ РАБОЧИЙ\n"); // teardown шага при уходе удалил живой config.json
+	let r = run_uc(sb, "install/run.uc", "--rollback", '{"protocol":"awg","routing_opts":{}}');
 	eq(r.rc, 0, "exit 0: " + r.out);
 	let log = calls(sb);
-	// vpn — clean-шаг: его возвращает snapshot restore; teardown'ятся только dirty
-	// (singbox + firewall) — отменённая reality-установка не оставляет живой sing-box.
-	ok(index(log, "ifdown singtun") >= 0, "singbox teardown вызван — sing-box не остаётся жить");
-	ok(index(log, "nft") >= 0, "firewall teardown вызван (safe-fail)");
+	ok(index(log, "ifdown singtun") < 0, "восстановленный sing-box не снесён teardown'ом: " + log);
+	ok(index(log, "nft") >= 0, "firewall (грязный шаг) снят; vpn вернул snapshot restore");
 	eq(readfile(sb.sbconf), "ПРЕЖНИЙ РАБОЧИЙ\n", "config.json возвращён из .prev");
 	ok(!access(sb.sbconf + ".prev"), "бэкап config.json поглощён");
-	eq(json(readfile(sb.etc + "/install.json")).protocol, "reality",
-		"install.json восстановлен из .prev");
+	eq(json(readfile(sb.etc + "/install.json")).protocol, "reality", "install.json восстановлен из .prev");
+	cleanup(sb);
+});
+
+const AWG_CONF =
+	"[Interface]\nPrivateKey = cHJpdmF0ZXByaXZhdGVwcml2YXRlcHJpdmF0ZXByaXZhdGUwMA==\n" +
+	"Address = 10.0.0.2/32\n\n[Peer]\nPublicKey = cHVibGljcHVibGljcHVibGljcHVibGljcHVibGljMDA=\n" +
+	"Endpoint = vpn.example.com:51820\n";
+const REALITY_CONF = "vless://uuid-x@203.0.113.9:443?security=reality&pbk=YQ&sni=example.com";
+
+// ШРАМ (ревью): ветка enable+restart после возврата config.json держалась без теста — регресс не поймали бы.
+test("--rollback: вернули config.json и sing-box был включён → init.d enable + restart", () => {
+	let sb = mk_sandbox();
+	seed_cfg(sb, "install.json", { routing_opts: {}, protocol: "awg" });
+	seed_cfg(sb, "install.json.prev", { routing_opts: { wan_if: "eth0" }, protocol: "reality" });
+	writefile(sb.sbconf + ".prev", "ПРЕЖНИЙ РАБОЧИЙ\n");
+	writefile(sb.fake + "/sb_enabled", "1\n"); // snapshot restore вернул enabled=1
+	with_singbox(sb); // тот же стаб играет init.d/sing-box
+	let r = run_uc(sb, "install/run.uc", "--rollback", '{"protocol":"awg","routing_opts":{}}');
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "sing-box enable") >= 0, "автозапуск включён обратно: " + calls(sb));
+	ok(index(calls(sb), "sing-box restart") >= 0, "сервис поднят");
+	cleanup(sb);
+});
+
+test("--rollback: sing-box был выключен (enabled≠1) → enable не зовём", () => {
+	let sb = mk_sandbox();
+	seed_cfg(sb, "install.json", { routing_opts: {}, protocol: "awg" });
+	seed_cfg(sb, "install.json.prev", { routing_opts: {}, protocol: "reality" });
+	writefile(sb.sbconf + ".prev", "X\n");
+	with_singbox(sb);
+	let r = run_uc(sb, "install/run.uc", "--rollback", '{"protocol":"awg","routing_opts":{}}');
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "sing-box enable") < 0, "не включаем то, что было выключено");
+	cleanup(sb);
+});
+
+// --- Уход с legacy Reality на AWG сквозь run.uc (switch_to_awg) ---
+function legacy_switch(sb) {
+	seed_cfg(sb, "install.json", { routing_opts: {}, protocol: "awg" });
+	seed_cfg(sb, "install.json.prev", { routing_opts: { wan_if: "eth0", tunnel_if: "singtun0" }, protocol: "reality" });
+	writefile(sb.sbconf, "РАБОЧИЙ SING-BOX\n");
+	with_singbox(sb);
+	let payload = sprintf("%J", { protocol: "awg", awg_conf: AWG_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	return run_uc(sb, "install/run.uc", null, payload);
+}
+
+test("уход с legacy на AWG, успех: sing-box снят, бэкап config.json убран, tunnel_if=awg0", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/awg.out", "pubkeyXXX\t5\n");
+	let r = legacy_switch(sb);
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "ifdown singtun") >= 0, "teardown sing-box вызван");
+	ok(!access(sb.sbconf), "config.json удалён teardown'ом");
+	ok(!access(sb.sbconf + ".prev"), "на commit бэкап зачищен");
+	eq(json(readfile(sb.etc + "/install.json")).routing_opts.tunnel_if, "awg0", "tunnel_if сменился");
+	cleanup(sb);
+});
+
+test("уход с legacy на AWG, health провален: config.json вернулся, sing-box включён обратно", () => {
+	let sb = mk_sandbox(); // awg.out пуст → handshake не придёт
+	writefile(sb.fake + "/sb_enabled", "1\n");
+	let r = legacy_switch(sb);
+	eq(r.rc, 1, "exit 1: " + r.out);
+	eq(readfile(sb.sbconf), "РАБОЧИЙ SING-BOX\n", "прежний config.json на месте");
+	ok(index(calls(sb), "sing-box enable") >= 0, "автозапуск включён обратно");
+	eq(json(readfile(sb.etc + "/install.json")).protocol, "reality", "install.json — прежняя правда");
+	cleanup(sb);
+});
+
+test("чистая установка AWG: sing-box teardown не вызывается (config.json нет)", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/awg.out", "pubkeyXXX\t5\n");
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "awg", awg_conf: AWG_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	eq(run_uc(sb, "install/run.uc", null, payload).rc, 0);
+	ok(index(calls(sb), "singtun") < 0 && index(calls(sb), "sing-box") < 0, "sing-box не трогали");
 	cleanup(sb);
 });
 
@@ -247,11 +275,6 @@ test("--dry-run: план напечатан, система не тронута
 // health-check и ронял интернет всему дому при провале). Сначала точечно на уровне apply.uc,
 // потом сквозь run.uc — что реально произойдёт при провале/успехе первой установки.
 
-const AWG_CONF =
-	"[Interface]\nPrivateKey = cHJpdmF0ZXByaXZhdGVwcml2YXRlcHJpdmF0ZXByaXZhdGUwMA==\n" +
-	"Address = 10.0.0.2/32\n\n[Peer]\nPublicKey = cHVibGljcHVibGljcHVibGljcHVibGljcHVibGljMDA=\n" +
-	"Endpoint = vpn.example.com:51820\n";
-const REALITY_CONF = "vless://uuid-x@203.0.113.9:443?security=reality&pbk=YQ&sni=example.com";
 
 test("vpn/apply.uc --no-arm: half-routes НЕ создаются, интерфейс всё равно поднимается", () => {
 	let sb = mk_sandbox();
@@ -286,12 +309,13 @@ test("vpn/apply.uc --arm: перебивает route_allowed_ips на '0' (ми�
 	cleanup(sb);
 });
 
-test("singbox/apply.uc --no-arm: ifup НЕ вызывается", () => {
+test("singbox/apply.uc без режима (новый конфиг): отказ, сервис и сеть не тронуты", () => {
 	let sb = mk_sandbox();
 	with_singbox(sb);
-	let r = run_uc(sb, "steps/singbox/apply.uc", "--no-arm", REALITY_CONF);
-	eq(r.rc, 0, "exit 0: " + r.out);
-	ok(index(calls(sb), "ifup") < 0, "маршрут НЕ вооружён");
+	let r = run_uc(sb, "steps/singbox/apply.uc", null, REALITY_CONF);
+	eq(r.rc, 1, "exit 1: " + r.out);
+	ok(index(r.out, "больше не поддерживается") >= 0, "причина названа: " + r.out);
+	eq(calls(sb), "", "ни uci, ни ifup, ни рестарта сервиса");
 	cleanup(sb);
 });
 
@@ -368,55 +392,6 @@ test("первая установка (AWG), health прошёл → half-routes
 	ok(index(calls(sb), "awg0_route4lo=route") >= 0, "туннель подтверждён — теперь вооружён");
 	eq(json(readfile(sb.etc + "/profiles.json")).active, "p1", "подтверждённый сервер стал профилем");
 	eq(readfile(sb.etc + "/profiles/p1.conf"), AWG_CONF);
-	cleanup(sb);
-});
-
-test("первая установка (Reality), health провалился → ifup singtun НИ РАЗУ не вызывался", () => {
-	let sb = mk_sandbox();
-	with_singbox(sb);
-	// pgrep.rc по умолчанию 1 (процесса нет) → tunnel_connectivity=false сразу, health не пройдёт.
-	seed_cfg(sb, "install.json", { routing_opts: {} });
-	let payload = sprintf("%J", { protocol: "reality", reality_conf: REALITY_CONF,
-		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
-	let r = run_uc(sb, "install/run.uc", null, payload);
-	eq(r.rc, 1, "exit 1: " + r.out);
-	ok(index(calls(sb), "ifup singtun") < 0,
-		"дом НЕ переключался на непроверенный туннель — раньше здесь была утечка/потеря интернета");
-	ok(!access(sb.etc + "/profiles.json"), "откатившийся сервер профилем не запоминается");
-	cleanup(sb);
-});
-
-test("первая установка (Reality), health прошёл → ifup singtun вызван (arm)", () => {
-	let sb = mk_sandbox();
-	with_singbox(sb);
-	writefile(sb.fake + "/pgrep.rc", "0");
-	writefile(sb.fake + "/route_get.out", "1.1.1.1 dev singtun0 src 10.9.0.2\n");
-	writefile(sb.fake + "/fetch.rc", "0");
-	seed_cfg(sb, "install.json", { routing_opts: {} });
-	let payload = sprintf("%J", { protocol: "reality", reality_conf: REALITY_CONF,
-		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
-	let r = run_uc(sb, "install/run.uc", null, payload);
-	eq(r.rc, 0, "exit 0: " + r.out);
-	ok(index(calls(sb), "ifup singtun") >= 0, "туннель подтверждён — теперь вооружён");
-	cleanup(sb);
-});
-
-// ШРАМ (ревью): active переживал уход на Reality — возврат на AWG вставленным конфигом молча
-// перезаписывал .conf «Германии», а удалить её было нельзя, хотя панель показывала «не подключён».
-test("смена на Reality подтверждена → активный AWG-профиль сброшен, сам профиль цел", () => {
-	let sb = mk_sandbox();
-	with_singbox(sb);
-	writefile(sb.fake + "/pgrep.rc", "0");
-	writefile(sb.fake + "/route_get.out", "1.1.1.1 dev singtun0 src 10.9.0.2\n");
-	writefile(sb.fake + "/fetch.rc", "0");
-	seed_cfg(sb, "install.json", { routing_opts: {} });
-	writefile(sb.etc + "/profiles.json", sprintf("%J", { profiles: [ { id: "p1", name: "Германия" } ], active: "p1", next_id: 2 }));
-	let payload = sprintf("%J", { protocol: "reality", reality_conf: REALITY_CONF,
-		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
-	eq(run_uc(sb, "install/run.uc", null, payload).rc, 0);
-	let st = json(readfile(sb.etc + "/profiles.json"));
-	eq(st.active, null);
-	eq(st.profiles[0].name, "Германия");
 	cleanup(sb);
 });
 

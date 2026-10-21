@@ -16,9 +16,7 @@ updated: 2026-07-10
 - [ ] `make lint` — shellcheck/POSIX-проверки.
 - [ ] `make test-engine` — юниты движка на ucode.
 - [ ] CI на `master`: `engine-tests`, `qemu-smoke`, `qemu-install` — зелёные.
-- [ ] Если менялся Full-тир (sing-box, протоколы, пороги): локально `make qemu-reality` —
-      зелёный. Он печатает ЗАМЕР веса бинаря: сверить его с
-      `min_flash_mb` в `FULL_REQUIREMENTS` и с таблицей в [[hardware-requirements]].
+- [ ] Если менялся AWG-шаг или профили: локально `make qemu-profiles` — зелёный.
 - [ ] `PKG_VERSION` в `package/cheburnet/Makefile` **увеличен** относительно предыдущего тега
       (иначе `apk add` на роутерах с уже установленным пакетом будет no-op — см.
       [[bootstrap#Обновление|bootstrap]]).
@@ -51,8 +49,8 @@ updated: 2026-07-10
       обязан вести МИМО туннеля. Проверять именно направление, а не «адрес попал в набор»: правила
       policy-routing живут только в ядре, и однажды они не возвращались после загрузки при
       полностью зелёной панели (`bash tests/router/verify.sh` проверяет это сам).
-- [ ] **Переключение протоколов по кругу.** awg → reality → awg, после каждого —
-      `verify.sh`. Смена сервера в рамках одного протокола идёт другим методом (`replace_*_conf`).
+- [ ] **Смена сервера.** `bash tests/router/switch.sh` (на AWG — `replace_awg_conf`), после —
+      `verify.sh`.
 - [ ] **Замена конфига.** `replace_awg_conf` — новый конфиг применяется, при неудачном
       handshake — автооткат к прежнему.
 - [ ] **Обновление.** Повторный запуск bootstrap на настроенном роутере — апгрейд пакета,

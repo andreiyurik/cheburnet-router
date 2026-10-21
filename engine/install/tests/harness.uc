@@ -1,8 +1,7 @@
 // harness.uc — sandbox + фейковые системные команды для host-тестов ИМПУРНОГО слоя движка
-// (run.uc / replace_vpn.uc / replace_singbox.uc / reset.uc / probe.uc). Не тест — библиотека.
+// (run.uc / replace_vpn.uc / reset.uc / legacy singbox/apply.uc). Не тест — библиотека.
 //
-// Приём — тот же, что tests/install-singbox-test.sh («изоляция через фейки»): реальные .uc
-// гоняются как subprocess, PATH подменяет системные команды стабами, а пути состояния уходят
+// Приём «изоляция через фейки»: реальные .uc гоняются как subprocess, PATH подменяет системные команды стабами, а пути состояния уходят
 // в sandbox через env-override'ы (ETC_CHEBURNET / UCI_CONFIG_DIR / SNAPSHOT_DIR / SB_CONFIG).
 // Каждый стаб пишет свой вызов в calls-лог (uci batch — включая stdin-операции): тесты
 // проверяют ПОСЛЕДОВАТЕЛЬНОСТЬ реальных действий, а не только код выхода.
@@ -74,6 +73,7 @@ function mk_sandbox() {
 	// состояние файлами, а не uci-базой. Остальное — молчаливый успех.
 	write_stub(sb.bin, "uci",
 		'if [ "$1" = "batch" ]; then cat >> "${CALLS:-/dev/null}"; exit 0; fi\n' +
+		'case "$*" in *sing-box.main.enabled*) cat "$FAKE_DIR/sb_enabled" 2>/dev/null; exit $? ;; esac\n' +
 		'case "$*" in *" get "*|"get "*|*"-q get"*) exit 1 ;; esac\nexit 0');
 	write_stub(sb.bin, "apk",   'exit "$(cat "$FAKE_DIR/apk.rc" 2>/dev/null || echo 0)"');
 	write_stub(sb.bin, "awg",   'cat "$FAKE_DIR/awg.out" 2>/dev/null\nexit 0');
@@ -86,9 +86,8 @@ function mk_sandbox() {
 	write_stub(sb.bin, "df",
 		'if [ -f "$FAKE_DIR/df.out" ]; then cat "$FAKE_DIR/df.out"; exit 0; fi\n' +
 		'for p in /usr/bin/df /bin/df; do [ -x "$p" ] && exec "$p" "$@"; done\nexit 1');
-	// ip: два запроса, которые реально читает движок. `route show default` — предусловие Full-тира
-	// (sing-box выбирает по нему интерфейс до сервера); дефолт в песочнице = «обычный роутер с WAN»,
-	// сценарий про пропавший маршрут обнуляет route_default.out.
+	// ip: два запроса, которые реально читает движок (`route show default` — путь наружу мимо туннеля);
+	// дефолт в песочнице = «обычный роутер с WAN», сценарий про пропавший маршрут обнуляет route_default.out.
 	write_stub(sb.bin, "ip",
 		'case "$*" in\n' +
 		'  *"route show default"*) cat "$FAKE_DIR/route_default.out" 2>/dev/null ;;\n' +
@@ -109,13 +108,13 @@ function with_singbox(sb) {
 
 function env_prefix(sb) {
 	return sprintf(
-		"PATH=%s:$PATH CALLS=%s FAKE_DIR=%s UCI_CONFIG_DIR=%s SNAPSHOT_DIR=%s " +
+		"PATH=%s:$PATH INITD_DIR=%s CALLS=%s FAKE_DIR=%s UCI_CONFIG_DIR=%s SNAPSHOT_DIR=%s " +
 		"ETC_CHEBURNET=%s SB_CONFIG=%s STATE_FILE=%s REASON_FILE=%s SB_SLEEP=0 SB_RETRIES=2 " +
 		// Без override cron.uc правил бы /etc/crontabs/root ХОСТА (а CI ходит под root).
 		"CRONTAB_FILE=%s " +
 		// Артефакты, которые шаг firewall пишет в /etc: в sandbox таких каталогов нет.
 		"CHEB_NFT_PATH=%s CHEB_HOTPLUG_PATH=%s",
-		sb.bin, sb.calls, sb.fake, sb.config, sb.snap,
+		sb.bin, sb.bin, sb.calls, sb.fake, sb.config, sb.snap,
 		sb.etc, sb.sbconf, sb.state, sb.reason, sb.crontab, sb.nft, sb.hotplug);
 }
 
