@@ -32,7 +32,7 @@ ucode -R /usr/share/cheburnet/engine/install/reset.uc
 
 ```sh
 apk del cheburnet
-apk del sing-box-tiny    # только если ставился запасной туннель (VLESS+Reality; на старых установках — и Hysteria2)
+apk del sing-box-tiny    # только на старых установках с Full-тиром (VLESS+Reality / Hysteria2, ADR 0010)
 ```
 
 ## 3. Зависимости — по желанию

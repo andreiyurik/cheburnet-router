@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# tests/bootstrap-test.sh — стаб-тесты bootstrap.sh (тонкий установщик; см. install-singbox-test.sh
-# — тот же приём: фейковые apk/uci/uclient-fetch на PATH, реальную сеть/систему не трогаем).
+# tests/bootstrap-test.sh — стаб-тесты bootstrap.sh (тонкий установщик): фейковые apk/uci/uclient-fetch
+# на PATH, реальную сеть/систему не трогаем.
 #
 # Проверяем самое глючеопасное для shell-слоя: fail-closed (ничего не ставим, пока не скачано
 # ВСЁ), ретраи fetch, гейт AmneziaWG по ФАКТУ пакетов (а не коду upstream-скрипта),

@@ -25,7 +25,6 @@ cd "$REPO" || exit 1
 POSIX_FILES=(
     bootstrap/bootstrap.sh
     engine/run-tests.sh
-    engine/install/install-singbox.sh
     package/cheburnet/files/rpcd-cheburnet.sh
     tests/poc/split-routing-netns.sh
     tests/netns/dataplane.sh

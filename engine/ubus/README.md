@@ -27,7 +27,7 @@
 | Метод | Тип | Доступ | Что делает |
 |---|---|---|---|
 | `preflight` | read | anon | `gather.uc \| check.uc --json` → отчёт гейткипера |
-| `status` | read | anon | режим, `tunnel_health` (здоровье АКТИВНОГО туннеля: awg — рукопожатие, reality — живой sing-box + поднятый TUN), кол-во direct-доменов, сервисы, наличие Wi-Fi (`wireless_present`) + текущий `ssid`, `forced` (пропущенные проверки железа), `full_capable`/`full_missing` (тянет ли железо Full-тир и чего не хватает) |
+| `status` | read | anon | режим, `tunnel_health` (здоровье АКТИВНОГО туннеля: awg — рукопожатие, legacy Full-тир — живой sing-box + поднятый TUN), кол-во direct-доменов, сервисы, наличие Wi-Fi (`wireless_present`) + текущий `ssid`, `forced` (пропущенные проверки железа) |
 | `check_lan_conflict` | read | anon | пересечение LAN/WAN-подсетей (`cidr_overlap`) + `suggest_ip` для замены |
 | `apply_lan_ip` | write | anon + **токен** | сменить LAN-IP: строгая `valid_lan_ip`, маска сохраняется, отложенный network restart |
 | `install` | write | anon + **токен** | фон `install/run.uc` (preflight→snapshot→шаги→health→commit/rollback); `accept_risk:true` — пропустить soft-провалы preflight (флеш/RAM) по решению владельца |
@@ -43,7 +43,7 @@
 | `list_profiles` | read | admin | сохранённые AWG-серверы: имена, порядок, активный, автосмена, последняя смена — без секретов |
 | `add_profile` / `rename_profile` / `delete_profile` / `order_profiles` | write | admin | правка списка ([engine/profiles](../profiles/README.md)); `.conf` валидируется синхронно, активный не удаляется |
 | `update_profile_conf` | write | admin | новый `.conf` профиля; у подключённого — фоном через `replace_vpn.uc` с автооткатом |
-| `activate_profile` | write | admin | подключить профиль: на AWG — фон `replace_vpn.uc --profile`, с Full-туннеля — `switch_tunnel("awg")` |
+| `activate_profile` | write | admin | подключить профиль: на AWG — фон `replace_vpn.uc --profile`, с legacy Full-туннеля — `switch_tunnel("awg")` |
 | `set_failover` | write | admin | вкл/выкл автосмену сервера сторожем ([ADR 0008](../../docs/kb/decisions/0008-awg-profiles.md)) |
 | `factory_reset` | write | admin | `confirm:"RESET"` → фон `install/reset.uc` (teardown cheburnet-конфигурации, НЕ firstboot) |
 | `diagnostics` | read | admin | пакет для поддержки: логи+состояние+версии с ВЫРЕЗАННЫМИ секретами (`lib/redact.uc`) |
@@ -80,9 +80,8 @@ rpcd-сессии (иначе SIGHUP при её закрытии убьёт у�
 `install_progress`: `done` = run.uc записал код выхода, `result` ∈ `ok`/`fail`/`crashed`.
 Проверенный паттерн v1.
 
-Тот же канал фон+poll переиспользуют `replace_awg_conf` (state `replacing-vpn`),
-`replace_reality_conf` (state `replacing-reality`, Full-тир — снапшот+config.json→apply→
-connectivity-probe→commit/restore) и `factory_reset` (state `resetting`); общий PID-файл —
+Тот же канал фон+poll переиспользуют `replace_awg_conf` (state `replacing-vpn`), `switch_to_awg`
+(уход с legacy Full-тира, ADR 0010) и `factory_reset` (state `resetting`); общий PID-файл —
 взаимное исключение длинных операций.
 `install_cancel` убивает **process-group** (setsid сделал фон лидером группы) и пишет
 done-маркер `cancelled`.

@@ -40,8 +40,6 @@ describe('движок ↔ веб: реестр шагов установки', 
   it.each([
     ['awg + Wi-Fi', { protocol: 'awg', ssid: 'Home' }, ['singbox']],
     ['awg без Wi-Fi', { protocol: 'awg' }, ['singbox', 'wifi']],
-    ['reality + Wi-Fi', { protocol: 'reality', ssid: 'Home' }, ['vpn']],
-    ['reality без Wi-Fi', { protocol: 'reality' }, ['vpn', 'wifi']],
   ])('порядок шагов в плане «%s» совпадает с реестром движка', (_n, args, absent) => {
     const planned = installPlan(args).map((s) => s.id).filter((id) => engineSteps.includes(id));
     expect(planned).toEqual(engineSteps.filter((s) => !absent.includes(s)));

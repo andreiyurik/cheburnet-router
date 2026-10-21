@@ -67,7 +67,7 @@ ip route add 128.0.0.0/1 dev awg0
 > Оплачено, см. [[reliability]]. WAN-дефолт обязан остаться: по нему уходит direct-трафик
 > (таблица 100), к нему пинится endpoint туннеля, и он же путь роутера наружу, пока туннеля нет.
 > Приём известен как `redirect-gateway def1` у OpenVPN; у нас его ставит netifd по
-> `config route`-секциям (одинаково для AmneziaWG и Full-тира).
+> `config route`-секциям (одинаково для AmneziaWG и legacy Full-тира).
 
 Итог: адрес в `direct` → mark `0x1` → таблица 100 → **WAN напрямую**.
 Любой другой адрес → mark нет → таблица `main` → **awg0 туннель**.

@@ -1,44 +1,28 @@
 <script>
   // Props: onSubmit(args для install) / onBack; wirelessPresent (false → без Wi-Fi, null → необязателен);
   // initial («Назад» не теряет введённое); dnsProviders/dnsProviderDefault (каталог из status);
-  // fullAvailable (железо тянет Full → доступен VLESS+Reality, иначе строка неактивна с причиной
-  // из fullReasons); acceptRisk (soft-провалы preflight приняты — флаг едет в install).
-  // ГЛАВНОЕ: выбор туннеля идёт ОТ СИМПТОМА, не от названий протоколов — тексты в PROTOCOLS (logic.js).
-  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup, checkConf,
-           protocolList, protocolInfo, defaultProtocol } from '../logic.js';
+  // acceptRisk (soft-провалы preflight приняты — флаг едет в install). Туннель — только AmneziaWG (ADR 0010).
+  import { MIN_PASS, SSID_MAX, WIFI_KEY_MIN, validateSetup, checkConf, PROTOCOLS } from '../logic.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import Button from '$lib/components/ui/button/button.svelte';
   import Input from '$lib/components/ui/input/input.svelte';
   import Textarea from '$lib/components/ui/textarea/textarea.svelte';
   import NativeSelect from '$lib/components/ui/native-select/native-select.svelte';
-  import RadioCard from '$lib/components/ui/radio-card/radio-card.svelte';
-  import Badge from '$lib/components/ui/badge/badge.svelte';
   import Field from '$lib/components/Field.svelte';
   import SectionTitle from '$lib/components/SectionTitle.svelte';
   import ConfCheck from '$lib/components/ConfCheck.svelte';
 
-  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', fullAvailable = false, fullReasons = [], acceptRisk = false, urlToken = '', initial = null } = $props();
+  let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', acceptRisk = false, urlToken = '', initial = null } = $props();
 
   // Показываем Wi-Fi везде, кроме точно-нет-радио. Обязателен только при точно-есть-радио.
   const showWifi = $derived(wirelessPresent !== false);
   const wifiRequired = $derived(wirelessPresent === true);
 
-  const protocols = protocolList();
-
   // Посев из initial намеренно одноразовый: «Назад» с подтверждения пересоздаёт компонент,
   // и поля должны вернуть ранее введённое, а не следить за пропом.
-  // Дефолт: на Full-железе — VLESS+Reality (закрывает самую частую поломку «VPN не поднимается»),
-  // на слабом — AmneziaWG без выбора. См. defaultProtocol и ADR 0004.
   // svelte-ignore state_referenced_locally
-  let protocol = $state(initial?.protocol ?? defaultProtocol(fullAvailable));
-  // Конфиги хранятся ПО ПРОТОКОЛАМ: переключение радио не теряет уже вставленное (человек может
-  // сравнить два варианта, не набирая заново).
-  // svelte-ignore state_referenced_locally
-  let confs = $state({
-    awg: initial?.awg_conf ?? '',
-    reality: initial?.reality_conf ?? '',
-  });
+  let confs = $state({ awg: initial?.awg_conf ?? '' });
   // svelte-ignore state_referenced_locally
   let rootPass = $state(initial?.root_password ?? '');
   // svelte-ignore state_referenced_locally
@@ -75,7 +59,7 @@
   );
   const wifiKeyShort = $derived(wifiKeyLeft && wifiKey.length > 0 && wifiKey.length < WIFI_KEY_MIN);
 
-  const active = $derived(protocolInfo(protocol));
+  const active = PROTOCOLS.awg;
 
   // Живые проверки снимают подсветку прошлого сабмита, как только поле исправлено, — иначе
   // зелёная галка ConfCheck соседствует с красной рамкой.
@@ -101,7 +85,7 @@
     error = '';
     errorField = '';
     const r = validateSetup({
-      protocol, fullAvailable, confs,
+      confs,
       rootPass, rootPass2, showWifi, wifiRequired, ssid, wifiKey,
       dnsProvider, domainsText, token, acceptRisk,
     });
@@ -129,42 +113,6 @@
         </Alert.Description>
       </Alert.Root>
     {/if}
-
-    <div>
-      <SectionTitle>Каким туннелем пользоваться</SectionTitle>
-      <p class="mt-2 text-sm text-muted-foreground">Ошибиться не страшно — туннель меняется потом из панели.</p>
-
-      {#each protocols as p}
-        {@const locked = p.full && !fullAvailable}
-        <RadioCard bind:group={protocol} value={p.id} disabled={locked}>
-          <strong>{p.symptom}</strong> — {p.why}
-          <br /><span class="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-            Протокол: {p.name}{#if locked}<Badge variant="warning">недоступно</Badge>{/if}
-          </span>
-        </RadioCard>
-      {/each}
-
-      <!-- Причина — ОДНА строка под списком, а не под каждой запертой строкой: она общая для обоих
-           Full-протоколов, и продублированная жирным дважды была самым заметным текстом на экране,
-           где человек вообще-то выбирает туннель. -->
-      {#if !fullAvailable && fullReasons.length > 0}
-        <p class="text-sm text-muted-foreground">Почему недоступны: {fullReasons.join('; ')}.</p>
-      {/if}
-
-      <details class="mt-3">
-        <summary class="cursor-pointer text-sm text-muted-foreground">Чем они отличаются подробнее</summary>
-        <ul class="mt-2 list-disc pl-5 text-sm text-muted-foreground">
-          {#each protocols as p}
-            <li><strong class="text-foreground">{p.name}</strong> — {p.whyMore}</li>
-          {/each}
-        </ul>
-      </details>
-
-      {#if fullAvailable}
-        <p class="mt-3 text-sm text-muted-foreground">Для VLESS+Reality компонент
-          <code class="rounded-sm bg-muted px-1 py-0.5 font-mono">sing-box</code> (~11 МБ) скачается сам.</p>
-      {/if}
-    </div>
 
     <Field label={active.confLabel} bind:el={fieldEls.conf}>
       <Textarea

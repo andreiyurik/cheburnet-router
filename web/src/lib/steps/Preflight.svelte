@@ -1,6 +1,6 @@
 <script>
   import { cheburnet } from '../ubus.js';
-  import { softRisks, canOverride, fullReasons } from '../logic.js';
+  import { softRisks, canOverride } from '../logic.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import Button from '$lib/components/ui/button/button.svelte';
   import * as Alert from '$lib/components/ui/alert/index.js';
@@ -8,9 +8,7 @@
   import CheckList from '$lib/components/CheckList.svelte';
   import StatusIcon from '$lib/components/StatusIcon.svelte';
 
-  // onReady(fullCapable, acceptRisk, fullWhyNot): fullCapable = tiers.full (железо ПОТЯНЕТ Full, не
-  // full_installed — бинарь догрузится при выборе Full-протокола, ADR 0004); acceptRisk — soft-провалы
-  // приняты осознанно (Setup несёт в install); fullWhyNot — причины, почему Full недоступен.
+  // onReady(acceptRisk): acceptRisk — soft-провалы приняты осознанно (Setup несёт флаг в install).
   let { onReady } = $props();
 
   let report = $state(null);
@@ -76,7 +74,7 @@
           <p class="font-display text-2xl">Роутер подходит</p>
           <p class="text-muted-foreground">Все {report.total} проверок пройдены.</p>
         </div>
-        <Button size="lg" onclick={() => onReady(report.tiers?.full === true, false, fullReasons(report))}>
+        <Button size="lg" onclick={() => onReady(false)}>
           Продолжить
         </Button>
       {:else if overridable}
@@ -117,7 +115,7 @@
              случайный клик мимо «Перепроверить» не должен запускать установку. -->
         <Button variant="outline" class="w-full" onclick={run}>Перепроверить</Button>
         <Button variant="destructive" size="lg" class="w-full" disabled={!riskAccepted}
-                onclick={() => onReady(report.tiers?.full === true, true, fullReasons(report))}>
+                onclick={() => onReady(true)}>
           Всё равно установить
         </Button>
       {:else}

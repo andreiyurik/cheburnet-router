@@ -15,7 +15,7 @@ Control-plane на [ucode](https://ucode.mediatek.org/): настраивает 
 | `watchdog/` | cron-тик раз в 5 минут: сверяет инварианты, чинит починимое, логирует только аномалии | ✅ есть |
 | `rollback/` | snapshot/restore UCI там, где откат чистый (политика clean/dirty + router-side snapshot) | ✅ есть |
 | `lib/` | общие хелперы (`assert.uc`, `uci.uc` list-reconcile, `proc.uc` shell/процессы, `route.uc` разбор `ip route`, `redact.uc` вырезание секретов) | ✅ есть |
-| `steps/` | идемпотентные шаги по компонентам | 🟢 `vpn/`, `dns/`, `doh/`, `wifi/`, `firewall/`, `rootpass/` есть; `singbox/` (Full-тир, не в мастере) |
+| `steps/` | идемпотентные шаги по компонентам | 🟢 `vpn/`, `dns/`, `doh/`, `wifi/`, `firewall/`, `rootpass/` есть; `singbox/` (legacy Full-тир, ADR 0010) |
 | `list/` | импорт и обновление community-списка доменов (чистая сборка + router-side fetch) | ✅ есть |
 | `install/` | оркестратор: preflight→snapshot→шаги→health→commit/rollback (политика + router-side run) | ✅ есть |
 | `ubus/` | RPC-фасад для web-мастера (чистая валидация/роутинг + rpcd-обработчик + ACL из реестра) | ✅ есть |

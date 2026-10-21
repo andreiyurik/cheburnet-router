@@ -1,31 +1,15 @@
-// apply.uc — применение sing-box шага (импурно): config.json → uci-включение → рестарт → ifup TUN.
-// План — singbox.uc (тесты: singbox/tests). Флаги как у steps/vpn/apply.uc: --dry-run | --no-arm
-// (без ifup, первая установка до health-check) | --arm | --disarm | --teardown. См. [[reliability]].
+// apply.uc — legacy sing-box шаг (импурно) для роутеров, оставшихся на Full-тире: --arm | --disarm | --teardown.
+// Новый конфиг не применяется: Full-тир заморожен ([[0010-freeze-full-tier]]). Тесты — install/tests (QEMU — нет).
 
-import { stdin, popen } from "fs";
-import { build_singbox_plan, build_net_plan, config_path, service_name, network_sections } from "./singbox.uc";
-import { wait_wan_default } from "../../lib/wan.uc";
+import { popen } from "fs";
+import { config_path, service_name, network_sections } from "./singbox.uc";
 import { sh, uci_batch } from "../../lib/proc.uc";
 
 let teardown = (length(ARGV) > 0 && ARGV[0] == "--teardown");
-let dry      = (length(ARGV) > 0 && ARGV[0] == "--dry-run");
-let no_arm   = (length(ARGV) > 0 && ARGV[0] == "--no-arm");
 let arm_only = (length(ARGV) > 0 && ARGV[0] == "--arm");
 
-// SB_CONFIG: env-override пути config.json, тот же читают run.uc и replace_singbox.uc —
-// все слои должны писать/бэкапить ОДИН файл. Без env — дефолт плана.
+// SB_CONFIG: env-override пути config.json — тот же файл бэкапит run.uc при уходе на AWG.
 const SB_OPTS = getenv("SB_CONFIG") ? { config_path: getenv("SB_CONFIG") } : {};
-
-// writefile(path, text) → атомарная запись файла (tmp + rename).
-function writefile(path, text) {
-	let dir = replace(path, /\/[^\/]+$/, "");
-	let m = popen(sprintf("mkdir -p '%s'", dir), "r"); if (m) m.close();
-	let w = popen(sprintf("cat > '%s.tmp'", path), "w");
-	if (!w) die("singbox/apply: не смог записать " + path);
-	w.write(text);
-	w.close();
-	let r = popen(sprintf("mv '%s.tmp' '%s'", path, path), "r"); if (r) r.close();
-}
 
 // INITD_DIR — env-override ТОЛЬКО для host-тестов (как SB_CONFIG): init-скрипты в sandbox — стабы.
 const INITD = getenv("INITD_DIR") ?? "/etc/init.d";
@@ -72,80 +56,6 @@ if (teardown) {
 	exit(0);
 }
 
-let input = stdin.read("all") ?? "";
-let plan = build_singbox_plan(input, SB_OPTS);
-if (!plan.ok) {
-	for (let i = 0; i < length(plan.errors); i++)
-		warn("singbox: " + plan.errors[i] + "\n");
-	exit(1);
-}
-
-// ИНВАРИАНТ: перед стартом в main обязан быть WAN-дефолт мимо ОБОИХ туннелей — иначе
-// auto_detect_interface не дозвонится до сервера (инцидент: [[0004-multi-protocol-tiers]]).
-if (!dry && !wait_wan_default()) {
-	warn("singbox: в main-таблице нет маршрута по умолчанию мимо туннелей — sing-box не сможет дозвониться до сервера\n");
-	warn("singbox: проверьте WAN (uci show network.wan; ip route show default) — шаг не применён, туннель не тронут\n");
-	exit(1);
-}
-
-let config_text = sprintf("%J\n", plan.config);
-
-if (dry) {
-	printf("  config → %s (source: %s)\n", plan.config_path, plan.source);
-	print(config_text);
-	for (let i = 0; i < length(plan.uci_teardown); i++) print("  " + plan.uci_teardown[i] + "\n");
-	for (let i = 0; i < length(plan.uci_setup); i++) print("  " + plan.uci_setup[i] + "\n");
-	for (let i = 0; i < length(plan.net_teardown); i++) print("  " + plan.net_teardown[i] + "\n");
-	for (let i = 0; i < length(plan.net_setup); i++) print("  " + plan.net_setup[i] + "\n");
-	exit(0);
-}
-
-// ИНВАРИАНТ: конфиг гоняем через `sing-box check` ДО того, как он станет живым — семантику
-// (в отличие от структуры) знает только бинарь. Подробно (инцидент): [[0004-multi-protocol-tiers]].
-// Гейт по наличию бинаря: в dry-run/host-тестах sing-box может отсутствовать — тогда health-check
-// поймает проблему позже, но валить шаг здесь не за что.
-let staged = plan.config_path + ".check";
-writefile(staged, config_text);
-if (trim(sh("command -v sing-box 2>/dev/null")) != "") {
-	let chk = sh(sprintf("sing-box check -c '%s' 2>&1; echo __rc=$?", staged));
-	let m = match(chk, /__rc=([0-9]+)/);
-	if (!m || m[1] != "0") {
-		sh(sprintf("rm -f '%s'", staged));
-		warn("singbox: sing-box отверг сгенерированный конфиг — шаг не применён, туннель не тронут\n");
-		warn(trim(replace(chk, /__rc=[0-9]+\s*$/, "")) + "\n");
-		exit(1);
-	}
-}
-sh(sprintf("mv '%s' '%s'", staged, plan.config_path));
-
-// teardown по одному с глушением (отсутствие секции — норма), затем setup атомарно.
-for (let i = 0; i < length(plan.uci_teardown); i++) {
-	let p = popen(sprintf("uci -q %s", plan.uci_teardown[i]), "r");
-	if (p) p.close();
-}
-let rc = uci_batch(plan.uci_setup, "sing-box");
-if (rc != 0)
-	die(sprintf("singbox/apply: uci batch (sing-box) вернул %d", rc));
-
-// netifd-маршрут (отдельный конфиг network): setup — с проверкой rc, тот же урок, что dns/doh/vpn.
-for (let i = 0; i < length(plan.net_teardown); i++) {
-	let p = popen(sprintf("uci -q %s", plan.net_teardown[i]), "r");
-	if (p) p.close();
-}
-let nrc = uci_batch(plan.net_setup, "network");
-if (nrc != 0)
-	die(sprintf("singbox/apply: uci batch (network) вернул %d", nrc));
-
-svc("enable", plan.service);
-svc("restart", plan.service);
-
-// Поднять netifd-интерфейс поверх TUN: netifd поставит half-routes, как только sing-box создаст
-// устройство (и переустановит при пересоздании — рестарт sing-box). ifup идемпотентен.
-// --no-arm: пропускаем — вызывающий (run.uc, первая установка) вооружит отдельно через --arm
-// ПОСЛЕ health-check, чтобы неудачный туннель не переключал дом на себя раньше подтверждения.
-if (!no_arm)
-	sh(sprintf("ifup %s >/dev/null 2>&1", plan.net_iface ?? "singtun"));
-
-printf("singbox: применено — конфиг %s, сервис %s, TUN %s%s\n",
-	plan.config_path, plan.service, plan.tun,
-	no_arm ? ", маршрут ЕЩЁ НЕ вооружён (--no-arm)" : sprintf(", маршрут через netifd (%s)", network_sections({})[0]));
+// Любой другой вызов — попытка применить НОВЫЙ конфиг sing-box: честный отказ, туннель не тронут.
+warn("singbox: Full-тир (VLESS+Reality, Hysteria2) больше не поддерживается — используйте AmneziaWG\n");
+exit(1);

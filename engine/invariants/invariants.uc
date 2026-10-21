@@ -35,7 +35,7 @@ function has_substr(text, needle) {
 }
 
 // default_via_iface(route_text, iface) — есть ли дефолт ИМЕННО через этот интерфейс. Токен после
-// " dev " сравниваем целиком: dev eth1 ≠ dev eth10 (тот же приём, что route_uses_iface).
+// " dev " сравниваем целиком: dev eth1 ≠ dev eth10.
 function default_via_iface(route_text, iface) {
 	if (!iface) return false;
 	let lines = split(trim(route_text ?? ""), "\n");
