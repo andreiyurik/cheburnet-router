@@ -12,14 +12,13 @@
 | `make qemu-smoke` | T3a — hermetic smoke движка: ubus-методы, граница доверия, rootpass→session.login, NAT-зона+nft+teardown | ~2мин | нет* |
 | `make qemu-webui` | T3b — + uhttpd + HTTP/UI: раздача Svelte-бандла, ACL anon-vs-admin, session.login | ~3мин | да (apk add uhttpd-mod-ubus) |
 | `make qemu-install` | T3c — установка через **apk** + data-plane против реальных сервисов (dnsmasq-full/https-dns-proxy) | ~5-8мин | да (apk) |
-| `make qemu-reality` | T3d — обвязка Full-тира: config.json + `sing-box check`, netifd-маршрут, проба, teardown; замер веса | ~4-6мин | да |
 | `make qemu-profiles` | T3l — поля AWG 3.1 до ядра, профили серверов и автосмена откатываются честно | ~5-8мин | да |
 | `make qemu-rollback` | T3g — полная установка через ubus + откат при мёртвом сервере | ~5-8мин | да |
 | `make qemu-reboot` | T3h — data-plane переживает перезагрузку | ~6-9мин | да |
 | `make qemu-route-fallback` | T3i — WAN переподключился: half-routes и путь наружу целы | ~5-8мин | да |
 | `make qemu-dns-fallback` | T3j — туннель умер: DNS жив резервным путём; сторож чинит инварианты | ~6-9мин | да |
 | `make qemu-emergency` | T3k — аварийный режим: выключить защиту / вернуть | ~6-9мин | да |
-| `make qemu-live-vps` / `qemu-live-install` | T4 — трафик насквозь через настоящий сервер; commit-ветка + ребут (нужен стенд `tests/vps/`, не CI) | ~10мин | да |
+| `make qemu-live-install` | T4b — commit-ветка + трафик через настоящий сервер AWG + ребут (нужен стенд `tests/vps/`, не CI) | ~10мин | да |
 
 Полные описания — комментарии к целям в корневом `Makefile`.
 
@@ -102,7 +101,7 @@ vendored-инсталлятором, что и на роутере**, и мод�
 2. Проверить, что у [awg-openwrt](https://github.com/Slava-Shchipunov/awg-openwrt/releases)
    есть релиз `v<версия>`: `kmod-amneziawg` собирается под конкретную сборку ядра, и без него
    `make qemu-install` упадёт на установке AmneziaWG (это и есть смысл проверки).
-3. Прогнать `make qemu-smoke`, `make qemu-install`, `make qemu-reality` локально.
+3. Прогнать `make qemu-smoke`, `make qemu-install`, `make qemu-profiles` локально.
 4. Только после этого менять цифры в `lib.sh` — одним коммитом с результатом прогона.
 
 Снапшот при этом не забыт: джоб `qemu-snapshot-canary` (`.github/workflows/test.yml`) раз в

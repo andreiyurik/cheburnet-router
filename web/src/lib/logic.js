@@ -24,7 +24,7 @@ export const SUPPORT = {
 // --- Каталог туннельных протоколов (три оси покрытия, ADR 0004) ---
 // Зеркалит PROTOCOLS движка (engine/install/install.uc; синхронность стережёт engine-sync.test.js)
 // плюс то, чего в движке быть не должно: как объяснить протокол ЧЕЛОВЕКУ — от поломки, не от
-// названия. why — одна строка у всех сразу; whyMore — под «Подробнее»; sniff/sniffError —
+// названия. why — одна строка; whyMore — под «Подробнее»; sniff/sniffError —
 // дешёвая проверка формата ДО отправки (отказ движка стоит трёх минут установки и отката).
 export const PROTOCOLS = {
   awg: {
@@ -47,31 +47,10 @@ export const PROTOCOLS = {
     switchMethod: 'switch_to_awg',
     replaceMethod: 'replace_awg_conf',
   },
-  reality: {
-    id: 'reality',
-    name: 'VLESS+Reality',
-    confKey: 'reality_conf',
-    symptom: 'Интернет через VPN вообще не открывается',
-    why: 'Снаружи выглядит как обычный HTTPS-сайт, поэтому проходит там, где другие туннели не поднимаются.',
-    whyMore: 'Считается не в ядре, а в обычной программе — процессору тяжелее, чем с AmneziaWG, поэтому нужен роутер помощнее.',
-    confLabel: 'Ссылка vless:// или конфиг sing-box',
-    confHint: 'Возьмите ссылку в панели своего сервера (3x-ui / Hiddify и подобные).',
-    placeholder: 'vless://uuid@host:443?security=reality&pbk=…&sni=…&sid=…&flow=xtls-rprx-vision#name\n…или JSON-конфиг sing-box',
-    sniff: /^\s*(vless:\/\/|\{)/i,
-    sniffError: 'Похоже, это не ссылка VLESS: она начинается с vless://. Вставьте ссылку целиком (или JSON-конфиг sing-box).',
-    file: false,
-    full: true,
-    switchMethod: 'switch_to_reality',
-    replaceMethod: 'replace_reality_conf',
-  },
-  // Заморожен (ADR 0009): в мастере и списке смены туннеля его нет, но панель роутера, который на
-  // нём остался, должна назвать протокол правильно и предложить уйти — а не притвориться AWG.
-  hysteria2: {
-    id: 'hysteria2',
-    name: 'Hysteria2',
-    legacy: true,
-    full: true,
-  },
+  // Заморожены (ADR 0009/0010): в мастере и смене туннеля их нет, но панель роутера, который на них
+  // остался, должна назвать протокол правильно и предложить уйти на AWG — а не притвориться им.
+  reality: { id: 'reality', name: 'VLESS+Reality', legacy: true, full: true },
+  hysteria2: { id: 'hysteria2', name: 'Hysteria2', legacy: true, full: true },
 };
 
 // checkConf(id, text) → '' | текст ошибки. Одна проверка на мастер и на панель: замена сервера и
@@ -85,7 +64,7 @@ export function checkConf(id, text) {
 }
 
 // Порядок показа в мастере и панели (legacy-протоколов здесь нет — их не выбирают).
-export const PROTOCOL_ORDER = ['awg', 'reality'];
+export const PROTOCOL_ORDER = ['awg'];
 
 export function protocolList() {
   return PROTOCOL_ORDER.map((id) => PROTOCOLS[id]);
@@ -93,19 +72,6 @@ export function protocolList() {
 
 export function protocolInfo(id) {
   return PROTOCOLS[id] ?? PROTOCOLS.awg; // неизвестный → дефолт (fail-safe, как в движке)
-}
-
-// Протокол требует Full-тира (userspace-бинарь sing-box)?
-export function requiresFull(id) {
-  return protocolInfo(id).full === true;
-}
-
-// defaultProtocol(fullAvailable) → что предвыбрать в мастере.
-// Слабое железо: AmneziaWG, выбора нет (остальное туда не влезет).
-// Full-железо: VLESS+Reality — закрывает самую частую поломку («VPN не поднимается»), а запас
-// железа есть, чтобы за проходимость заплатить. См. ADR 0004, «Дефолты и гейтинг».
-export function defaultProtocol(fullAvailable) {
-  return fullAvailable ? 'reality' : 'awg';
 }
 
 // Direct-домены: по строке или через запятую → массив. Пустые/пробелы отбрасываем
@@ -158,41 +124,6 @@ export function softRisks(report) {
 // Подписи пропущенных проверок для плашки в панели (status.forced приходит из install.json).
 export const FORCED_LABELS = { flash: 'мало свободного места', ram: 'мало оперативной памяти' };
 
-// Чего не хватает железу для Full-тира (status.full_missing) — человеческими словами.
-// Молчаливо спрятанная кнопка выглядит как «функцию убрали»; названная причина — как выбор.
-export const FULL_MISSING_LABELS = {
-  arch: 'нужен 64-битный процессор с AES (у этого роутера другой)',
-  ram: 'нужно от 256 МБ оперативной памяти',
-  flash: 'не хватает свободного места: компоненту нужно не меньше 44 МБ',
-};
-
-export function fullMissingText(missing) {
-  return (missing ?? []).map((m) => FULL_MISSING_LABELS[m] ?? m).join('; ');
-}
-
-// explainFullTierFail(reason) → текст для панели, когда догрузка компонента не удалась.
-// reason пишет install-singbox.sh: "no-space" — не влез на флеш, "download" (или ничего) — сеть.
-// Смысл разделения тот же, что у explainFail: не отправлять человека чинить не то.
-export function explainFullTierFail(reason) {
-  if (reason === 'no-space')
-    return 'Не хватило места на роутере: компонент скачивается (~11 МБ), а после установки занимает ' +
-      'около 42 МБ. Освободите место (по SSH: apk del ненужные пакеты) или подключите USB-флешку ' +
-      '(extroot). Текущий туннель не затронут — он продолжает работать.';
-  return 'Не удалось скачать компонент — проверьте, что роутер в интернете, и попробуйте ещё раз. ' +
-    'Текущий туннель не затронут.';
-}
-
-// fullReasons(report) → почему Full-тир (VLESS+Reality) недоступен, человеческими фразами из
-// движка (tiers.full_checks: «RAM ≈ 120 МБ → Full-тиру нужно ≥ 240 МБ»). Пусто, если тянет.
-// Reality — запасной путь на случай, когда AmneziaWG режут; человек должен понимать, почему
-// этот путь ему закрыт, а не видеть безликое «недоступно».
-export function fullReasons(report) {
-  if (report?.tiers?.full === true) return [];
-  return (report?.tiers?.full_checks ?? [])
-    .filter((c) => !c.ok)
-    .map((c) => `${c.detail}${c.fix ? ` (${c.fix})` : ''}`);
-}
-
 // canOverride(report) → показывать ли кнопку «установить на свой страх и риск».
 // Источник правды — движок (overridable = провалы есть и все они soft); UI его не переигрывает.
 export function canOverride(report) {
@@ -203,9 +134,7 @@ export function canOverride(report) {
 // field (conf|rootPass|rootPass2|ssid|wifiKey|token) — Setup подсвечивает и прокручивает к
 // нему: на длинной форме ошибка у кнопки оказывалась за два экрана от поля. f — поля формы Setup.
 export function validateSetup(f) {
-  // Активный протокол: Full-протоколы доступны только при fullAvailable — если железо не тянет,
-  // форсим AmneziaWG даже когда protocol пришёл из initial (fail-safe направление, как в движке).
-  const proto = requiresFull(f.protocol) && !f.fullAvailable ? 'awg' : (f.protocol ?? 'awg');
+  const proto = 'awg'; // единственный устанавливаемый протокол (ADR 0010)
   const info = protocolInfo(proto);
   const conf = (f.confs?.[proto] ?? '').trim();
   const confError = checkConf(proto, conf);
@@ -256,7 +185,6 @@ export function validateSetup(f) {
 export const STEP_LABELS = {
   starting: 'Запуск…',
   preflight: 'Проверка роутера',
-  'singbox-download': 'Загрузка компонента для туннеля (~11 МБ)',
   snapshot: 'Сохранение точки отката',
   vpn: 'Настройка VPN-туннеля',
   singbox: 'Настройка VPN-туннеля',
@@ -268,24 +196,20 @@ export const STEP_LABELS = {
 };
 
 // installPlan(args) → [{ id, label }] — ожидаемая последовательность шагов этой установки
-// для чеклиста Installing: singbox-download только у Full-протоколов, wifi — только при SSID.
+// для чеклиста Installing: wifi — только при SSID.
 // ИНВАРИАНТ: порядок повторяет последовательность шагов движка (как в STEP_LABELS).
 export function installPlan(args) {
-  const full = requiresFull(args?.protocol);
-  const ids = ['preflight'];
-  if (full) ids.push('singbox-download');
-  ids.push('snapshot', full ? 'singbox' : 'vpn', 'dns', 'doh');
+  const ids = ['preflight', 'snapshot', 'vpn', 'dns', 'doh'];
   if (args?.ssid) ids.push('wifi');
   ids.push('firewall', 'health-check');
   return ids.map((id) => ({ id, label: STEP_LABELS[id] }));
 }
 
 // explainFail(reason, protocol?) → { error, advice } — адресная диагностика по коду исхода
-// (install_progress.reason; error=null → компонент оставляет свой текст). protocol — не показывать
-// AWG-пользователю совет про xray-core. ШРАМ: все health:* схлопывались в «сервер молчит, проверьте
-// подписку», а причиной бывал баг на роутере (health:dns, health:tunnel:process/route) — код и
-// совет обязаны совпадать 1:1 с install.uc.decide_outcome.
-export function explainFail(reason, protocol) {
+// (install_progress.reason; error=null → компонент оставляет свой текст). ШРАМ: все health:*
+// схлопывались в «сервер молчит, проверьте подписку», а причиной бывал баг на роутере (health:dns) —
+// код и совет обязаны совпадать 1:1 с install.uc.decide_outcome.
+export function explainFail(reason) {
   if (reason === 'health:dns') {
     return {
       error: 'DNS на роутере не ответил.',
@@ -300,34 +224,12 @@ export function explainFail(reason, protocol) {
       },
     };
   }
-  if (reason === 'health:tunnel:process' || reason === 'health:tunnel:route') {
-    return {
-      error: reason === 'health:tunnel:process'
-        ? 'Служба туннеля не запустилась на роутере.'
-        : 'Роутер не смог направить трафик в туннель.',
-      advice: {
-        title: 'Изменения откатаны. Это похоже на сбой на самом роутере, а не на сервере из вашего конфига:',
-        items: [
-          'попробуйте ещё раз — разовые сбои при старте службы случаются;',
-          'если повторяется — скопируйте журнал ниже и напишите нам в Telegram: конфиг сервера тут ни при чём, чинить нужно не его.',
-        ],
-        action: 'Попробовать снова',
-      },
-    };
-  }
   if (reason === 'health' || reason === 'health:tunnel:fetch') {
     const items = [
       'подписка у VPN-провайдера закончилась или сервер отключён — проверьте личный кабинет;',
       'конфиг устарел — скачайте свежий файл .conf и загрузите его заново;',
       'провайдер интернета мешает VPN-протоколу — попробуйте конфиг с другим сервером.',
     ];
-    // Full-тир на своём сервере (3x-ui) — известная внешняя проблема: свежий xray-core (≥26.7.11)
-    // отвергает sing-box-клиента (нашего) на КАЖДОЙ попытке, конфиг при этом выглядит идеально.
-    // AWG её не касается (свой протокол, не xray-core) — показываем только по делу.
-    if (protocolInfo(protocol).full)
-      items.push('сервер на своём VPS через 3x-ui: если сертификаты/подписка точно в порядке — ' +
-        'проверьте версию xray-core, актуальные (≥26.7.11) несовместимы с нашим клиентом, нужна v26.6.27 или ниже ' +
-        '(docs/kb/concepts/vless-reality.md#серверная-сторона).');
     return {
       error: 'VPN-сервер не ответил — туннель не поднялся.',
       advice: {
@@ -350,20 +252,6 @@ export function explainFail(reason, protocol) {
       },
     };
   }
-  if (reason === 'step:singbox') {
-    return {
-      error: 'Ссылка на сервер не принята.',
-      advice: {
-        title: 'Изменения откатаны, роутер в исходном состоянии. Проверьте ссылку:',
-        items: [
-          'она вставлена целиком — от vless:// до конца строки;',
-          'ссылка свежая: у некоторых панелей она меняется при пересоздании подключения;',
-          'если в журнале ниже упоминается конкретный параметр — попросите у сервера ссылку без него.',
-        ],
-        action: 'Исправить ссылку',
-      },
-    };
-  }
   if (reason && reason.startsWith('step:')) {
     const s = reason.slice(5);
     return {
@@ -373,20 +261,6 @@ export function explainFail(reason, protocol) {
         items: [
           'попробуйте ещё раз — разовые сбои случаются;',
           'если повторяется — скопируйте журнал ниже и приложите его к вопросу в сообществе проекта.',
-        ],
-        action: 'Попробовать снова',
-      },
-    };
-  }
-  if (reason === 'singbox-download') {
-    return {
-      error: 'Не удалось загрузить компонент для этого туннеля.',
-      advice: {
-        title: 'Изменений на роутере нет. Для VLESS+Reality нужно скачать компонент (~11 МБ) с серверов OpenWrt:',
-        items: [
-          'проверьте, что роутер подключён к интернету (кабель WAN на месте);',
-          'иногда загрузка рвётся из-за сети провайдера — просто попробуйте ещё раз;',
-          'либо вернитесь и выберите AmneziaWG — он не требует догрузки.',
         ],
         action: 'Попробовать снова',
       },
@@ -423,16 +297,9 @@ export function endpoint(conf) {
   return m ? m[1].trim() : '—';
 }
 
-// Краткая сводка туннеля без секретов: протокол + адрес сервера.
-// Для ссылочных протоколов берём то, что ПОСЛЕ последнего '@' — иначе uuid (по сути пароль
-// доступа) попал бы на экран подтверждения и в скриншоты.
+// Краткая сводка туннеля без секретов: протокол + адрес сервера (ключей из .conf не показываем).
 export function tunnelSummary(args) {
-  const info = protocolInfo(args?.protocol);
-  if (info.id === 'awg') return `${info.name} → ${endpoint(args?.awg_conf)}`;
-  const raw = (args?.[info.confKey] ?? '').trim();
-  const at = raw.lastIndexOf('@');
-  const host = at >= 0 ? raw.slice(at + 1).match(/^[^?#/]+/) : null;
-  return host ? `${info.name} → ${host[0]}` : info.name;
+  return `${PROTOCOLS.awg.name} → ${endpoint(args?.awg_conf)}`;
 }
 
 // Человекочитаемая метка фильтрации по выбранному id (или дефолт-описание).
@@ -457,33 +324,20 @@ export function heroKind(s) {
   return s.tunnel_health === 'up' ? 'up' : 'down';
 }
 
-// tunnelFallback(s) → что предложить, когда активный туннель не поднимается.
-//   { action: 'install' } — железо тянет Full, но бинаря нет: предложить догрузку;
-//   { action: 'switch', targets: [...] } — куда можно переключиться прямо сейчас;
-//   null — предлагать нечего (слабое железо и активен AWG).
-// Ключевое: с AmneziaWG (UDP) ведём на Reality (TCP) — другая ось, поэтому она и спасает (ADR 0004).
+// tunnelFallback(s) → куда уйти, когда активный туннель не поднимается: с legacy Full-тира
+// (ADR 0010) — на AWG; с AWG уходить некуда (null) — помогают другой сервер или аварийный режим.
 export function tunnelFallback(s) {
-  if (!s?.installed) return null;
-  const active = protocolInfo(s.protocol).id;
-  if (active === 'awg') {
-    if (s.full_installed) return { action: 'switch', targets: ['reality'] };
-    if (s.full_capable) return { action: 'install' };
-    return null;
-  }
-  // Активен Full-протокол (или заморожённый Hysteria2): всё, что можно выбрать, кроме него самого.
-  return { action: 'switch', targets: PROTOCOL_ORDER.filter((id) => id !== active).reverse() };
+  if (!s?.installed || !protocolInfo(s.protocol).legacy) return null;
+  return { action: 'switch', targets: ['awg'] };
 }
 
-// switchTargets(s) → протоколы, на которые можно переключиться из текущего состояния.
-// AWG доступен всегда; Full-протоколы — только когда бинарь уже стоит (иначе сначала кнопка
-// догрузки, см. tunnelFallback).
+// switchTargets(s) → протоколы, на которые можно переключиться: только уход с legacy на AWG.
 export function switchTargets(s) {
-  const active = protocolInfo(s?.protocol).id;
-  return protocolList().filter((p) => p.id !== active && (!p.full || s?.full_installed === true));
+  return protocolInfo(s?.protocol).legacy ? [PROTOCOLS.awg] : [];
 }
 
 // tunnelRowText(s) → значение строки «Туннель» в сводке. У AWG — возраст рукопожатия (сервер
-// отвечал), у Full-протоколов — факт поднятого туннеля, без обещаний про сервер.
+// отвечал), у legacy Full-тира — факт поднятого туннеля, без обещаний про сервер.
 export function tunnelRowText(s) {
   const info = protocolInfo(s?.protocol);
   if (info.full)

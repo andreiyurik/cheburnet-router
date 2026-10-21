@@ -45,7 +45,7 @@
   // Адресная диагностика — чистая explainFail (logic.js, под vitest). error=null у
   // генерик-ветки → оставляем текст, выставленный вызывающим («не удалась» / «аварийно»).
   function applyFail(reason) {
-    const ex = explainFail(reason, args.protocol);
+    const ex = explainFail(reason);
     if (ex.error) error = ex.error;
     advice = ex.advice;
   }

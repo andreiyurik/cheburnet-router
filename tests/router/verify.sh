@@ -12,19 +12,15 @@
 # потому что оно требует пароля root и меняет состояние, а проверка должна быть безопасной и
 # повторяемой сколько угодно раз.
 #
-# Адрес VPS берём из tests/vps/links.env — единственного источника (руками не дублируем).
+# Адрес VPS берём из Endpoint конфига стенда (tests/vps/awg-client.conf) — руками не дублируем.
 
 set -e -u -o pipefail
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-LINKS="$R_DIR/../vps/links.env"
-[ -f "$LINKS" ] || { echo "✗ нет $LINKS — поднимите стенд и заберите ссылки (см. RUNBOOK, предусловия)"; exit 1; }
-# shellcheck source=/dev/null
-. "$LINKS"
-
-# Адрес VPS выводим из ссылки Reality: он один и тот же для всех протоколов стенда.
-VPS_IP="$(printf '%s' "${VLESS_REALITY:-}" | sed -n 's|.*@\([^:/?#]*\).*|\1|p')"
-[ -n "$VPS_IP" ] || { echo "✗ не удалось извлечь адрес VPS из links.env"; exit 1; }
+AWG_CONF_FILE="$R_DIR/../vps/awg-client.conf"
+[ -s "$AWG_CONF_FILE" ] || { echo "✗ нет $AWG_CONF_FILE — поднимите стенд и заберите конфиг (см. RUNBOOK, предусловия)"; exit 1; }
+VPS_IP="$(sed -n 's/^Endpoint *= *\[\([^]]*\)\].*/\1/p; t; s/^Endpoint *= *\([^:]*\):.*/\1/p' "$AWG_CONF_FILE" | head -1)"
+[ -n "$VPS_IP" ] || { echo "✗ не удалось извлечь адрес VPS из Endpoint"; exit 1; }
 
 r_init "verify"
 printf '  стенд: %s\n' "$VPS_IP"
@@ -45,7 +41,7 @@ r_record "STATUS proto=${proto:-?} health=${health:-?} installed=$installed"
 # а не угадываем по имени.
 case "$proto" in
     awg)                 IFACE=awg0 ;;
-    reality|hysteria2)   IFACE=singtun0 ;;   # hysteria2 — legacy (ADR 0009): живой роутер на ней ещё проверяем
+    reality|hysteria2)   IFACE=singtun0 ;;   # legacy Full-тир (ADR 0010): живой роутер на нём ещё проверяем
     *) r_die "неизвестный протокол «$proto» — обновите verify.sh под новый тир" ;;
 esac
 printf '    интерфейс: %s\n' "$IFACE"

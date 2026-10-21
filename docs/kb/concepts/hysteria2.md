@@ -6,7 +6,7 @@ aliases: [hysteria2, hy2, brutal, port-hopping]
 
 # Hysteria2 — туннель для канала, который теряет пакеты
 
-> [!warning] Протокол заморожен ([[0009-freeze-hysteria2|ADR 0009]])
+> [!warning] Протокол заморожен ([[0009-freeze-hysteria2|ADR 0009]], весь Full-тир — [[0010-freeze-full-tier|ADR 0010]])
 > В cheburnet Hysteria2 больше не устанавливается и не выбирается; код — в теге `hysteria2-final`
 > и ветке `archive/hysteria2`. Глава оставлена ради принципа: почему потери ломают TCP-туннели и
 > как QUIC с этим справляется — это знание переносимо и без нашего продукта.

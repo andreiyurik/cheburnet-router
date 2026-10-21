@@ -43,36 +43,8 @@ endef
 define Package/cheburnet/description
   Образовательный роутер на OpenWrt с настраиваемым split-tunnel: домены из direct-списка идут
   напрямую, остальной трафик — через зашифрованный VPN. Light-тир (дефолт): dnsmasq-nftset +
-  nftables + policy routing + AmneziaWG (в ядре, для слабого железа). Full-тир (VLESS+Reality
-  через sing-box) — опциональный пакет cheburnet-full для мощного железа.
+  nftables + policy routing + AmneziaWG (в ядре, работает и на слабом железе).
   Логика — движок на ucode; настройка — веб-мастер через ubus RPC.
-endef
-
-# Full-тир (ADR 0004): VLESS+Reality через sing-box. ОТДЕЛЬНЫЙ пакет, а не +sing-box в
-# DEPENDS базового — иначе тяжёлый userspace-туннель поехал бы на слабые MIPS-роутеры, которым
-# хватает AmneziaWG. Движок (включая engine/steps/singbox) уже в базовом пакете; этот пакет лишь
-# тянет бинарь. Ставится туда, где preflight подтвердил Full (AES-arch, RAM/флеш).
-#
-# ПОЧЕМУ sing-box-tiny, а не полная сборка: у tiny есть нужный нам тег (with_utls → Reality),
-# она объявляет PROVIDES:=sing-box и ставит тот же /usr/bin/sing-box, но
-# весит на ~4.5 МБ меньше при скачивании. Отсутствующие в ней теги (with_wireguard, with_acme,
-# with_dhcp, with_tailscale, …) в нашем data-plane не используются: WireGuard-ось у нас в ядре.
-# Тот же порядок предпочтения зашит в install-singbox.sh (кнопка/автодогрузка) — основной путь.
-define Package/cheburnet-full
-  SECTION:=net
-  CATEGORY:=Network
-  SUBMENU:=VPN
-  TITLE:=cheburnet Full-тир — VLESS+Reality через sing-box
-  URL:=https://github.com/
-  PKGARCH:=all
-  DEPENDS:=+cheburnet +sing-box-tiny
-endef
-
-define Package/cheburnet-full/description
-  Метапакет: добавляет к cheburnet поддержку Full-тира на мощном железе — VLESS+Reality
-  (проходит там, где трафик режут).
-  На слабых роутерах не нужен — ставьте базовый cheburnet (AmneziaWG). Код движка — в пакете
-  cheburnet; здесь только зависимость sing-box-tiny.
 endef
 
 # Скрипты — компилировать нечего.
@@ -140,12 +112,4 @@ fi
 exit 0
 endef
 
-# cheburnet-full — метапакет: файлов нет, только зависимость sing-box (движок уже в cheburnet).
-define Package/cheburnet-full/install
-	true
-endef
-
 $(eval $(call BuildPackage,cheburnet))
-# cheburnet-full — метапакет Full-тира (ADR 0004): добавляет sing-box к базовому cheburnet.
-# Ставится только там, где preflight подтвердил Full (AES-arch, RAM); слабое железо его не тянет.
-$(eval $(call BuildPackage,cheburnet-full))

@@ -49,8 +49,6 @@
                     "set_domains",
                     "service_restart",
                     "set_dns_provider",
-                    "install_full_tier",
-                    "switch_to_reality",
                     "switch_to_awg",
                     "replace_awg_conf",
                     "add_profile",
@@ -60,7 +58,6 @@
                     "order_profiles",
                     "activate_profile",
                     "set_failover",
-                    "replace_reality_conf",
                     "install_token",
                     "factory_reset"
                 ]

@@ -8,12 +8,11 @@
 tests/
 ├── lint.sh                       # T1 — единая точка статики (CI + локально)
 ├── bootstrap-test.sh             # T2 (shell): bootstrap.sh на фейках — ретраи, токен, код выхода
-├── install-singbox-test.sh       # T2 (shell): install-singbox.sh на фейках — порядок пакетов, ретраи
 ├── netns/dataplane.sh            # T2.5: РЕАЛЬНЫЙ вывод движка в network namespace — split + антиутечка
 ├── poc/split-routing-netns.sh    # Фаза 0 PoC: split-routing на nft/ip в network namespace
 ├── vps/                          # T5 — СЕРВЕРНАЯ сторона: одноразовый стенд на арендованном VPS
-│   ├── provision-lab.sh          #      оба протокола с одного VPS (AWG + Reality)
-│   └── fetch-links.sh            #      забрать ссылки и клиентский .conf → links.env (не коммитятся)
+│   ├── provision-lab.sh          #      сервер AmneziaWG на одноразовом VPS
+│   └── fetch-links.sh            #      забрать клиентский .conf → awg-client.conf (не коммитится)
 ├── router/                       # T6 — КЛИЕНТСКАЯ сторона: проверки на ФИЗИЧЕСКОМ роутере
 │   ├── RUNBOOK.md                #      исполняемый сценарий прогона (шаги по порядку)
 │   ├── lib.sh                    #      обвязка: доступ, бэкап, exit-IP, PMTU, отчёты
@@ -27,13 +26,11 @@ tests/
     ├── smoke.sh                # T3a: hermetic smoke движка (rpcd, ubus, fw4)
     ├── webui.sh                # T3b: HTTP-слой веб-мастера (uhttpd, ACL, сессии)
     ├── install.sh              # T3c: DEPENDS + data-plane через реальный apk-feed
-    ├── reality.sh              # T3d: обвязка VLESS+Reality на живом netifd
     ├── rollback.sh             # T3g: полная установка через ubus + откат при мёртвом сервере
     ├── reboot.sh               # T3h: конфигурация переживает перезагрузку роутера
     ├── route-fallback.sh       # T3i: маршрут туннеля переживает переподключение WAN
     ├── dns-fallback.sh         # T3j: DNS переживает смерть туннеля; сторож чинит сам
     ├── emergency.sh            # T3k: аварийный режим возвращает интернет и обратим
-    ├── live-vps.sh             # T4a: трафик насквозь через настоящий сервер (нужен стенд vps/)
     └── live-install.sh         # T4b: успешная установка целиком + ребут поверх неё
 ```
 
@@ -83,7 +80,6 @@ make qemu-webui     # T3b: + HTTP/ubus через uhttpd, нужен интер�
 make qemu-install   # T3c: DEPENDS + data-plane на реальном apk-feed, ~5-8 мин
 make qemu-rollback  # T3g: полная установка через ubus + ОТКАТ, ~5-8 мин
 make qemu-reboot    # T3h: конфигурация переживает ПЕРЕЗАГРУЗКУ, ~6-9 мин
-make qemu-reality   # T3d: обвязка VLESS+Reality на живом netifd, ~4-6 мин
 make qemu-route-fallback  # T3i: WAN переподключился — маршрут туннеля и путь наружу целы
 make qemu-dns-fallback    # T3j: туннель умер — DNS жив резервным путём; сторож чинит инварианты
 make qemu-emergency       # T3k: аварийный режим (выключить/вернуть защиту) через pause.uc
@@ -108,8 +104,8 @@ network/dnsmasq/install.json как было, токен остаётся (по�
 
 T3d герметичен: рабочий внешний сервер НЕ нужен — проверяется наша обвязка (генерация
 конфига, netifd-маршрут, TUN, проба, teardown), а недостижимость сервера-заглушки как раз и
-обязана валить пробу. T3e (Hysteria2) и T3f (замер QUIC против TCP под потерями) заморожены
-вместе с протоколом — тег `hysteria2-final`, [ADR 0009](../docs/kb/decisions/0009-freeze-hysteria2.md).
+обязана валить пробу. T3d (Reality), T3e (Hysteria2), T3f (замер QUIC против TCP) и T4a (Reality насквозь) заморожены
+вместе с Full-тиром — теги `reality-final`/`hysteria2-final`, [ADR 0010](../docs/kb/decisions/0010-freeze-full-tier.md).
 
 Поднимают релизный образ OpenWrt x86-64 в qemu/KVM и гоняют движок на **реальном** busybox-окружении
 (не host-bash/gawk, на которых работают T1/T2). Детали и что именно каждый уровень покрывает —
@@ -123,9 +119,8 @@ scp tests/vps/provision-lab.sh root@<vps>:/root/ && ssh root@<vps> 'bash /root/p
 ```
 
 Единственное, что нельзя проверить ни юнитами, ни в QEMU: **настоящий интернет-путь** между
-роутером и сервером — PMTU/фрагментация (у нас в TUN зашит mtu 1500), Reality против реального
-заимствованного SNI, port hopping насквозь, сутки стабильности. Ключи никто не выдаёт — скрипт
-генерирует их сам (`sing-box generate reality-keypair`), поэтому «ключей от сервера» просить не у
+роутером и сервером — PMTU/фрагментация, успешная установка насквозь, сутки стабильности. Ключи
+никто не выдаёт — скрипт генерирует их сам (`awg genkey`), поэтому «ключей от сервера» просить не у
 кого. Подробности и чек-лист — [tests/vps/README.md](vps/README.md).
 
 В CI это НЕ встраивается намеренно: постоянный джоб на арендованном VPS — секреты, деньги и чужая
@@ -139,7 +134,7 @@ bash tests/router/inventory.sh        # шаг 1: read-only, вердикт pref
 bash tests/router/backup.sh           # шаг 2: путь назад одной командой
 bash tests/router/install.sh awg      # шаг 3: установка (метод мастера, конфиг со стенда)
 bash tests/router/verify.sh           # проверка насквозь: панель / exit-IP / PMTU / split
-bash tests/router/switch.sh reality   # шаг 4: смена протокола (или замена сервера)
+bash tests/router/switch.sh           # шаг 4: замена сервера (или уход с legacy-протокола на AWG)
 ```
 
 Полный сценарий — [tests/router/RUNBOOK.md](router/RUNBOOK.md). Это **исполняемый** документ:
@@ -154,8 +149,7 @@ bash tests/router/switch.sh reality   # шаг 4: смена протокола 
 Отчёты и бэкапы **не коммитятся** (адреса, параметры сети, ключи) — из них руками переносятся
 ЦИФРЫ в ADR 0004.
 
-Что покрывает только этот уровень: **Reality насквозь** (в окружении разработчика непроверяем —
-TLS-инспекция переписывает ClientHello), **PMTU на реальном канале**, поведение на настоящей
+Что покрывает только этот уровень: **PMTU на реальном канале**, поведение на настоящей
 архитектуре (QEMU — только x86_64), сутки и физическая перезагрузка. Первый полный прогон
 (2026-08-01, GL-MT3000) нашёл два дефекта, невидимых на всех прежних уровнях: Full-тир не мог
 соединиться с сервером после снятия Light-тира и split-tunnel выключался после перезагрузки —
@@ -177,8 +171,8 @@ TLS-инспекция переписывает ClientHello), **PMTU на реа
 | «Поставилось и не сломало роутер» (провал = честный откат) | `make qemu-rollback` |
 | Всё на месте и чинится само, если отвалилось | `make qemu-dns-fallback` (проверки 7-10) |
 | «Не поднять туннель — одна кнопка вернёт интернет, вторая вернёт защиту» | `make qemu-emergency` |
-| Кнопки панели (режим, свой список сайтов) работают через настоящий rpcd/ubus | `make qemu-emergency` (проверки 6-7), `make qemu-reality` |
-| Упал sing-box — сторож поднимет его и вернёт маршрут сам | `make qemu-reality` |
+| Кнопки панели (режим, свой список сайтов) работают через настоящий rpcd/ubus | `make qemu-emergency` (проверки 6-7) |
+| Упал sing-box (legacy Full-тир) — сторож поднимет его и вернёт маршрут сам | host: `test_run_paths.uc` (`singbox/apply.uc --arm`) |
 
 **Правило для новых тестов этого класса: отрицательный контроль обязателен.** Тест, который
 прошёл бы и без починки, ничего не доказывает — он декорация. Сломайте механизм явно и убедитесь,

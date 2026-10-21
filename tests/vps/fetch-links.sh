@@ -1,59 +1,34 @@
 #!/usr/bin/env bash
-# tests/vps/fetch-links.sh — забрать ссылки поднятого стенда с VPS в tests/vps/links.env.
+# tests/vps/fetch-links.sh — забрать клиентский конфиг AmneziaWG поднятого стенда в tests/vps/awg-client.conf.
 #
 #     bash tests/vps/fetch-links.sh root@<ip-вашего-vps> [путь-к-ssh-ключу]
 #
-# links.env содержит credentials сервера и поэтому НЕ коммитится (.gitignore). Отдельный скрипт,
-# а не «скопируйте руками», по одной причине: ссылки нужны и `make qemu-live-vps`, и панели, и
-# копипаста из терминала регулярно приезжает с переносом строки посередине.
+# Конфиг несёт приватный ключ клиента и поэтому НЕ коммитится (.gitignore). Отдельный скрипт, а не
+# «скопируйте руками»: конфиг нужен и `make qemu-live-install`, и tests/router/, а копипаста из
+# терминала регулярно приезжает обрезанной.
 
 set -e -u -o pipefail
 
 HOST="${1:-}"
 KEY="${2:-}"
-OUT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/links.env"
+AWG_LOCAL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/awg-client.conf"
 
 [ -n "$HOST" ] || { echo "использование: $0 root@<vps> [ssh-key]"; exit 1; }
 
 SSH_ARGS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
 [ -n "$KEY" ] && SSH_ARGS+=(-i "$KEY" -o IdentitiesOnly=yes)
 
-echo "→ Забираю ссылки с $HOST"
-raw="$(ssh "${SSH_ARGS[@]}" "$HOST" 'cat /root/cheburnet-lab/links.txt' 2>/dev/null)" \
-    || { echo "✗ не прочитать /root/cheburnet-lab/links.txt — стенд поднят? (provision-lab.sh)"; exit 1; }
-
-# Берём только строки KEY=VALUE и ОБЯЗАТЕЛЬНО берём значение в одинарные кавычки: в ссылках есть
-# '&' и '#', и без кавычек `. links.env` разваливается на фоновые команды и комментарии
-# («command not found» посреди ссылки). Значения — uuid/hex/base64 без одинарных кавычек внутри,
-# поэтому такого квотирования достаточно.
-#
-# Кавычки снимаем ТРЕМЯ отдельными подстановками, а не одной с двумя `['\"]*`: в links.txt значения
-# уже закавычены, а жадный `\(.*\)` захватывал закрывающую кавычку внутрь значения — поверх неё
-# дописывалась своя, и в строке оказывалось ТРИ кавычки. Такой файл при `. links.env` падает не
-# сразу и не понятно («command not found» на середине ссылки), а третьим шагом прогона.
-printf '%s\n' "$raw" \
-    | grep -E '^(VLESS_REALITY|AWG_CONF_REMOTE)=' \
-    | sed -e "s/=['\"]/=/" -e "s/['\"]$//" -e "s/=\(.*\)$/='\1'/" > "$OUT"
-chmod 600 "$OUT"
-
-n="$(wc -l < "$OUT")"
-[ "$n" -ge 2 ] || { echo "✗ в links.txt нашлось всего $n ссылок — стенд поднялся не полностью"; exit 1; }
-# Проверяем файл на разбор ЗДЕСЬ: он пишется один раз, а читается всеми шагами прогона, и битое
-# квотирование иначе всплывает далеко от причины.
-sh -n "$OUT" 2>/dev/null || { echo "✗ $OUT не разбирается shell'ом — сломано квотирование значений"; exit 1; }
-echo "  ✓ $n значений → $OUT (режим 600, не коммитится)"
-
-# AmneziaWG приходит .conf-файлом, а не ссылкой: мастер принимает именно файл, и вставлять его
-# содержимое в links.env бессмысленно (многострочный конфиг сломал бы `. links.env`).
-AWG_LOCAL="$(dirname "$OUT")/awg-client.conf"
-if ssh "${SSH_ARGS[@]}" "$HOST" 'cat /root/cheburnet-lab/awg/client.conf' > "$AWG_LOCAL" 2>/dev/null \
-   && [ -s "$AWG_LOCAL" ]; then
-    chmod 600 "$AWG_LOCAL"
-    echo "  ✓ клиентский конфиг AmneziaWG → $AWG_LOCAL (режим 600, не коммитится)"
-else
+echo "→ Забираю клиентский конфиг AmneziaWG с $HOST"
+# Права 600 ДО записи ключа: приватный ключ не лежит ни мгновения с umask-правами.
+: > "$AWG_LOCAL"
+chmod 600 "$AWG_LOCAL"
+if ! ssh "${SSH_ARGS[@]}" "$HOST" 'cat /root/cheburnet-lab/awg/client.conf' > "$AWG_LOCAL" 2>/dev/null \
+   || ! grep -q '^\[Interface\]' "$AWG_LOCAL"; then
     rm -f "$AWG_LOCAL"
-    echo "  ⚠ AmneziaWG на стенде не найден — стенд поднят прежней версией provision-lab.sh"
+    echo "✗ не прочитать /root/cheburnet-lab/awg/client.conf — стенд поднят? (provision-lab.sh)"
+    exit 1
 fi
+echo "  ✓ $AWG_LOCAL (режим 600, не коммитится)"
 
 echo ""
-echo "Дальше: make qemu-live-vps (Full-тир) или tests/router/RUNBOOK.md (живой роутер)"
+echo "Дальше: make qemu-live-install или tests/router/RUNBOOK.md (живой роутер)"

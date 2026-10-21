@@ -194,101 +194,6 @@ function soft_failed_ids(report) {
 	return out;
 }
 
-// Full-тир (Reality через sing-box) — более жёсткие требования, замер и разбор
-// порогов: [[hardware-requirements]]. arch — proxy для AES-ускорения (точная проверка cpuinfo —
-// gather, router-side).
-const FULL_REQUIREMENTS = {
-	arch: [ "aarch64", "x86_64" ],  // ARMv8/x86 с AES; mips/armv7 исключены
-	min_flash_mb: 44,                // sing-box-tiny + config.json + логи (замер qemu-hysteria до заморозки, ADR 0009)
-	min_ram_mb: 240,                 // = плата на 256 МБ (MemTotal < паспорта, см. REQUIREMENTS)
-	// ИНВАРИАНТ: любой пакет из pkgs подходит — sing-box-tiny и sing-box взаимозаменяемы
-	// (PROVIDES:=sing-box, тот же бинарь и init-скрипт); tiny предпочтителен, sing-box — фолбэк.
-	pkgs: [ "sing-box-tiny", "sing-box" ],
-};
-
-function resolve_full_req(req) {
-	let r = {};
-	for (let k in FULL_REQUIREMENTS)
-		r[k] = FULL_REQUIREMENTS[k];
-	if (req)
-		for (let k in req)
-			if (exists(FULL_REQUIREMENTS, k))
-				r[k] = req[k];
-	return r;
-}
-
-// full_requirements() — копия дефолтных требований Full-тира (для gather/UI; источник правды здесь).
-function full_requirements() {
-	return resolve_full_req(null);
-}
-
-// num_or(v, fallback) — целое из значения, пришедшего из shell-батча (строка/мусор/пусто).
-// Не-число → fallback: для гейтов это -1 (fail-safe «не подтвердили → не обещаем»).
-function num_or(v, fallback) {
-	if (type(v) == "int") return v;
-	return match("" + (v ?? ""), /^[0-9]+$/) ? int(v) : fallback;
-}
-
-// full_hw_missing(arch, ram_mb, flash_mb, req) → чего не хватает железу для Full-тира: массив
-// из "arch"|"ram"|"flash" (пусто = тянет). Лёгкие признаки для панели (видимость кнопки
-// «Включить VLESS+Reality»), БЕЗ apk --simulate — авторитетный гейт остаётся за preflight
-// при установке. flash_mb == null (факт не собран) → флеш не виним, а не гадаем.
-function full_hw_missing(arch, ram_mb, flash_mb, req) {
-	let r = resolve_full_req(req);
-	let out = [];
-	if (index(r.arch, arch ?? "") < 0) push(out, "arch");
-	if (num_or(ram_mb, -1) < r.min_ram_mb) push(out, "ram");
-	if (flash_mb != null && flash_mb !== "" && num_or(flash_mb, -1) < r.min_flash_mb)
-		push(out, "flash");
-	return out;
-}
-
-// evaluate_tiers(facts, req) → { light, full, full_installed, full_checks, full_failed }: light —
-// базовый гейт; full — железо ПОТЯНЕТ Full (light ∧ AES-arch ∧ RAM/флеш ∧ бинарь установим);
-// full_installed — sing-box реально стоит (capable ≠ installed). req.full — пороги Full (тесты).
-// ИНВАРИАНТ: гейт железа ОДИН на оба Full-протокола — ветвление по шагу, не по протоколу.
-function evaluate_tiers(facts, req) {
-	let light = evaluate(facts, req);
-	let fr = resolve_full_req(req ? req.full : null);
-
-	let checks = [];
-	push(checks, check("full_arch", index(fr.arch, facts.arch) >= 0,
-		sprintf("arch = %s", facts.arch ?? "?"),
-		sprintf("Full-тир нужен AES-arch: %s", join(", ", fr.arch))));
-
-	let ram = facts.ram_total_mb ?? -1;
-	push(checks, check("full_ram", ram >= fr.min_ram_mb,
-		sprintf("RAM ≈ %d МБ", ram),
-		sprintf("Full-тиру нужно ≥ %d МБ", fr.min_ram_mb)));
-
-	let flash = facts.flash_free_mb ?? -1;
-	push(checks, check("full_flash", flash >= fr.min_flash_mb,
-		sprintf("свободный флеш ≈ %d МБ", flash),
-		sprintf("Full-тиру нужно ≥ %d МБ", fr.min_flash_mb)));
-
-	// Пакет Full-тира: достаточно ЛЮБОГО из pkgs (они взаимозаменяемы — см. FULL_REQUIREMENTS).
-	let di = facts.deps_installable ?? {};
-	let sb_pkg = null;
-	for (let i = 0; i < length(fr.pkgs); i++)
-		if (sb_pkg == null && di[fr.pkgs[i]] === true) sb_pkg = fr.pkgs[i];
-	push(checks, check("full_dep", sb_pkg != null,
-		sb_pkg != null ? sprintf("%s ставится", sb_pkg)
-		               : sprintf("не ставится ни один из: %s", join(", ", fr.pkgs)),
-		sprintf("пакеты %s недоступны под эту платформу/feed", join(" / ", fr.pkgs))));
-
-	let failed = 0;
-	for (let i = 0; i < length(checks); i++)
-		if (!checks[i].ok) failed++;
-
-	return {
-		light: light.passed,
-		full: light.passed && failed == 0,
-		full_installed: facts.sing_box_installed === true,
-		full_checks: checks,
-		full_failed: failed,
-	};
-}
-
 // render_report(report, allow_soft) — человекочитаемые строки для CLI/лога. allow_soft=true —
 // режим «владелец согласился на риск»: soft-провалы помечаем «!» (пропущено) вместо «✗», и итог
 // говорит, что установка идёт С ПРОПУСКОМ — это остаётся в install.log как след решения.
@@ -313,4 +218,4 @@ function render_report(report, allow_soft) {
 	return out;
 }
 
-export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, soft_failed_ids, full_requirements, full_hw_missing, evaluate_tiers, render_report };
+export { default_requirements, cmp_version, cidr_overlap, suggest_lan, valid_lan_ip, evaluate, soft_failed_ids, render_report };

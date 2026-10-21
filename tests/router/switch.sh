@@ -1,39 +1,21 @@
 #!/bin/bash
-# tests/router/switch.sh — ШАГ 4: сменить активный туннель на уже настроенном роутере.
+# tests/router/switch.sh — ШАГ 4: уход роутера с legacy Full-тира (Reality/Hysteria2, ADR 0010) на AWG,
+# а на AWG — замена сервера тем же конфигом со стенда.
 #
-#     R_HOST=192.168.1.1 bash tests/router/switch.sh reality
-#     R_HOST=192.168.1.1 bash tests/router/switch.sh reality|awg
+#     R_HOST=192.168.1.1 bash tests/router/switch.sh
 #
-# Зовёт ТЕ ЖЕ методы, что кнопки панели (switch_to_reality / switch_to_awg):
-# конфиг нового туннеля приносится, а домены/DNS/режим берутся из сохранённой конфигурации.
-# У каждого метода внутри снапшот → применить → проба → commit или АВТООТКАТ, поэтому неудачное
-# переключение обязано вернуть прежний рабочий туннель — это и проверяется прогоном.
-#
-# Переход на Full-протокол требует бинаря sing-box. Он НЕ ставится этим скриптом руками: за него
-# отвечает install_full_tier (та же кнопка панели), и вызывается он здесь только при отсутствии
-# бинаря — чтобы проверялся именно продуктовый путь догрузки, а не наш обход.
+# Зовёт ТЕ ЖЕ методы, что кнопки панели (switch_to_awg / replace_awg_conf): внутри снапшот →
+# применить → рукопожатие → commit или АВТООТКАТ, поэтому неудачная смена обязана вернуть прежний
+# рабочий туннель — это и проверяется прогоном.
 
 set -e -u -o pipefail
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
-PROTO="${1:-}"
-LINKS="$R_DIR/../vps/links.env"
+PROTO="awg"
 AWG_CONF_FILE="$R_DIR/../vps/awg-client.conf"
 
-[ -n "$PROTO" ] || { echo "использование: $0 awg|reality"; exit 1; }
-[ -f "$LINKS" ] || { echo "✗ нет $LINKS — поднимите стенд (tests/vps/)"; exit 1; }
-# shellcheck source=/dev/null
-. "$LINKS"
-
-case "$PROTO" in
-    awg)
-        [ -f "$AWG_CONF_FILE" ] || { echo "✗ нет $AWG_CONF_FILE"; exit 1; }
-        METHOD="switch_to_awg";       FIELD="awg_conf";       VALUE="$(cat "$AWG_CONF_FILE")" ;;
-    reality)
-        METHOD="switch_to_reality";   FIELD="reality_conf";   VALUE="${VLESS_REALITY:-}" ;;
-    *) echo "✗ неизвестный протокол «$PROTO»"; exit 1 ;;
-esac
-[ -n "$VALUE" ] || { echo "✗ в links.env нет конфига для «$PROTO»"; exit 1; }
+[ -s "$AWG_CONF_FILE" ] || { echo "✗ нет $AWG_CONF_FILE — поднимите стенд (tests/vps/)"; exit 1; }
+METHOD="switch_to_awg"; FIELD="awg_conf"; VALUE="$(cat "$AWG_CONF_FILE")"
 
 r_init "switch-$PROTO"
 
@@ -42,31 +24,6 @@ before="$(r_ssh 'ubus call cheburnet status 2>/dev/null' || true)"
 prev="$(printf '%s' "$before" | sed -n 's/.*"protocol": *"\([a-z0-9]*\)".*/\1/p' | head -1)"
 printf '  сейчас активен: %s\n' "${prev:-?}"
 r_record "SWITCH from=${prev:-?} to=$PROTO"
-
-# Full-протоколам нужен бинарь. Ставим его продуктовым методом панели, а не своим apk add.
-case "$PROTO" in
-    reality)
-        if r_ssh 'command -v sing-box >/dev/null 2>&1'; then
-            r_ok "sing-box уже установлен"
-        else
-            r_msg "Догружаю Full-тир (install_full_tier — кнопка панели)"
-            # Метод АСИНХРОННЫЙ: возвращает {"status":"started"} и качает пакет в фоне. Проверять
-            # наличие бинаря сразу после вызова бессмысленно — так и было, и читалось как «Full-тир
-            # недоступен на этом роутере». Ждём до 3 минут (apk тянет ~10 МБ с зеркала).
-            out="$(r_ssh 'ubus call cheburnet install_full_tier 2>&1' || true)"
-            printf '%s' "$out" | grep -q 'started' \
-                || { printf '%s\n' "$out" | sed 's/^/    /'; r_die "install_full_tier не запустился"; }
-            got_sb=0
-            for _ in $(seq 1 36); do
-                if r_ssh 'command -v sing-box >/dev/null 2>&1'; then got_sb=1; break; fi
-                sleep 5
-            done
-            [ "$got_sb" = "1" ] \
-                || { r_ssh 'tail -20 /tmp/cheburnet/install.log 2>/dev/null' | sed 's/^/    /' || true
-                     r_die "sing-box не встал за 3 минуты — Full-тир недоступен"; }
-            r_ok "sing-box установлен ($(r_ssh 'sing-box version 2>/dev/null | head -1'))"
-        fi ;;
-esac
 
 # Если целевой протокол УЖЕ активен — это не переключение, а замена сервера, и у движка для неё
 # отдельный метод (switch_to_* честно отказывает: «меняйте сервер через замену конфига»).

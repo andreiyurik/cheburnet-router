@@ -73,66 +73,25 @@ test('мастер: полный проход от проверки до пан�
   await expect(page.getByRole('button', { name: 'Дома' })).toHaveAttribute('aria-pressed', 'true');
 });
 
-// Full-железо: мастер даёт выбор туннеля ПО СИМПТОМУ и предвыбирает VLESS+Reality — самая частая
-// поломка в фильтрующей сети — «VPN вообще не поднимается». Заморожённой Hysteria2 (ADR 0009) нет.
-test('мастер на Full-железе: выбор по симптому, дефолт Reality, установка Reality', async ({ page, request }) => {
-  await request.post('/__set', { data: { hw: 'full' } });
+// Full-тир заморожен (ADR 0010): выбора туннеля в мастере нет — сразу поле .conf AmneziaWG, на любом железе.
+test('мастер: выбора протокола нет, установка уходит с protocol=awg', async ({ page, request }) => {
   await page.goto('/cheburnet/?token=TESTTOKEN');
   await page.getByRole('button', { name: 'Продолжить' }).click();
 
-  // Варианты названы через поломку, а не через протокол; название протокола — подписью.
-  await expect(page.getByText('Интернет через VPN вообще не открывается')).toBeVisible();
-  await expect(page.getByText('Роутер слабый или хочется максимально быстро')).toBeVisible();
-  await expect(page.getByText('Интернет открывается, но тормозит и рвётся')).toHaveCount(0);
-  // Дефолт на подходящем железе — Reality (и поле просит именно vless://).
-  await expect(page.getByRole('radio', { name: /Интернет через VPN вообще не открывается/ })).toBeChecked();
-  await page.getByLabel('Ссылка vless:// или конфиг sing-box')
-    .fill('vless://uuid-secret@srv.example.com:443?security=reality&pbk=k&sni=example.com');
-
+  await expect(page.getByText('Каким туннелем пользоваться')).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: /Протокол:/ })).toHaveCount(0);
+  await page.getByLabel('VPN-конфиг').fill(AWG_CONF);
   await page.getByLabel('Пароль администратора (root)').fill('secret-pass-1');
   await page.getByLabel('Повторите пароль').fill('secret-pass-1');
   await page.getByLabel('Имя сети (SSID)').fill('TestWifi');
   await page.getByLabel('Пароль Wi-Fi').fill('wifi-pass-1');
   await page.getByRole('button', { name: 'Установить' }).click();
-
-  // Сводка: протокол и адрес сервера — БЕЗ uuid (он в ссылке стоит до '@' и по сути пароль).
-  await expect(page.getByText('VLESS+Reality → srv.example.com:443')).toBeVisible();
-  await expect(page.getByText('uuid-secret')).toHaveCount(0);
   await page.getByRole('button', { name: 'Установить' }).click();
   await expect(page.getByText('Готово! Роутер настроен')).toBeVisible({ timeout: 15_000 });
 
   const args = await (await request.get('/__last-install')).json();
-  expect(args.protocol).toBe('reality');
-  expect(args.reality_conf).toContain('vless://');
-  expect('awg_conf' in args).toBe(false);
-});
-
-// Пограничное железо (дефолт мока: RAM хватает на Light, не хватает на Full) — самый частый
-// реальный случай жалобы «не мог выбрать протокол»: строка VLESS+Reality не спрятана,
-// а честно задизейблены, и раньше единственным сигналом была мелкая серая подпись — на глаз не
-// отличить от рабочей строки. Проверяем, что сейчас есть явный бейдж и что клик по замку не выбирает.
-test('мастер на пограничном железе: Full-протокол задизейблен с явным бейджем «недоступно»', async ({ page }) => {
-  await page.goto('/cheburnet/?token=TESTTOKEN');
-  await page.getByRole('button', { name: 'Продолжить' }).click();
-
-  // Дефолт при недоступном Full — AmneziaWG, единственный доступный вариант.
-  await expect(page.getByRole('radio', { name: /Роутер слабый или хочется максимально быстро/ })).toBeChecked();
-  await expect(page.getByRole('radio', { name: /Роутер слабый или хочется максимально быстро/ })).toBeEnabled();
-
-  const reality = page.getByRole('radio', { name: /Интернет через VPN вообще не открывается/ });
-  await expect(reality).toBeDisabled();
-
-  // Бейдж — видимый сигнал у самой строки, а не только мелкий текст под ней.
-  await expect(page.locator('[data-slot=badge]')).toHaveCount(1);
-  await expect(page.getByText('недоступно', { exact: true })).toHaveCount(1);
-
-  // Причина недоступности напечатана явно (движок отдал её из preflight.tiers.full_checks).
-  await expect(page.getByText('RAM ≈ 120 МБ', { exact: false })).toBeVisible();
-
-  // Клик по задизейбленной строке не переключает выбор — форма остаётся на AmneziaWG.
-  await reality.click({ force: true }).catch(() => {});
-  await expect(page.getByRole('radio', { name: /Роутер слабый или хочется максимально быстро/ })).toBeChecked();
-  await expect(reality).not.toBeChecked();
+  expect(args.protocol).toBe('awg');
+  expect(Object.keys(args).filter((k) => k.endsWith('_conf'))).toEqual(['awg_conf']);
 });
 
 test('мастер: health-check не прошёл → адресная диагностика «VPN-сервер не ответил»', async ({ page, request }) => {

@@ -1,8 +1,7 @@
 // harness.uc — sandbox + фейковые системные команды для host-тестов ИМПУРНОГО слоя движка
-// (run.uc / replace_vpn.uc / replace_singbox.uc / reset.uc / probe.uc). Не тест — библиотека.
+// (run.uc / replace_vpn.uc / reset.uc / legacy singbox/apply.uc). Не тест — библиотека.
 //
-// Приём — тот же, что tests/install-singbox-test.sh («изоляция через фейки»): реальные .uc
-// гоняются как subprocess, PATH подменяет системные команды стабами, а пути состояния уходят
+// Приём «изоляция через фейки»: реальные .uc гоняются как subprocess, PATH подменяет системные команды стабами, а пути состояния уходят
 // в sandbox через env-override'ы (ETC_CHEBURNET / UCI_CONFIG_DIR / SNAPSHOT_DIR / SB_CONFIG).
 // Каждый стаб пишет свой вызов в calls-лог (uci batch — включая stdin-операции): тесты
 // проверяют ПОСЛЕДОВАТЕЛЬНОСТЬ реальных действий, а не только код выхода.
@@ -86,9 +85,8 @@ function mk_sandbox() {
 	write_stub(sb.bin, "df",
 		'if [ -f "$FAKE_DIR/df.out" ]; then cat "$FAKE_DIR/df.out"; exit 0; fi\n' +
 		'for p in /usr/bin/df /bin/df; do [ -x "$p" ] && exec "$p" "$@"; done\nexit 1');
-	// ip: два запроса, которые реально читает движок. `route show default` — предусловие Full-тира
-	// (sing-box выбирает по нему интерфейс до сервера); дефолт в песочнице = «обычный роутер с WAN»,
-	// сценарий про пропавший маршрут обнуляет route_default.out.
+	// ip: два запроса, которые реально читает движок (`route show default` — путь наружу мимо туннеля);
+	// дефолт в песочнице = «обычный роутер с WAN», сценарий про пропавший маршрут обнуляет route_default.out.
 	write_stub(sb.bin, "ip",
 		'case "$*" in\n' +
 		'  *"route show default"*) cat "$FAKE_DIR/route_default.out" 2>/dev/null ;;\n' +

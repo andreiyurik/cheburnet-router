@@ -9,7 +9,7 @@
 > **half-routes `0.0.0.0/1` + `128.0.0.0/1`** (и `::/1` + `8000::/1`) — уже существующие
 > `config route`-секции на `awg0`. Они специфичнее WAN-дефолта `0.0.0.0/0`, поэтому побеждают его
 > в main **без удаления WAN** (приём `redirect-gateway def1` у OpenVPN). Тот же механизм у
-> [Full-тира](../singbox/README.md) — один на оба тира. `route_allowed_ips='0'`: proto-handler свой
+> [legacy Full-тира](../singbox/README.md) — один на оба туннеля. `route_allowed_ips='0'`: proto-handler свой
 > маршрут не ставит. Direct-исключения вытягивает
 > [policy-routing](../../../docs/kb/concepts/policy-routing.md) (`mark→table-100→WAN`) — другая
 > таблица, конфликта нет. **fail-safe:** промах direct-списка = трафик уходит в туннель, а не
