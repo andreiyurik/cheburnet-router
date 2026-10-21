@@ -644,15 +644,9 @@ function m_replace_awg_conf(v) {
 
 // switch_tunnel(protocol, conf) — in-place смена активного туннеля на protocol.
 //
-// Сейчас это уход на AWG — с legacy Full-тира (ADR 0010) или профилем при протоколе ≠ awg. run.uc целиком:
-// snapshot → teardown НЕактивного туннеля → apply туннель+dns+doh+firewall → health (handshake) →
-// commit/rollback. Домены/DNS/режим
-// берём из сохранённого cfg (мастер НЕ проходим), пароль/Wi-Fi не трогаем.
-//
-// protocol в install.json меняем ЗАРАНЕЕ (+.prev): на commit run.uc допишет wan_if в этот же файл,
-// на откате вернёт .prev с прежним протоколом и восстановит config.json (см. run.uc rollback_all).
-// Копий этой последовательности по методам нет намеренно: три копии разъехались бы, а каждая из
-// них — путь, который умеет оставить роутер без интернета.
+// Уход на AWG с legacy Full-тира (ADR 0010) — через run.uc целиком; домены/DNS/режим берём из cfg.
+// protocol в install.json меняем ЗАРАНЕЕ (+.prev): откат вернёт .prev и config.json (run.uc rollback_all).
+// Копий этой последовательности по методам нет намеренно: каждая — путь, способный оставить без интернета.
 function switch_tunnel(protocol, conf, profile_id) {
 	if (pid_alive())
 		respond(make_error("операция уже выполняется"));
@@ -685,7 +679,7 @@ function switch_tunnel(protocol, conf, profile_id) {
 		protocol: protocol,
 		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
 		dns_provider: cfg.dns_provider,
-		accept_risk: accepted_risk(cfg),
+		accept_risk: true, // выход с legacy: пакеты уже стоят, гейт железа не должен закрыть единственный путь
 		profile_id: profile_id, // AWG-профиль, который станет активным на commit (engine/profiles)
 	};
 	payload[tunnel_info(protocol).conf_key] = conf;

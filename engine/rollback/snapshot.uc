@@ -39,6 +39,10 @@ if (action == "save") {
 			push(restored, c);
 		}
 	}
+	// Снимок отработал: устаревший не должен откатить чужое состояние при следующем --rollback.
+	for (let i = 0; i < length(configs); i++)
+		unlink(dir + "/" + configs[i]);
+	rmdir(dir);
 	// Перечитать конфиги сервисами (uci читает файлы заново).
 	sh("/etc/init.d/network reload >/dev/null 2>&1");
 	sh("/etc/init.d/firewall reload >/dev/null 2>&1");

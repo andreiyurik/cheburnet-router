@@ -181,6 +181,83 @@ test("--rollback (отмена ухода на AWG): legacy sing-box НЕ сни
 	cleanup(sb);
 });
 
+const AWG_CONF =
+	"[Interface]\nPrivateKey = cHJpdmF0ZXByaXZhdGVwcml2YXRlcHJpdmF0ZXByaXZhdGUwMA==\n" +
+	"Address = 10.0.0.2/32\n\n[Peer]\nPublicKey = cHVibGljcHVibGljcHVibGljcHVibGljcHVibGljMDA=\n" +
+	"Endpoint = vpn.example.com:51820\n";
+const REALITY_CONF = "vless://uuid-x@203.0.113.9:443?security=reality&pbk=YQ&sni=example.com";
+
+// ШРАМ (ревью): ветка enable+restart после возврата config.json держалась без теста — регресс не поймали бы.
+test("--rollback: вернули config.json и sing-box был включён → init.d enable + restart", () => {
+	let sb = mk_sandbox();
+	seed_cfg(sb, "install.json", { routing_opts: {}, protocol: "awg" });
+	seed_cfg(sb, "install.json.prev", { routing_opts: { wan_if: "eth0" }, protocol: "reality" });
+	writefile(sb.sbconf + ".prev", "ПРЕЖНИЙ РАБОЧИЙ\n");
+	writefile(sb.fake + "/sb_enabled", "1\n"); // snapshot restore вернул enabled=1
+	with_singbox(sb); // тот же стаб играет init.d/sing-box
+	let r = run_uc(sb, "install/run.uc", "--rollback", '{"protocol":"awg","routing_opts":{}}');
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "sing-box enable") >= 0, "автозапуск включён обратно: " + calls(sb));
+	ok(index(calls(sb), "sing-box restart") >= 0, "сервис поднят");
+	cleanup(sb);
+});
+
+test("--rollback: sing-box был выключен (enabled≠1) → enable не зовём", () => {
+	let sb = mk_sandbox();
+	seed_cfg(sb, "install.json", { routing_opts: {}, protocol: "awg" });
+	seed_cfg(sb, "install.json.prev", { routing_opts: {}, protocol: "reality" });
+	writefile(sb.sbconf + ".prev", "X\n");
+	with_singbox(sb);
+	let r = run_uc(sb, "install/run.uc", "--rollback", '{"protocol":"awg","routing_opts":{}}');
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "sing-box enable") < 0, "не включаем то, что было выключено");
+	cleanup(sb);
+});
+
+// --- Уход с legacy Reality на AWG сквозь run.uc (switch_to_awg) ---
+function legacy_switch(sb) {
+	seed_cfg(sb, "install.json", { routing_opts: {}, protocol: "awg" });
+	seed_cfg(sb, "install.json.prev", { routing_opts: { wan_if: "eth0", tunnel_if: "singtun0" }, protocol: "reality" });
+	writefile(sb.sbconf, "РАБОЧИЙ SING-BOX\n");
+	with_singbox(sb);
+	let payload = sprintf("%J", { protocol: "awg", awg_conf: AWG_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	return run_uc(sb, "install/run.uc", null, payload);
+}
+
+test("уход с legacy на AWG, успех: sing-box снят, бэкап config.json убран, tunnel_if=awg0", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/awg.out", "pubkeyXXX\t5\n");
+	let r = legacy_switch(sb);
+	eq(r.rc, 0, "exit 0: " + r.out);
+	ok(index(calls(sb), "ifdown singtun") >= 0, "teardown sing-box вызван");
+	ok(!access(sb.sbconf), "config.json удалён teardown'ом");
+	ok(!access(sb.sbconf + ".prev"), "на commit бэкап зачищен");
+	eq(json(readfile(sb.etc + "/install.json")).routing_opts.tunnel_if, "awg0", "tunnel_if сменился");
+	cleanup(sb);
+});
+
+test("уход с legacy на AWG, health провален: config.json вернулся, sing-box включён обратно", () => {
+	let sb = mk_sandbox(); // awg.out пуст → handshake не придёт
+	writefile(sb.fake + "/sb_enabled", "1\n");
+	let r = legacy_switch(sb);
+	eq(r.rc, 1, "exit 1: " + r.out);
+	eq(readfile(sb.sbconf), "РАБОЧИЙ SING-BOX\n", "прежний config.json на месте");
+	ok(index(calls(sb), "sing-box enable") >= 0, "автозапуск включён обратно");
+	eq(json(readfile(sb.etc + "/install.json")).protocol, "reality", "install.json — прежняя правда");
+	cleanup(sb);
+});
+
+test("чистая установка AWG: sing-box teardown не вызывается (config.json нет)", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/awg.out", "pubkeyXXX\t5\n");
+	seed_cfg(sb, "install.json", { routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "awg", awg_conf: AWG_CONF,
+		disable: [ "dns", "doh", "wifi", "firewall" ], domains: [], routing_opts: {} });
+	eq(run_uc(sb, "install/run.uc", null, payload).rc, 0);
+	ok(index(calls(sb), "singtun") < 0 && index(calls(sb), "sing-box") < 0, "sing-box не трогали");
+	cleanup(sb);
+});
 
 test("--dry-run: план напечатан, система не тронута", () => {
 	let sb = mk_sandbox();
@@ -198,11 +275,6 @@ test("--dry-run: план напечатан, система не тронута
 // health-check и ронял интернет всему дому при провале). Сначала точечно на уровне apply.uc,
 // потом сквозь run.uc — что реально произойдёт при провале/успехе первой установки.
 
-const AWG_CONF =
-	"[Interface]\nPrivateKey = cHJpdmF0ZXByaXZhdGVwcml2YXRlcHJpdmF0ZXByaXZhdGUwMA==\n" +
-	"Address = 10.0.0.2/32\n\n[Peer]\nPublicKey = cHVibGljcHVibGljcHVibGljcHVibGljcHVibGljMDA=\n" +
-	"Endpoint = vpn.example.com:51820\n";
-const REALITY_CONF = "vless://uuid-x@203.0.113.9:443?security=reality&pbk=YQ&sni=example.com";
 
 test("vpn/apply.uc --no-arm: half-routes НЕ создаются, интерфейс всё равно поднимается", () => {
 	let sb = mk_sandbox();

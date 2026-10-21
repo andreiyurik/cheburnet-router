@@ -17,12 +17,12 @@ const GOOD_AWG =
 
 // === replace_vpn.uc (AWG) ===
 
-test("replace_vpn: битый конфиг → отказ шага, restore, снимок сохранён", () => {
+test("replace_vpn: битый конфиг → отказ шага, restore, снимок израсходован", () => {
 	let sb = mk_sandbox();
 	let r = run_uc(sb, "install/replace_vpn.uc", null, "это не AWG-конфиг");
 	eq(r.rc, 1, "exit 1");
 	ok(index(r.out, "откат") >= 0, "об откате сказано");
-	ok(access(sb.snap), "restore-путь: снимок НЕ выброшен (это делает только commit)");
+	ok(!access(sb.snap), "restore-путь: снимок выброшен (устаревший не должен откатить чужое)");
 	cleanup(sb);
 });
 
@@ -75,7 +75,7 @@ test("replace_vpn: handshake не пришёл за окно → restore, чес
 	let r = run_uc(sb, "install/replace_vpn.uc", null, GOOD_AWG);
 	eq(r.rc, 1, "exit 1");
 	ok(index(r.out, "возвращаю прежний конфиг") >= 0, "причина отката названа");
-	ok(access(sb.snap), "restore-путь: снимок не выброшен");
+	ok(!access(sb.snap), "restore-путь: снимок выброшен");
 	cleanup(sb);
 });
 
