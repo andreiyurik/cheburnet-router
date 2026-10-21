@@ -19,7 +19,8 @@ let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
 const ETC_CHEBURNET = getenv("ETC_CHEBURNET") ?? "/etc/cheburnet";
 // config.json Full-тира: env-override для host-тестов в sandbox (тот же приём, что ETC_CHEBURNET).
-const SB_CONF = getenv("SB_CONFIG") ?? sb_config_path(null);
+const INITD = getenv("INITD_DIR") ?? "/etc/init.d"; // env — только для host-тестов (стабы)
+const SB_CONF =getenv("SB_CONFIG") ?? sb_config_path(null);
 
 // set_step(name) — текущий шаг для install_progress («Шаг: …» в мастере). Путь — env STATE_FILE
 // от ubus-слоя (rpcd-cheburnet spawn_bg); нет env (CLI) → no-op.
@@ -106,7 +107,7 @@ function rollback_all(steps, cfg) {
 	if (access(sb + ".prev")) {
 		sh(sprintf("mv %s.prev %s 2>/dev/null", sb, sb));
 		if (trim(sh("uci -q get sing-box.main.enabled 2>/dev/null")) == "1")
-			sh("/etc/init.d/sing-box enable >/dev/null 2>&1; /etc/init.d/sing-box restart >/dev/null 2>&1");
+			sh(sprintf("%s/sing-box enable >/dev/null 2>&1; %s/sing-box restart >/dev/null 2>&1", INITD, INITD));
 	}
 
 	// Snapshot вернул uci-конфиги, но рантайм не сойдётся сам: netifd держит маршруты снятого
@@ -237,8 +238,10 @@ if (access(SB_CONF))
 // Смена протокола: снять НЕактивный туннель начисто (awg0 при reality и наоборот) — иначе оба
 // держат свой default-маршрут и конфликтуют. Снимок выше (network в scope) вернёт при откате.
 // Идемпотентно: не был установлен → no-op. vpn/singbox поддерживают --teardown.
+// sing-box без config.json (чистая AWG-установка) не снимаем: нечего.
 for (let i = 0; i < length(tunnel_disable); i++)
-	run_stdin(step_cmd(tunnel_disable[i], " --teardown"), "");
+	if (tunnel_disable[i] != "singbox" || access(SB_CONF))
+		run_stdin(step_cmd(tunnel_disable[i], " --teardown"), "");
 
 // --- 3. шаги по порядку (fail-fast) ---
 let results = [];
@@ -290,13 +293,13 @@ if (outcome.action == "commit") {
 	let saved_raw = readfile(cfg_file);
 	let saved = (saved_raw && substr(trim(saved_raw), 0, 1) == "{") ? json(saved_raw) : null;
 	if (saved && (cfg.routing_opts.wan_if || accept_risk)) {
+		if (type(saved.routing_opts) != "object") saved.routing_opts = {};
 		if (cfg.routing_opts.wan_if) {
-			if (type(saved.routing_opts) != "object") saved.routing_opts = {};
 			saved.routing_opts.wan_if = cfg.routing_opts.wan_if;
 			if (cfg.routing_opts.wan_gw)
 				saved.routing_opts.wan_gw = cfg.routing_opts.wan_gw;
-			saved.routing_opts.tunnel_if = cfg.routing_opts.tunnel_if;
 		}
+		saved.routing_opts.tunnel_if = cfg.routing_opts.tunnel_if;
 		// forced — какие проверки железа пропущены (пустой массив стирает прежнюю отметку).
 		saved.forced = forced;
 		writefile(cfg_file, sprintf("%J\n", saved));

@@ -288,6 +288,18 @@ test("switch_to_awg с legacy без профиля: устаревший акт
 	eq(json(readfile(ETC + "/profiles.json")).active, null, "вставленный .conf станет новым «Сервером N»");
 });
 
+// ШРАМ (ревью): Full-тир ставился при ≥44 МБ флеша; после sing-box свободно меньше soft-порога AWG, и
+// preflight закрыл бы единственный выход. Решение о железе принято при установке — не спрашиваем снова.
+test("switch_to_awg с legacy: payload несёт accept_risk — soft-гейт железа выход не закрывает", () => {
+	reset_sb();
+	put_cfg({ protocol: "reality", routing_opts: {} });
+	let r = rpc("switch_to_awg", { awg_conf: AWG_OK }, { engine: stub_run() });
+	eq(r.status, "started", sprintf("%J", r));
+	let p = json(readfile(STATE + "/install-payload.json"));
+	eq(p.accept_risk, true, "accept_risk в payload");
+	eq(p.protocol, "awg", "протокол попытки");
+});
+
 // === status: дефолты воспроизводимой конфигурации (load_cfg) ===
 
 test("status: свежая система → installed=false, дефолтный protocol/mode", () => {

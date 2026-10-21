@@ -134,7 +134,7 @@ function evaluate(facts) {
 	push(checks, check("tunnel_route", half_routes_present(f.route_main, f.tunnel_if),
 		"трафик уходит в туннель (half-routes)",
 		sprintf("0.0.0.0/1 + 128.0.0.0/1 через %s", f.tunnel_if ?? "?"),
-		"ucode -R engine/steps/vpn/apply.uc --arm (или steps/singbox для Full-тира)",
+		"ucode -R engine/steps/vpn/apply.uc --arm",
 		"critical", "arm"));
 
 	// 3. Kill-switch. ШРАМ: цепочка оставалась, но ПУСТЕЛА после fw4 reload — «зелёная» система

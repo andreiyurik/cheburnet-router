@@ -73,6 +73,7 @@ function mk_sandbox() {
 	// состояние файлами, а не uci-базой. Остальное — молчаливый успех.
 	write_stub(sb.bin, "uci",
 		'if [ "$1" = "batch" ]; then cat >> "${CALLS:-/dev/null}"; exit 0; fi\n' +
+		'case "$*" in *sing-box.main.enabled*) cat "$FAKE_DIR/sb_enabled" 2>/dev/null; exit $? ;; esac\n' +
 		'case "$*" in *" get "*|"get "*|*"-q get"*) exit 1 ;; esac\nexit 0');
 	write_stub(sb.bin, "apk",   'exit "$(cat "$FAKE_DIR/apk.rc" 2>/dev/null || echo 0)"');
 	write_stub(sb.bin, "awg",   'cat "$FAKE_DIR/awg.out" 2>/dev/null\nexit 0');
@@ -107,13 +108,13 @@ function with_singbox(sb) {
 
 function env_prefix(sb) {
 	return sprintf(
-		"PATH=%s:$PATH CALLS=%s FAKE_DIR=%s UCI_CONFIG_DIR=%s SNAPSHOT_DIR=%s " +
+		"PATH=%s:$PATH INITD_DIR=%s CALLS=%s FAKE_DIR=%s UCI_CONFIG_DIR=%s SNAPSHOT_DIR=%s " +
 		"ETC_CHEBURNET=%s SB_CONFIG=%s STATE_FILE=%s REASON_FILE=%s SB_SLEEP=0 SB_RETRIES=2 " +
 		// Без override cron.uc правил бы /etc/crontabs/root ХОСТА (а CI ходит под root).
 		"CRONTAB_FILE=%s " +
 		// Артефакты, которые шаг firewall пишет в /etc: в sandbox таких каталогов нет.
 		"CHEB_NFT_PATH=%s CHEB_HOTPLUG_PATH=%s",
-		sb.bin, sb.calls, sb.fake, sb.config, sb.snap,
+		sb.bin, sb.bin, sb.calls, sb.fake, sb.config, sb.snap,
 		sb.etc, sb.sbconf, sb.state, sb.reason, sb.crontab, sb.nft, sb.hotplug);
 }
 
