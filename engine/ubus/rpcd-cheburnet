@@ -94,14 +94,6 @@ function save_cfg(c) {
 	}));
 }
 
-// accepted_risk(cfg) — этот роутер УЖЕ поставлен с пропуском soft-проверок железа?
-// Операции, которые переиспользуют run.uc (switch_to_awg), проходят preflight ЗАНОВО —
-// без этого флага они бы упирались в тот же отказ, и владелец, однажды осознанно согласившийся
-// на слабое железо, не смог бы сменить туннель из панели. Решение уже принято — не спрашиваем дважды.
-function accepted_risk(cfg) {
-	return length(cfg.forced ?? []) > 0;
-}
-
 // imported_text() — кэш community-списка (заполняет list/fetch.uc). Нет файла → пусто.
 function imported_text() {
 	return readfile(ETC_CHEBURNET + "/direct-list") ?? "";
@@ -679,7 +671,7 @@ function switch_tunnel(protocol, conf, profile_id) {
 		protocol: protocol,
 		domains: assemble_domains(cfg.user_domains), routing_opts: cfg.routing_opts,
 		dns_provider: cfg.dns_provider,
-		accept_risk: true, // выход с legacy: пакеты уже стоят, гейт железа не должен закрыть единственный путь
+		legacy_exit: true, // не accept_risk: владелец ни на что не соглашался, отметка forced не должна появиться
 		profile_id: profile_id, // AWG-профиль, который станет активным на commit (engine/profiles)
 	};
 	payload[tunnel_info(protocol).conf_key] = conf;

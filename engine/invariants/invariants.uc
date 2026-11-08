@@ -4,6 +4,7 @@
 // зелёных тестах именно потому, что оно было размазано). Тесты: tests/. Подробно: [[reliability]].
 
 import { pick_wan_fallback } from "../lib/route.uc";
+import { tunnel_info, default_protocol } from "../install/install.uc";
 
 // severity: critical — дом без интернета или утечка наружу; important — деградация, которую
 // человек заметит не сразу (сломанный split, нет резервного DNS).
@@ -134,7 +135,7 @@ function evaluate(facts) {
 	push(checks, check("tunnel_route", half_routes_present(f.route_main, f.tunnel_if),
 		"трафик уходит в туннель (half-routes)",
 		sprintf("0.0.0.0/1 + 128.0.0.0/1 через %s", f.tunnel_if ?? "?"),
-		"ucode -R engine/steps/vpn/apply.uc --arm",
+		sprintf("ucode -R engine/steps/%s/apply.uc --arm", tunnel_info(f.protocol ?? default_protocol()).step),
 		"critical", "arm"));
 
 	// 3. Kill-switch. ШРАМ: цепочка оставалась, но ПУСТЕЛА после fw4 reload — «зелёная» система

@@ -75,6 +75,32 @@ test("commit: снимок выброшен целиком (каталог уд�
 	ok(!access(SNAP), "каталог снимка удалён");
 });
 
+test("restore: успех расходует снимок (длина считается в байтах, кириллица не ломает)", () => {
+	reset_sb();
+	writefile(CFG + "/network", "конфиг сети\n");
+	ok(run_snap("save").rc == 0, "save");
+	eq(run_snap("restore").rc, 0, "restore rc=0");
+	ok(!access(SNAP), "снимок израсходован");
+});
+
+// Запись в каталог падает и под root (CI), в отличие от chmod: так имитируем кончившийся флеш.
+test("restore: конфиг не записался → снимок цел, rc≠0, повтор доводит до конца", () => {
+	reset_sb();
+	writefile(CFG + "/network", "сеть\n");
+	writefile(CFG + "/dhcp", "днс\n");
+	ok(run_snap("save").rc == 0, "save");
+	sh(sprintf("rm -f %s/network && mkdir %s/network", CFG, CFG));
+	let r = run_snap("restore");
+	ok(r.rc != 0, "сбой не молчит: " + r.out);
+	ok(index(r.out, "network") >= 0, "названо, что не записалось");
+	eq(readfile(SNAP + "/network"), "сеть\n", "последняя целая копия не удалена");
+	eq(readfile(CFG + "/dhcp"), "днс\n", "остальное всё равно восстановлено");
+	sh(sprintf("rmdir %s/network", CFG));
+	eq(run_snap("restore").rc, 0, "повтор после устранения причины");
+	eq(readfile(CFG + "/network"), "сеть\n", "конфиг вернулся");
+	ok(!access(SNAP), "теперь снимок израсходован");
+});
+
 test("restore после commit: пустой снимок не портит систему (no-op)", () => {
 	reset_sb();
 	writefile(CFG + "/network", "живой конфиг\n");

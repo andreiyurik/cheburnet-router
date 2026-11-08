@@ -191,7 +191,7 @@ test("render_report: allow_soft помечает пропуск и меняет 
 	let f = good_facts(); f.ram_total_mb = 64;
 	let joined = join("\n", render_report(evaluate(f, null), true));
 	ok(index(joined, "! ram") >= 0, "soft-провал помечен «!», а не «✗»");
-	ok(index(joined, "пропущено по решению владельца") >= 0, "видно, что это решение, а не норма");
+	ok(index(joined, "проверка пропущена") >= 0, "видно, что это пропуск, а не норма");
 	ok(index(joined, "ПРОПУЩЕН") >= 0, "итог отличим от OK и от ОТКАЗА");
 	ok(index(joined, "стабильность не гарантируется") >= 0);
 });
