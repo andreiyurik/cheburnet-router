@@ -50,8 +50,10 @@ function rpc(method, args, opts) {
 
 // reset_sb() — чистый sandbox перед случаем (идемпотентность фасада между случаями не тема
 // этого теста; каждый случай собирает своё состояние с нуля).
+// ШРАМ (CI): фон прошлого случая пишет done в STATE посреди rm -rf → rm падает, mkdir пропущен, ETC нет.
 function reset_sb() {
-	sh(sprintf("rm -rf %s %s && mkdir -p %s %s", STATE, ETC, STATE, ETC));
+	sh(sprintf("rm -rf %s %s 2>/dev/null || { sleep 1; rm -rf %s %s; }; mkdir -p %s %s",
+		STATE, ETC, STATE, ETC, STATE, ETC));
 }
 
 // Частые кирпичи состояния.
