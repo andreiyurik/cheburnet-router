@@ -101,6 +101,18 @@ test("только одна половина half-route → провал (пол
 	ok(!half_routes_present(MAIN_OK, "singtun0"), "маршруты чужого туннеля не считаются");
 });
 
+function route_fix(over) {
+	let rep = evaluate(facts({ route_main: "", ...over }));
+	for (let i = 0; i < length(rep.checks); i++)
+		if (rep.checks[i].id == "tunnel_route") return rep.checks[i].fix;
+}
+
+test("tunnel_route: подсказка ведёт на шаг активного протокола", () => {
+	ok(index(route_fix({ protocol: "awg" }), "steps/vpn/apply.uc --arm") >= 0, "awg → vpn");
+	ok(index(route_fix({ protocol: "reality", tunnel_if: "singtun0" }), "steps/singbox/apply.uc --arm") >= 0,
+		"legacy → singbox: на нём нет awg0, команда для vpn ничего бы не починила");
+});
+
 // --- шрам: цепочка есть, но пустая после fw4 reload ---
 test("kill-switch: пустая цепочка — это провал, а не «цепочка на месте»", () => {
 	let empty = "table inet fw4 {\n\tchain cheburnet_ks {\n\t\ttype filter hook forward priority filter; policy accept;\n\t}\n}";

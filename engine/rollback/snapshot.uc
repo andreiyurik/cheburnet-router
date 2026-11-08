@@ -30,25 +30,30 @@ if (action == "save") {
 	}
 	printf("snapshot: сохранено в %s — %s\n", dir, join(", ", saved));
 } else if (action == "restore") {
-	let restored = [];
+	let restored = [], failed = [];
 	for (let i = 0; i < length(configs); i++) {
 		let c = configs[i];
 		let text = readfile(dir + "/" + c);
-		if (text != null) {
-			writefile(CONFIG_DIR + "/" + c, text);
-			push(restored, c);
-		}
+		if (text != null)
+			push(writefile(CONFIG_DIR + "/" + c, text) === length(text) ? restored : failed, c);
 	}
 	// Снимок отработал: устаревший не должен откатить чужое состояние при следующем --rollback.
-	for (let i = 0; i < length(configs); i++)
-		unlink(dir + "/" + configs[i]);
-	rmdir(dir);
+	// ИНВАРИАНТ: при сбое записи снимок остаётся — это последняя целая копия (флеш мог кончиться).
+	if (length(failed) == 0) {
+		for (let i = 0; i < length(configs); i++)
+			unlink(dir + "/" + configs[i]);
+		rmdir(dir);
+	}
 	// Перечитать конфиги сервисами (uci читает файлы заново).
 	sh("/etc/init.d/network reload >/dev/null 2>&1");
 	sh("/etc/init.d/firewall reload >/dev/null 2>&1");
 	sh("/etc/init.d/dnsmasq reload >/dev/null 2>&1 || /etc/init.d/dnsmasq restart >/dev/null 2>&1");
 	sh("/etc/init.d/https-dns-proxy restart >/dev/null 2>&1");
 	printf("snapshot: восстановлено из %s — %s\n", dir, join(", ", restored));
+	if (length(failed) > 0) {
+		warn(sprintf("snapshot: НЕ записаны %s — снимок оставлен в %s\n", join(", ", failed), dir));
+		exit(1);
+	}
 } else if (action == "commit") {
 	for (let i = 0; i < length(configs); i++)
 		unlink(dir + "/" + configs[i]); // нет файла — вернёт ошибку, игнорируем

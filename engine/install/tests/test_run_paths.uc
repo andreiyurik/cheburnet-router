@@ -63,6 +63,31 @@ test("soft-провал + accept_risk: установка идёт, пропус
 	cleanup(sb);
 });
 
+// ШРАМ (ревью): выход шёл через accept_risk — панель писала «установлено по вашему решению», хотя решения не было.
+test("soft-провал + legacy_exit: выход не закрыт, но решением владельца не считается", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/df.out", DF_SMALL);
+	seed_cfg(sb, "install.json", { user_domains: [], domains: [], routing_opts: {} });
+	let payload = sprintf("%J", { protocol: "awg", disable: ALL_STEPS, domains: [],
+		routing_opts: { wan_if: "eth0" }, legacy_exit: true });
+	let r = run_uc(sb, "install/run.uc", null, payload);
+	eq(r.rc, 0, "гейт открыт: " + r.out);
+	ok(index(r.out, "по решению владельца") < 0, "лог не приписывает решение владельцу");
+	eq(json(readfile(sb.etc + "/install.json")).forced, null, "отметка не появилась");
+	cleanup(sb);
+});
+
+test("legacy_exit: настоящая отметка прежней установки не стирается", () => {
+	let sb = mk_sandbox();
+	writefile(sb.fake + "/df.out", DF_SMALL);
+	seed_cfg(sb, "install.json", { user_domains: [], domains: [], routing_opts: {}, forced: [ "ram" ] });
+	let payload = sprintf("%J", { protocol: "awg", disable: ALL_STEPS, domains: [],
+		routing_opts: { wan_if: "eth0" }, legacy_exit: true });
+	eq(run_uc(sb, "install/run.uc", null, payload).rc, 0);
+	deep_eq(json(readfile(sb.etc + "/install.json")).forced, [ "ram" ], "решение владельца осталось");
+	cleanup(sb);
+});
+
 test("hard-провал + accept_risk: всё равно abort (пакетов под платформу нет)", () => {
 	let sb = mk_sandbox();
 	writefile(sb.fake + "/apk.rc", "1"); // deps не ставятся — hard

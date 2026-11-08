@@ -205,7 +205,7 @@ function render_report(report, allow_soft) {
 		let mark = c.ok ? "✓" : (soft_skipped ? "!" : "✗");
 		let line = sprintf("%s %-8s %s", mark, c.id, c.detail);
 		if (!c.ok && c.fix)
-			line += sprintf("  → %s%s", c.fix, soft_skipped ? " (пропущено по решению владельца)" : "");
+			line += sprintf("  → %s%s", c.fix, soft_skipped ? " (проверка пропущена)" : "");
 		push(out, line);
 	}
 	if (report.passed)

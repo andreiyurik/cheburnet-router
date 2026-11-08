@@ -42,7 +42,7 @@ body:
       label: Протокол
       options:
         - AmneziaWG (по умолчанию)
-        - VLESS+Reality
+        - VLESS+Reality (заморожен, установлен раньше)
         - Hysteria2 (заморожен, установлен раньше)
         - Ещё не дошёл до выбора
     validations:

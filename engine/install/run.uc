@@ -188,11 +188,14 @@ if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
 // accept_risk (из мастера, «поставить на свой страх и риск») ослабляет гейт ТОЛЬКО на soft-провалы
 // — нехватку флеша/RAM. hard (arch/версия/пакеты/LAN-конфликт) он не пропускает: там apk просто не
 // найдёт файлы, и «пропуск» обещал бы невозможное. Решение владельца, а не движка (см. preflight.uc).
+// legacy_exit (только switch_to_awg): sing-box сам съел флеш, а это единственный выход с заморозки.
+// ИНВАРИАНТ: legacy_exit открывает soft-гейт, но не пишет forced — это не решение владельца.
 set_step("preflight");
 let accept_risk = (cfg.accept_risk === true);
+let legacy_exit = (cfg.legacy_exit === true);
 let facts = sh(sprintf("ucode -R %s/preflight/gather.uc", ENGINE));
 let pf_rc = run_stdin(sprintf("ucode -R %s/preflight/check.uc%s", ENGINE,
-	accept_risk ? " --allow-soft" : ""), facts);
+	(accept_risk || legacy_exit) ? " --allow-soft" : ""), facts);
 let preflight = { ok: (pf_rc == 0) };
 
 // Какие soft-проверки пропущены — та же evaluate по уже собранным фактам (gather не повторяем,
@@ -301,7 +304,7 @@ if (outcome.action == "commit") {
 		}
 		saved.routing_opts.tunnel_if = cfg.routing_opts.tunnel_if;
 		// forced — какие проверки железа пропущены (пустой массив стирает прежнюю отметку).
-		saved.forced = forced;
+		if (!legacy_exit) saved.forced = forced;
 		writefile(cfg_file, sprintf("%J\n", saved));
 	}
 	// Пароль root — не транзакция (см. steps/rootpass): применяем на успешном пути, отдельно от
