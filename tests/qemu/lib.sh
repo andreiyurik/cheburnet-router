@@ -357,7 +357,8 @@ vm_github_diag() {
     local u
     for u in https://github.com/ https://api.github.com/ https://raw.githubusercontent.com/; do
         echo "    $u"
-        vm_ssh "uclient-fetch -T 15 -O /dev/null '$u' 2>&1 | tail -2 | sed 's/^/      /'" || true
+        vm_ssh "uclient-fetch -T 15 -O /dev/null '$u' 2>&1 | tail -1 | sed 's/^/      uclient: /'" || true
+        vm_ssh "command -v curl >/dev/null && curl -sS -m 20 -o /dev/null -w 'HTTP %{http_code}\n' '$u' 2>&1 | sed 's/^/      curl:    /'" || true
     done
 }
 

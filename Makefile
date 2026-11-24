@@ -18,9 +18,11 @@
 #   make qemu-dns-fallback — T3j: DNS переживает смерть туннеля (~6-9мин, интернет).
 #   make qemu-emergency    — T3k: аварийный режим возвращает интернет и обратим (~6-9мин, интернет).
 #   make qemu-profiles — T3l: поля AWG 3.1 доходят до ядра; профили и автосмена откатываются (~5-8мин, интернет).
+#   make qemu-upgrade  — T3m: обновление релиза поверх настроенного роутера не трогает настройки (~6-9мин, интернет).
+#   make qemu-interrupt — T3n: перезагрузка посреди установки откатывается сама (~6-9мин, интернет).
 #   make qemu-live-install— T4b: успешная установка целиком + ребут поверх неё (стенд tests/vps/).
 
-.PHONY: lint test-engine test-netns test-shell poc-split qemu-smoke qemu-webui qemu-install qemu-rollback qemu-reboot qemu-route-fallback qemu-dns-fallback qemu-emergency qemu-profiles qemu-live-install
+.PHONY: lint test-engine test-netns test-shell poc-split qemu-smoke qemu-webui qemu-install qemu-rollback qemu-reboot qemu-route-fallback qemu-dns-fallback qemu-emergency qemu-profiles qemu-upgrade qemu-interrupt qemu-live-install
 
 lint:
 	@bash tests/lint.sh
@@ -113,3 +115,11 @@ qemu-profiles:
 # (провал+откат), а эту без рабочего сервера проверить нечем. Нужен стенд tests/vps/. Не для CI.
 qemu-live-install:
 	@bash tests/qemu/live-install.sh
+
+# T3m — обновление поверх настроенного роутера: релиз FROM_VERSION → текущий bootstrap → новый пакет.
+qemu-upgrade:
+	@bash tests/qemu/upgrade.sh
+
+# T3n — перезагрузка посреди установки (окно health-check) откатывается сама после загрузки.
+qemu-interrupt:
+	@bash tests/qemu/interrupt.sh
