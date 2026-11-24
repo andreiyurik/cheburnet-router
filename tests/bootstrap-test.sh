@@ -141,6 +141,21 @@ if run_bootstrap "$d" && grep -q 'http://192.168.1.1/cheburnet/' "$d/out.log"; t
     ok "LAN_IP: нет ключа в uci → фолбэк 192.168.1.1"
 else bad "LAN_IP: фолбэк не сработал"; fi
 
+# 8. Обновление настроенного роутера: токен не выпускается — он открыл бы мастер переустановки.
+d="$T/upgrade"; make_env "$d"; installed_ok "$d"
+mkdir -p "$d/etc"; echo '{"protocol":"awg"}' > "$d/etc/install.json"
+if run_bootstrap "$d" && [ ! -e "$d/etc/install-token" ] \
+   && grep -q 'обновлён' "$d/out.log" && ! grep -q 'token=' "$d/out.log"; then
+    ok "обновление: токен не выпущен, ссылка на панель без токена"
+else bad "обновление настроенного роутера (см. $d/out.log)"; fi
+
+# 9. Прерванная установка (install.pending) — не «настроен»: токен нужен, чтобы пройти мастер снова.
+d="$T/pending"; make_env "$d"; installed_ok "$d"
+mkdir -p "$d/etc"; echo '{}' > "$d/etc/install.json"; echo '{}' > "$d/etc/install.pending"
+if run_bootstrap "$d" && [ -s "$d/etc/install-token" ] && grep -q 'token=' "$d/out.log"; then
+    ok "прерванная установка: мастер снова доступен по токену"
+else bad "прерванная установка (см. $d/out.log)"; fi
+
 echo
 echo "  PASS=$PASS  FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
