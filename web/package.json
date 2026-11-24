@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@lucide/svelte": "^1.78.0",
     "@playwright/test": "^1.61.1",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tailwindcss/vite": "^4.3.3",

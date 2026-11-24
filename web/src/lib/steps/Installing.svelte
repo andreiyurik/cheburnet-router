@@ -161,6 +161,8 @@
 
   onDestroy(stop);
   start();
+  import * as Empty from '$lib/components/ui/empty/index.js';
+  import * as Item from '$lib/components/ui/item/index.js';
 </script>
 
 <Card.Root>
@@ -215,19 +217,26 @@
     {:else if phase === 'ok'}
       <!-- Экран успеха: маскот «выпрыгивает», сверху осыпаются войлочные конфетти цветами темы.
            Всё чистый CSS, одноразовое (forwards), при prefers-reduced-motion — статика. -->
-      <div class="relative overflow-hidden pt-4 pb-1 text-center">
+      <Empty.Root class="relative overflow-hidden p-4">
         <div class="pointer-events-none absolute inset-0 motion-reduce:hidden" aria-hidden="true">
           {#each Array(10) as _, i}<i class="confetti" style="--i:{i}"></i>{/each}
         </div>
-        <img src={mascot} alt="" width="96" height="96" class="mascot-pop mx-auto" />
-        <p class="mt-3 mb-0.5 text-xl font-semibold text-success">Готово! Роутер настроен.</p>
-        <p class="text-muted-foreground">Wi-Fi уже раздаёт интернет — подключайте устройства.</p>
-      </div>
-      <p class="my-3 text-center text-sm">Если всё получилось и проект вам понравился — поблагодарить автора
-        можно <a href={SUPPORT.page} target="_blank" rel="noreferrer">звездой на GitHub</a> или
-        <a href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">донатом</a>. Не получилось
-        или есть идея — напишите в Telegram
-        <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a>.</p>
+        <Empty.Header>
+          <Empty.Media><img src={mascot} alt="" width="96" height="96" class="mascot-pop" /></Empty.Media>
+          <Empty.Title class="font-display text-2xl text-success">Готово! Роутер настроен.</Empty.Title>
+          <Empty.Description>Wi-Fi уже раздаёт интернет — подключайте устройства.</Empty.Description>
+        </Empty.Header>
+      </Empty.Root>
+      <Item.Root variant="muted">
+                <Item.Content>
+          <Item.Title class="font-semibold">Понравилось?</Item.Title>
+          <Item.Description>
+            <a href={SUPPORT.page} target="_blank" rel="noreferrer">Звезда на GitHub</a> или
+            <a href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">донат</a>.
+            Вопрос или идея — <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a>.
+          </Item.Description>
+        </Item.Content>
+      </Item.Root>
       <Button size="lg" class="w-full" onclick={onDone}>Открыть панель управления</Button>
     {:else if phase === 'fail'}
       <Alert.Root variant="destructive">

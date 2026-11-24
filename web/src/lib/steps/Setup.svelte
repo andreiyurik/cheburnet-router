@@ -10,8 +10,18 @@
   import Textarea from '$lib/components/ui/textarea/textarea.svelte';
   import NativeSelect from '$lib/components/ui/native-select/native-select.svelte';
   import Field from '$lib/components/Field.svelte';
-  import SectionTitle from '$lib/components/SectionTitle.svelte';
   import ConfCheck from '$lib/components/ConfCheck.svelte';
+  import DetailsGroup from '$lib/components/DetailsGroup.svelte';
+  import FileButton from '$lib/components/FileButton.svelte';
+  import StatusIcon from '$lib/components/StatusIcon.svelte';
+  import * as F from '$lib/components/ui/field/index.js';
+  import * as Item from '$lib/components/ui/item/index.js';
+  import KeyRound from '@lucide/svelte/icons/key-round';
+  import LockKeyhole from '@lucide/svelte/icons/lock-keyhole';
+  import Wifi from '@lucide/svelte/icons/wifi';
+  import Globe from '@lucide/svelte/icons/globe';
+  import Filter from '@lucide/svelte/icons/filter';
+  import Check from '@lucide/svelte/icons/check';
 
   let { onSubmit, onBack, wirelessPresent = null, dnsProviders = [], dnsProviderDefault = '', acceptRisk = false, urlToken = '', initial = null } = $props();
 
@@ -102,54 +112,50 @@
 <Card.Root>
   <Card.Header>
     <Card.Title>Настройка</Card.Title>
+    <Card.Description>Три вещи: VPN-конфиг, пароль роутера и Wi-Fi. Остальное уже настроено за вас.</Card.Description>
   </Card.Header>
 
-  <Card.Content>
-    {#if acceptRisk}
-      <Alert.Root variant="warning">
+  {#if acceptRisk}
+    <Alert.Root variant="warning">
+      <StatusIcon tone="warn" />
+      <Alert.Body>
         <Alert.Description>
           Установка идёт на роутер слабее рекомендуемого — по вашему решению.
           Стабильность не гарантируем; при сбое изменения откатятся автоматически.
         </Alert.Description>
-      </Alert.Root>
-    {/if}
+      </Alert.Body>
+    </Alert.Root>
+  {/if}
 
-    <Field label={active.confLabel} bind:el={fieldEls.conf}>
-      <Textarea
-        bind:value={confs[active.id]}
-        class="font-mono"
-        rows={active.file ? 8 : 6}
-        placeholder={active.placeholder}
-        aria-invalid={errorField === 'conf'}
-      />
-      <ConfCheck id={active.id} text={confs[active.id]} hint={active.confHint} />
-      {#if !(confs[active.id] ?? '').trim()}
-        <span class="mt-1.5 block text-sm text-muted-foreground">Нет ни подписки, ни сервера?
-          <a href="https://github.com/andreiyurik/cheburnet-router#что-нужно-и-сколько-стоит"
-            target="_blank" rel="noreferrer">Как получить — за 10–15 минут</a></span>
+  <F.Group>
+    <F.Set>
+      <F.Legend class="flex items-center gap-2"><KeyRound class="size-4 text-primary" aria-hidden="true" />Подключение к VPN</F.Legend>
+      <Field label={active.confLabel} bind:el={fieldEls.conf}>
+        <Textarea
+          bind:value={confs[active.id]}
+          class="font-mono"
+          rows={active.file ? 6 : 5}
+          placeholder={active.placeholder}
+          aria-invalid={errorField === 'conf'}
+        />
+        <ConfCheck id={active.id} text={confs[active.id]} hint={active.confHint} />
+        {#if !(confs[active.id] ?? '').trim()}
+          <F.Description>Нет ни подписки, ни сервера?
+            <a href="https://github.com/andreiyurik/cheburnet-router#что-нужно-и-сколько-стоит"
+              target="_blank" rel="noreferrer">Как получить — за 10–15 минут</a></F.Description>
+        {/if}
+      </Field>
+      {#if active.file}
+        <FileButton accept=".conf,text/plain" onchange={onFile}>Загрузить файл .conf</FileButton>
       {/if}
-    </Field>
-    {#if active.file}
-      <Field label="…или загрузить файлом">
-        <Input type="file" accept=".conf,text/plain" onchange={onFile} />
-      </Field>
-    {/if}
+    </F.Set>
 
-    <details class="border-t border-border pt-3">
-      <summary class="cursor-pointer text-sm">
-        Сайты напрямую: <strong>{domainsText.split('\n').filter((d) => d.trim()).length} шт.</strong>
-        <span class="text-muted-foreground">— изменить</span>
-      </summary>
-      <Field class="mt-3" label="Сайты напрямую"
-             hint="Остальное — через туннель. Запись зоны (ru) покрывает все сайты в ней; отдельные — своей строкой.">
-        <Textarea bind:value={domainsText} rows="3" placeholder={'ru\nexample.com'} />
-      </Field>
-    </details>
+    <F.Separator />
 
-    <div class="flex flex-col gap-4">
-      <SectionTitle>Пароль роутера</SectionTitle>
-      <Field label="Пароль администратора (root)" bind:el={fieldEls.rootPass}
-             hint="Им вы входите в роутер по SSH и в панель управления. Запомните его.">
+    <F.Set>
+      <F.Legend class="flex items-center gap-2"><LockKeyhole class="size-4 text-primary" aria-hidden="true" />Пароль роутера</F.Legend>
+      <F.Description>Им вы входите в панель управления и в роутер по SSH. Запомните его.</F.Description>
+      <Field label="Пароль администратора (root)" bind:el={fieldEls.rootPass}>
         <Input type="password" bind:value={rootPass} autocomplete="new-password"
                placeholder="минимум {MIN_PASS} символов" aria-invalid={errorField === 'rootPass'} />
       </Field>
@@ -159,13 +165,14 @@
                aria-invalid={errorField === 'rootPass2' || passMismatch}
                onblur={() => (pass2Left = true)} />
       </Field>
-    </div>
+    </F.Set>
 
     {#if showWifi}
-      <div class="flex flex-col gap-4">
-        <SectionTitle>Wi-Fi</SectionTitle>
+      <F.Separator />
+      <F.Set>
+        <F.Legend class="flex items-center gap-2"><Wifi class="size-4 text-primary" aria-hidden="true" />Wi-Fi</F.Legend>
         {#if wifiRequired}
-          <p class="text-sm text-muted-foreground">У этого роутера есть Wi-Fi — задайте имя сети и пароль, чтобы включить его.</p>
+          <F.Description>У этого роутера есть Wi-Fi — задайте имя сети и пароль, чтобы включить его.</F.Description>
         {/if}
         <Field label="Имя сети (SSID)" bind:el={fieldEls.ssid} required={wifiRequired} optional={!wifiRequired}>
           <Input type="text" bind:value={ssid} maxlength={SSID_MAX} placeholder="например, MyHome"
@@ -181,45 +188,57 @@
                  onblur={() => (wifiKeyLeft = true)} />
         </Field>
         {#if wirelessPresent === null}
-          <p class="text-sm text-muted-foreground">Не удалось узнать, есть ли у роутера Wi-Fi — заполните, если он есть; иначе оставьте пустым.</p>
+          <F.Description>Не удалось узнать, есть ли у роутера Wi-Fi — заполните, если он есть; иначе оставьте пустым.</F.Description>
         {/if}
-      </div>
+      </F.Set>
     {/if}
+  </F.Group>
 
+  <!-- Дефолты, которые трогают редко, — строками-итогами: видно значение, правка по нажатию. -->
+  <Item.Group class="overflow-hidden rounded-lg border border-border divide-y divide-border">
+    <DetailsGroup icon={Globe} summary="Сайты напрямую"
+                  description="{domainsText.split('\n').filter((d) => d.trim()).length} шт. — изменить">
+      <Field label="Сайты напрямую"
+             hint="Остальное — через туннель. Запись зоны (ru) покрывает все сайты в ней; отдельные — своей строкой.">
+        <Textarea bind:value={domainsText} rows="3" placeholder={'ru\nexample.com'} />
+      </Field>
+    </DetailsGroup>
     {#if dnsProviders.length > 0}
-      <details class="border-t border-border pt-3">
-        <summary class="cursor-pointer text-sm">
-          Фильтрация: <strong>{dnsProviders.find((p) => p.id === dnsProvider)?.name ?? '—'}</strong>
-          <span class="text-muted-foreground">— изменить</span>
-        </summary>
-        <Field class="mt-3" label="Блокировка рекламы / взрослого контента"
-               hint="«Семейный» провайдер дополнительно блокирует сайты 18+ и форсит безопасный поиск.">
+      <DetailsGroup icon={Filter} summary="Фильтрация"
+                    description={dnsProviders.find((p) => p.id === dnsProvider)?.name ?? '—'}>
+        <Field label="Блокировка рекламы / взрослого контента"
+               hint="«Семейный» провайдер дополнительно блокирует сайты 18+ и включает безопасный поиск.">
           <NativeSelect bind:value={dnsProvider}>
             {#each dnsProviders as p}
               <option value={p.id}>{p.name} — {p.description}</option>
             {/each}
           </NativeSelect>
         </Field>
-      </details>
+      </DetailsGroup>
     {/if}
-
-    {#if tokenEditable}
-      <Field label="Код установки" bind:el={fieldEls.token}
-             hint="Проще: откройте в браузере всю ссылку из терминала (начинается на http://192.168.1.1/cheburnet/?token=…) — код уже в ней, вводить вручную не придётся.">
-        <Input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки"
-               aria-invalid={errorField === 'token'} />
-      </Field>
-    {:else}
-      <p class="text-sm text-muted-foreground">✓ Код установки получен из ссылки.
-        <Button variant="link" onclick={() => (tokenEditable = true)}>Изменить</Button>
-      </p>
+    {#if !tokenEditable}
+      <Item.Root>
+        <Item.Media variant="icon" class="text-success"><Check /></Item.Media>
+        <Item.Content>
+          <Item.Title class="text-base font-semibold">Код установки получен из ссылки</Item.Title>
+        </Item.Content>
+        <Item.Actions><Button variant="ghost" size="sm" onclick={() => (tokenEditable = true)}>Изменить</Button></Item.Actions>
+      </Item.Root>
     {/if}
+  </Item.Group>
 
-    {#if error}<p class="text-destructive">{error}</p>{/if}
+  {#if tokenEditable}
+    <Field label="Код установки" bind:el={fieldEls.token}
+           hint="Проще: откройте в браузере всю ссылку из терминала (начинается на http://192.168.1.1/cheburnet/?token=…) — код уже в ней, вводить вручную не придётся.">
+      <Input type="text" bind:value={token} placeholder="напечатан в терминале после команды установки"
+             aria-invalid={errorField === 'token'} />
+    </Field>
+  {/if}
 
-    <div class="flex flex-wrap gap-3">
-      <Button variant="outline" class="min-w-35 flex-1" onclick={onBack}>Назад</Button>
-      <Button size="lg" class="min-w-35 flex-1" onclick={submit}>Установить</Button>
-    </div>
-  </Card.Content>
+  {#if error}<F.Error>{error}</F.Error>{/if}
+
+  <Card.Footer class="border-t border-border">
+    <Button variant="outline" class="flex-1" onclick={onBack}>Назад</Button>
+    <Button size="lg" class="flex-[2]" onclick={submit}>Установить</Button>
+  </Card.Footer>
 </Card.Root>

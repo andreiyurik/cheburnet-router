@@ -1,14 +1,16 @@
 <script>
+  import { getContext } from 'svelte';
   import { cn } from '$lib/utils.js';
   // Нативный <select>, а не выпадающий список на JS: на телефоне система показывает
   // привычное колесо выбора, и работает это без единого килобайта скриптов.
-  let { ref = $bindable(null), value = $bindable(), class: className, children, ...restProps } = $props();
+  let { ref = $bindable(null), value = $bindable(), class: className, id = getContext('field-id'), children, ...restProps } = $props();
 </script>
 
 <div data-slot="native-select-wrapper" class={cn('relative w-full has-[select:disabled]:opacity-50', className)}>
   <select
     bind:this={ref}
     bind:value
+    {id}
     data-slot="native-select"
     class="h-10 w-full appearance-none rounded-md border border-input bg-background py-2 pr-10 pl-3 text-base transition-colors outline-none hover:border-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed md:text-sm"
     {...restProps}

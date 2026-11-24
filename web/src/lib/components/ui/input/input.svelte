@@ -1,7 +1,8 @@
 <script>
+  import { getContext } from 'svelte';
   import { cn } from '$lib/utils.js';
   // el — сам DOM-узел наружу (bind:el): нужен там, где вызывающему надо .focus().
-  let { ref = $bindable(null), el = $bindable(null), value = $bindable(), type = 'text', class: className, ...restProps } = $props();
+  let { ref = $bindable(null), el = $bindable(null), value = $bindable(), type = 'text', class: className, id = getContext('field-id'), ...restProps } = $props();
   // Квирк iOS Safari: фокус на контроле со шрифтом < 16px принудительно зумит всю страницу —
   // поэтому text-base на телефоне и только с md: переходим на мелкий.
   // ШРАМ мобильного ввода: экранная клавиатура по умолчанию ставит заглавную первой буквой и
@@ -17,6 +18,7 @@
 {#if type === 'file'}
   <input
     bind:this={el}
+    {id}
     data-slot="input"
     type="file"
     class={cn(base, 'h-auto py-2 file:mr-3 file:rounded-sm file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:text-secondary-foreground', className)}
@@ -25,6 +27,7 @@
 {:else}
   <input
     bind:this={el}
+    {id}
     data-slot="input"
     {type}
     bind:value

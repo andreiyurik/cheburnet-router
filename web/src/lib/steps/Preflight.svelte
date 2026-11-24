@@ -43,6 +43,9 @@
   }
 
   run();
+  import * as Item from '$lib/components/ui/item/index.js';
+  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import ShieldCheck from '@lucide/svelte/icons/shield-check';
 </script>
 
 <Card.Root>
@@ -53,6 +56,7 @@
 
   <Card.Content>
     {#if loading}
+      <Skeleton class="h-40 w-full" />
       <p class="text-muted-foreground">Проверяю…</p>
     {:else if error}
       <p class="text-destructive">Не удалось выполнить проверку: {error}</p>
@@ -70,10 +74,13 @@
       {/if}
 
       {#if report.passed}
-        <div>
-          <p class="font-display text-2xl">Роутер подходит</p>
-          <p class="text-muted-foreground">Все {report.total} проверок пройдены.</p>
-        </div>
+        <Item.Root variant="muted">
+          <Item.Media variant="icon" class="text-success"><ShieldCheck /></Item.Media>
+          <Item.Content>
+            <Item.Title class="text-base font-semibold">Роутер подходит</Item.Title>
+            <Item.Description>Все {report.total} проверок пройдены.</Item.Description>
+          </Item.Content>
+        </Item.Root>
         <Button size="lg" onclick={() => onReady(false)}>
           Продолжить
         </Button>

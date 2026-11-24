@@ -1,9 +1,9 @@
 <script>
-  // Сводка «параметр — значение». gap обязателен: на узком экране значение упиралось в подпись
-  // и читалось как одно слово («РежимДома — выбранные сайты напрямую»).
+  import * as Item from '$lib/components/ui/item/index.js';
+  // Сводка «параметр — значение»: группа строк Item в рамке.
   let { children } = $props();
 </script>
 
-<ul data-slot="status-list" class="my-2 flex flex-col">
+<Item.Group data-slot="status-list" class="rounded-lg border border-border divide-y divide-border">
   {@render children?.()}
-</ul>
+</Item.Group>

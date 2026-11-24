@@ -1,6 +1,7 @@
 <script>
+  import { getContext } from 'svelte';
   import { cn } from '$lib/utils.js';
-  let { ref = $bindable(null), value = $bindable(), class: className, ...restProps } = $props();
+  let { ref = $bindable(null), value = $bindable(), class: className, id = getContext('field-id'), ...restProps } = $props();
   // Моноширинный шрифт НЕ в базе: он уместен в конфиге (class="font-mono"), но список
   // доменов и подсказки им выглядят как консоль — для адресата это лишний барьер.
   // Квирк iOS: шрифт < 16px на фокусе зумит страницу — подробнее в input.svelte.
@@ -14,6 +15,7 @@
      экранной клавиатуры или «исправленное» слово ломают значение (подробнее — input.svelte). -->
 <textarea
   bind:this={ref}
+  {id}
   data-slot="textarea"
   bind:value
   class={cn(base, className)}

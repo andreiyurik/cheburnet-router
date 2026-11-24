@@ -1,10 +1,14 @@
 <script>
-  // Строка сводки: слева подпись (может нести ссылку), справа значение. tone красит значение.
+  import * as Item from '$lib/components/ui/item/index.js';
+  // Строка сводки: подпись (может нести ссылку) над значением — на узком экране длинное значение
+  // не прыгает по ширине. tone красит значение.
   let { tone = 'default', value = '', label, children } = $props();
   const TONE = { ok: 'text-success', bad: 'text-destructive', default: '' };
 </script>
 
-<li class="flex items-baseline justify-between gap-3 border-b border-border py-2.5">
-  <span class="text-sm text-muted-foreground">{#if label}{label}{/if}{@render children?.()}</span>
-  <strong class="text-right text-base {TONE[tone]}">{value}</strong>
-</li>
+<Item.Root size="sm">
+  <Item.Content>
+    <Item.Description>{#if label}{label}{/if}{@render children?.()}</Item.Description>
+    <Item.Title class="text-base font-semibold {TONE[tone]}">{value}</Item.Title>
+  </Item.Content>
+</Item.Root>

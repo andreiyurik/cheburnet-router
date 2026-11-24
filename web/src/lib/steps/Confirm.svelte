@@ -43,7 +43,7 @@
 
     <div class="flex flex-wrap gap-3">
       <Button variant="outline" class="min-w-35 flex-1" onclick={onBack}>Назад — поправить</Button>
-      <Button size="lg" class="min-w-35 flex-1" onclick={onConfirm}>Установить</Button>
+      <Button size="lg" class="min-w-35 flex-[2]" onclick={onConfirm}>Установить</Button>
     </div>
   </Card.Content>
 </Card.Root>

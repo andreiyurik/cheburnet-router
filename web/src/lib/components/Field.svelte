@@ -1,21 +1,27 @@
 <script>
-  import { cn } from '$lib/utils.js';
-  // Поле формы: подпись + контрол + подсказка/ошибка. <label> обёрнут вокруг контрола —
-  // поэтому getByLabel находит поле без ручной расстановки id (и скринридер тоже).
-  // invalid подсвечивает рамку через aria-invalid самого контрола (см. input.svelte).
+  import { setContext } from 'svelte';
+  import * as F from '$lib/components/ui/field/index.js';
+  import Badge from '$lib/components/ui/badge/badge.svelte';
+  // Обёртка над shadcn Field: подпись связана с контролом через id из контекста (Input/Textarea/
+  // NativeSelect берут его сами) — поэтому getByLabel и скринридер находят поле без ручных id.
   let { label, hint = '', error = '', required = false, optional = false, class: className, el = $bindable(), children } = $props();
+  const id = $props.id();
+  // ref у F.Field со значением по умолчанию, а bind:el снаружи приходит undefined — прямой проброс запрещён.
+  let node = $state(null);
+  $effect(() => { el = node; });
+  setContext('field-id', id);
 </script>
 
-<label bind:this={el} class={cn('block', className)}>
-  <span class="mb-1.5 flex flex-wrap items-baseline gap-1.5 text-sm font-semibold">
+<F.Field bind:ref={node} class={className} data-invalid={error ? true : undefined}>
+  <F.Label for={id}>
     {label}
-    {#if required}<span class="font-semibold text-primary">(обязательно)</span>{/if}
-    {#if optional}<span class="font-normal text-muted-foreground">(необязательно)</span>{/if}
-  </span>
+    {#if required}<Badge variant="outline">обязательно</Badge>{/if}
+    {#if optional}<span class="font-normal text-muted-foreground">необязательно</span>{/if}
+  </F.Label>
   {@render children?.()}
   {#if error}
-    <span class="mt-1.5 block text-sm text-destructive">{error}</span>
+    <F.Error>{error}</F.Error>
   {:else if hint}
-    <span class="mt-1.5 block text-sm text-muted-foreground">{hint}</span>
+    <F.Description>{hint}</F.Description>
   {/if}
-</label>
+</F.Field>
