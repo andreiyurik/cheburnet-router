@@ -12,7 +12,7 @@ Pinned-копия внешнего установщика, который `boots
 
 | Файл | Источник | Пин | Когда обновлять |
 |---|---|---|---|
-| `amneziawg-install.sh` | `github.com/Slava-Shchipunov/awg-openwrt` (`amneziawg-install.sh`) | коммит `9742aa5` (релиз `v25.12.5`) | вышел `kmod-amneziawg` под новую OpenWrt-версию, либо upstream сменил схему имён/URL релиз-ассетов |
+| `amneziawg-install.sh` | `github.com/Slava-Shchipunov/awg-openwrt` (`amneziawg-install.sh`) | коммит `03b6226` (AWG 3.1, `v25.12.6`) | вышел `kmod-amneziawg` под новую OpenWrt-версию, либо upstream сменил схему имён/URL релиз-ассетов |
 
 > ⚠️ **Vendored-копия устаревает вручную** (структурный долг, см. CLAUDE.md). Она строит URL
 > релиза `.../releases/download/v${VERSION}/…` — если upstream переименует ассеты, пин сломается

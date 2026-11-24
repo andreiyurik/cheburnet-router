@@ -122,6 +122,7 @@ for pkg in $AWG_DEPS; do
     fi
 done
 [ "$AWG_OK" = "1" ] || {
+    vm_github_diag
     echo "  ✗ AmneziaWG не встала. На роутере это тот же самый шаг bootstrap — значит установка"
     echo "    у пользователя тоже встанет. Если версия пина только что менялась — проверьте,"
     echo "    что у awg-openwrt есть релиз v$OPENWRT_VERSION (см. шапку tests/qemu/lib.sh)."

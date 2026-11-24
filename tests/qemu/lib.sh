@@ -31,9 +31,9 @@
 #      упадёт на AWG (это и есть смысл проверки, а не повод её ослабить);
 #   3. прогнать qemu-smoke, qemu-install и qemu-profiles локально;
 #   4. только потом менять цифры здесь, одним коммитом с результатом прогона.
-: "${OPENWRT_VERSION:=25.12.5}"
+: "${OPENWRT_VERSION:=25.12.6}"
 : "${IMG_URL:=https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/x86/64/openwrt-$OPENWRT_VERSION-x86-64-generic-ext4-combined.img.gz}"
-: "${IMG_SHA256:=23e2538e8ab0eb52dfed1c65d608ecdb71ffd432dd54885da138ae67cd9e4461}"
+: "${IMG_SHA256:=f8538784d0288b4133a99ac2a68443e4922ffde6343e80df56a5882364b9d499}"
 # Если qemu говорит «Could not set up host forwarding rule 'tcp::2222-:22'» — порт держит НЕ другой
 # прогон, а хост. На WSL2/Windows Hyper-V резервирует целые диапазоны TCP, и bind падает с
 # «Address already in use», при том что `ss -lnt` внутри WSL пуст (он не видит Windows-сторону).
@@ -340,6 +340,17 @@ print("\n".join(c["id"] for c in r["checks"] if not c["ok"]))' || true
 }
 
 # vm_check_dns() — nslookup в VM или exit 1. Без интернета apk update/add бессмысленны.
+# vm_github_diag — почему VM не скачала ассет с GitHub: тихий `wget -q` инсталлятора прячет причину,
+# и отказ сети выглядел как «нет сборки под эту версию OpenWrt».
+vm_github_diag() {
+    echo "  → диагностика доступа к GitHub из VM:"
+    local u
+    for u in https://github.com/ https://api.github.com/ https://raw.githubusercontent.com/; do
+        echo "    $u"
+        vm_ssh "uclient-fetch -T 15 -O /dev/null '$u' 2>&1 | tail -2 | sed 's/^/      /'" || true
+    done
+}
+
 vm_check_dns() {
     echo "→ Проверяю интернет в VM"
     vm_ssh "nslookup downloads.openwrt.org 2>&1 | grep -q 'Address.*\\.'" \

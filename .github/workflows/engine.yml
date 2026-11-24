@@ -19,13 +19,13 @@ jobs:
   engine-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # ucode собирается из исходников (рецепт — engine/routing/tests/README.md). Кэшируем
       # ~/.local, чтобы не пересобирать каждый прогон.
       - name: Cache ucode toolchain
         id: cache-ucode
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local
           key: ucode-toolchain-${{ runner.os }}-v1
@@ -70,10 +70,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: engine-tests
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Restore ucode toolchain (собран в engine-tests)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local
           key: ucode-toolchain-${{ runner.os }}-v1
@@ -118,11 +118,11 @@ jobs:
           - mipsel_24kc
           - arm_cortex-a9_neon
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Официальный SDK-экшен OpenWrt: монтирует репозиторий как feed и собирает пакет под arch.
       - name: Build cheburnet via OpenWrt SDK
-        uses: openwrt/gh-action-sdk@797d0e3d0eb13b355c3447f60d0179d4b43089e2
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
         env:
           ARCH: ${{ matrix.arch }}
           FEEDNAME: cheburnet
@@ -130,7 +130,7 @@ jobs:
           V: s
 
       - name: Upload .apk/.ipk artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cheburnet-${{ matrix.arch }}
           path: |

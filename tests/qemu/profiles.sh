@@ -33,7 +33,7 @@ for attempt in 1 2 3; do
     if vm_ssh "modprobe amneziawg 2>/dev/null; lsmod | grep -q '^amneziawg'"; then awg_ok=1; break; fi
     echo "    попытка $attempt не удалась, повтор через 15с"; sleep 15
 done
-[ "$awg_ok" = "1" ] || { echo "  ✗ модуль amneziawg не загрузился"; vm_ssh "tail -15 /tmp/awg-install.log" || true; exit 1; }
+[ "$awg_ok" = "1" ] || { echo "  ✗ модуль amneziawg не загрузился"; vm_ssh "tail -15 /tmp/awg-install.log" || true; vm_github_diag; exit 1; }
 
 echo "→ Движок + rpcd-обработчик (как пакет)"
 vm_ssh "mkdir -p /usr/share/cheburnet /etc/cheburnet /tmp/cheburnet /usr/libexec/rpcd /usr/share/rpcd/acl.d"

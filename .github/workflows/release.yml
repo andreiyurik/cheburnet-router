@@ -30,15 +30,15 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # OpenWrt SDK (apk-ветка 25.12) собирает пакет. ARCH задаёт SDK-контейнер; для PKGARCH=all
       # любой один arch даёт тот же arch-независимый .apk — берём x86_64/25.12.
       # Экшен запинен на SHA: job имеет contents:write, mutable @main здесь недопустим.
       - name: Build cheburnet via OpenWrt SDK
-        uses: openwrt/gh-action-sdk@797d0e3d0eb13b355c3447f60d0179d4b43089e2
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
         env:
-          ARCH: x86_64-25.12.0        # ← при первом прогоне сверить с доступным тегом ghcr SDK
+          ARCH: x86_64-25.12.6
           FEEDNAME: cheburnet
           PACKAGES: cheburnet
           V: s
@@ -73,7 +73,7 @@ jobs:
           echo "apk=dist/cheburnet.apk" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cheburnet-package
           path: dist/*
@@ -82,7 +82,7 @@ jobs:
       # Публикуем Release ТОЛЬКО на push тега: workflow_dispatch (даже на теге) — всегда dry-run.
       - name: Publish GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/cheburnet.apk
           generate_release_notes: true

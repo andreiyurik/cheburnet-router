@@ -178,7 +178,7 @@ r_exit_ip() {
 # где симптом «мелкие сайты открываются, крупные висят».
 r_pmtu() {
     local iface="$1"
-    local url="https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-25.12.5-x86-64-generic-ext4-combined.img.gz"
+    local url="https://downloads.openwrt.org/releases/25.12.6/targets/x86/64/openwrt-25.12.6-x86-64-generic-ext4-combined.img.gz"
     local host="downloads.openwrt.org" ip
     ip="$(r_ssh "nslookup $host 2>/dev/null | awk '/^Address( 1)?: / && \$NF ~ /^[0-9.]+\$/ {print \$NF; exit}'")"
     [ -n "$ip" ] || { r_bad "не разрешился $host"; return 1; }

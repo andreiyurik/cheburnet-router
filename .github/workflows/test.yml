@@ -22,11 +22,11 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -50,7 +50,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install QEMU + ncat
         run: |
@@ -72,7 +72,7 @@ jobs:
 
       - name: Upload serial-лог при падении
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qemu-smoke-serial-log
           path: tests/qemu/.work/serial.log
@@ -87,7 +87,7 @@ jobs:
     needs: qemu-smoke
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install QEMU + ncat
         run: |
@@ -109,7 +109,7 @@ jobs:
 
       - name: Upload install-лог при падении
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qemu-install-logs
           path: |
@@ -129,7 +129,7 @@ jobs:
     continue-on-error: true
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install QEMU + ncat
         run: |
@@ -169,7 +169,7 @@ jobs:
 
       - name: Upload serial-лог при падении
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: qemu-snapshot-canary-serial-log
           path: tests/qemu/.work/serial.log
