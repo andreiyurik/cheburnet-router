@@ -18,6 +18,8 @@ import { commit_conf } from "../profiles/store.uc";
 let SELF = sourcepath(0, true);
 let ENGINE = SELF + "/..";              // engine/
 const ETC_CHEBURNET = getenv("ETC_CHEBURNET") ?? "/etc/cheburnet";
+// ИНВАРИАНТ: метка живёт от снимка до исхода; осиротевшая (процесса нет) = установку прервали — install/recover.uc.
+const PENDING = ETC_CHEBURNET + "/install.pending";
 // config.json Full-тира: env-override для host-тестов в sandbox (тот же приём, что ETC_CHEBURNET).
 const INITD = getenv("INITD_DIR") ?? "/etc/init.d"; // env — только для host-тестов (стабы)
 const SB_CONF =getenv("SB_CONFIG") ?? sb_config_path(null);
@@ -178,6 +180,7 @@ function restore_cfg_truth() {
 // Неактивный туннель не трогаем, как и в обычном пути. ШРАМ (ревью): teardown ОБОИХ туннелей после
 // restore снимал восстановленный legacy sing-box — отмена ухода на AWG оставляла роутер без туннеля.
 if (length(ARGV) > 0 && ARGV[0] == "--rollback") {
+	unlink(PENDING);
 	let rb_steps = enabled_steps({ disable: [ ...disabled_tunnels(protocol),
 		...((type(cfg.disable) == "array") ? cfg.disable : []) ] });
 	rollback_all(rb_steps, cfg);
@@ -234,7 +237,12 @@ if (dry) {
 
 // --- 2. snapshot UCI (для чистого отката) ---
 set_step("snapshot");
+writefile(PENDING, sprintf("%J", { protocol: protocol, domains: cfg.domains ?? [],
+	routing_opts: cfg.routing_opts, disable: cfg.disable }));
 sh(sprintf("ucode -R %s/rollback/snapshot.uc save", ENGINE));
+// ШРАМ (qemu-interrupt): без sync скачок питания терял метку и снимок (отложенная запись ФС),
+// а изменения шагов оставались — откатить было нечем. Сбрасываем на флеш ДО первого изменения.
+sh("sync");
 
 // Legacy Full-тир (уход с Reality/Hysteria2 на AWG): config.json бэкапим ДО teardown'ов — uci-snapshot внешний файл не покрывает, а
 // teardown удаляет его безвозвратно. Возврат — в rollback_all; на commit зачищается ниже.
@@ -285,6 +293,7 @@ if (outcome.action == "commit") {
 	if (tunnel_applied)
 		run_stdin(step_cmd(tinfo.step, " --arm"), "");
 	sh(sprintf("ucode -R %s/rollback/snapshot.uc commit", ENGINE));
+	unlink(PENDING);
 	// AWG-сервер подтверждён health-check'ом — запоминаем его профилем (engine/profiles): к нему
 	// можно будет вернуться из панели, и автосмена знает, с какого сервера начинать перебор.
 	if (tunnel_applied && protocol == "awg" && cfg.awg_conf)
@@ -333,6 +342,7 @@ set_reason(outcome.code);
 warn(sprintf("install: откат — %s\n", outcome.reason));
 rollback_all(steps, cfg);
 restore_cfg_truth();
+unlink(PENDING);
 reapply_data_plane(); // пере-установка поверх рабочей: вернуть её firewall (см. контракт функции)
 warn("install: откат выполнен — система возвращена к состоянию до установки\n");
 exit(1);

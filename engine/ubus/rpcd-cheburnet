@@ -200,6 +200,12 @@ function m_status() {
 	let mode = cfg.routing_opts.mode ?? "home";
 
 	let installed = access(ETC_CHEBURNET + "/install.json") ? true : false;
+	// Установку прервали (перезагрузка или падение до перехвата hotplug'ом): запускаем откат и
+	// честно говорим «не установлено» — мастер начнёт с проверки, а не с панели полусистемы.
+	if (access(ETC_CHEBURNET + "/install.pending") && !pid_alive()) {
+		sh(sprintf("%s >/dev/null 2>&1 &", engine_cli("install/recover.uc")));
+		installed = false;
+	}
 
 	// Все системные факты — ОДНИМ popen (UI поллит status каждые 15 с; на слабом железе
 	// отдельные форки на каждый опрос — лишний налог). Батч печатает строки key=value;

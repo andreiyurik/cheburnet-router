@@ -14,11 +14,16 @@ import { protected_configs } from "./rollback.uc";
 const CONFIG_DIR = getenv("UCI_CONFIG_DIR") ?? "/etc/config";
 
 let action = (length(ARGV) > 0) ? ARGV[0] : "";
-let dir = (length(ARGV) > 1) ? ARGV[1] : (getenv("SNAPSHOT_DIR") ?? "/tmp/cheburnet-rollback");
+// ИНВАРИАНТ: снимок на флеше, не в /tmp — перезагрузка посреди установки не должна оставить
+// без отката (см. install/recover.uc). Несколько КБ на попытку, после исхода удаляется.
+let dir = (length(ARGV) > 1) ? ARGV[1] : (getenv("SNAPSHOT_DIR") ?? "/etc/cheburnet/rollback");
 let configs = protected_configs();
 
 if (action == "save") {
 	mkdir(dir, 0700); // существует — вернёт ошибку, игнорируем
+	// Остаток прерванной операции не должен попасть в новый снимок как «было до».
+	for (let i = 0; i < length(configs); i++)
+		unlink(dir + "/" + configs[i]);
 	let saved = [];
 	for (let i = 0; i < length(configs); i++) {
 		let c = configs[i];

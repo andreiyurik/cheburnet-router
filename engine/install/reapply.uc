@@ -3,7 +3,7 @@
 // ЕДИНСТВЕННАЯ реализация «переприменить» — её зовут hotplug-хук, откат run.uc, set_mode (rpcd),
 // resume (pause.uc) и сторож: «после ребута» не должно расходиться с «после смены режима».
 
-import { readfile } from "fs";
+import { readfile, access } from "fs";
 import { sh, run_stdin } from "../lib/proc.uc";
 import { tunnel_info, default_protocol } from "./install.uc";
 import { detect_wan } from "../lib/wan.uc";
@@ -14,6 +14,13 @@ const ETC = getenv("ETC_CHEBURNET") ?? "/etc/cheburnet";
 // firewall-шаг в sandbox не исполним (в нём нет /etc/init.d/firewall), поэтому там подставляется
 // шаг-заглушка, и проверяется решение переприменения — какой WAN взят и что уехало шагу.
 let ENGINE = getenv("ENGINE_DIR") ?? (sourcepath(0, true) + "/..");
+
+// Незавершённая установка: её data-plane не применяем — после прерывания kill-switch без
+// вооружённого туннеля оставил бы дом без интернета. recover.uc откатит (или не мешает живой).
+if (access(ETC + "/install.pending")) {
+	sh(sprintf("ucode -R %s/install/recover.uc >/dev/null 2>&1", ENGINE));
+	exit(0);
+}
 
 // ИНВАРИАНТ: ip-часть policy-routing (`ip rule fwmark → table` + default таблицы через WAN)
 // живёт только в ЯДРЕ и не переживает перезагрузку (nft-часть переживает файлом в

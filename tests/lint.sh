@@ -27,6 +27,7 @@ POSIX_FILES=(
     bootstrap/wget-via-curl.sh
     engine/run-tests.sh
     package/cheburnet/files/rpcd-cheburnet.sh
+    package/cheburnet/files/hotplug-recover.sh
     tests/poc/split-routing-netns.sh
     tests/netns/dataplane.sh
 )

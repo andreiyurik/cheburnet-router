@@ -127,6 +127,7 @@ test("commit-путь: wan_if/wan_gw/tunnel_if персистятся, токе�
 	eq(saved.routing_opts.tunnel_if, "awg0", "tunnel_if активного туннеля персистнут");
 	ok(!access(sb.etc + "/install-token"), "одноразовый токен снят ТОЛЬКО на успехе");
 	ok(!access(sb.snap), "снимок выброшен (commit)");
+	ok(!access(sb.etc + "/install.pending"), "метка незавершённой установки снята на успехе");
 	eq(trim(readfile(sb.state) ?? ""), "health-check", "последний шаг прогресса");
 	cleanup(sb);
 });
@@ -150,6 +151,7 @@ test("шаг упал: rollback c reason=step:vpn, teardown грязных, inst
 	// Firewall — грязный шаг: его teardown обязан быть вызван даже если сам шаг не успел
 	// примениться (safe-fail), а reapply_data_plane обязан вернуть firewall прежней системы.
 	ok(index(calls(sb), "nft") >= 0, "firewall teardown дошёл до nft");
+	ok(!access(sb.etc + "/install.pending"), "метка незавершённой установки снята на откате");
 	cleanup(sb);
 });
 

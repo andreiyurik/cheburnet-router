@@ -66,6 +66,10 @@ define Package/cheburnet/install
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./files/rpcd-cheburnet.sh $(1)/usr/libexec/rpcd/cheburnet
 
+	# Откат установки, прерванной перезагрузкой: без метки install.pending — no-op.
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) ./files/hotplug-recover.sh $(1)/etc/hotplug.d/iface/98-cheburnet-recover
+
 	# ACL движка (выведена из реестра методов; см. engine/ubus/acl.uc).
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) $(CHEBURNET_REPO)/engine/ubus/rpcd-acl.json $(1)/usr/share/rpcd/acl.d/cheburnet.json
