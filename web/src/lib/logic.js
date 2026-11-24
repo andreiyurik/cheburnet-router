@@ -15,8 +15,8 @@ export const WIFI_KEY_MAX = 63;
 // Страница проекта рядом с личным контактом: ссылка, вшитая в прошивку, живёт годами, канал связи
 // может смениться — страница долговечный ориентир, Telegram — быстрый путь сегодня.
 export const SUPPORT = {
-  telegram: '@industrialprofi',
-  telegramUrl: 'https://t.me/industrialprofi',
+  telegram: '@andrei_yurik',
+  telegramUrl: 'https://t.me/andrei_yurik',
   page: 'https://github.com/andreiyurik/cheburnet-router',
   donateUrl: 'https://pay.cloudtips.ru/p/61fe8ef3',
 };

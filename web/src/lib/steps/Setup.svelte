@@ -199,8 +199,8 @@
     <DetailsGroup icon={Globe} summary="Сайты напрямую"
                   description="{domainsText.split('\n').filter((d) => d.trim()).length} шт. — изменить">
       <Field label="Сайты напрямую"
-             hint="Остальное — через туннель. Запись зоны (ru) покрывает все сайты в ней; отдельные — своей строкой.">
-        <Textarea bind:value={domainsText} rows="3" placeholder={'ru\nexample.com'} />
+             hint="Остальное — через туннель. Домен (example.com) покрывает и все его поддомены, каждый сайт — своей строкой.">
+        <Textarea bind:value={domainsText} rows="3" placeholder={'example.com\nexample.org'} />
       </Field>
     </DetailsGroup>
     {#if dnsProviders.length > 0}

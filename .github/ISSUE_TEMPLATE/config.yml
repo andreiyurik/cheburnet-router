@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: Написать в Telegram
-    url: https://t.me/industrialprofi
+    url: https://t.me/andrei_yurik
     about: Если issue заводить неудобно или вопрос личный. Обычный вопрос лучше сюда — issue найдут те, у кого то же самое.
   - name: Документация и база знаний
     url: https://github.com/andreiyurik/cheburnet-router/tree/master/docs

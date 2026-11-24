@@ -60,7 +60,7 @@ test('панель: диагностика показывается до отп�
   await openPanel(page, request, {});
 
   // Ссылок на Telegram две (блок поддержки + футер «проблема или идея») — проверяем первую.
-  await expect(page.getByRole('link', { name: '@industrialprofi' }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: '@andrei_yurik' }).first()).toBeVisible();
   // Кнопки скачивания до сбора нет: скачивать нечего, и пустой файл человек бы отправил.
   await expect(page.getByRole('button', { name: 'Скачать файл' })).toHaveCount(0);
 

@@ -90,4 +90,4 @@ apk del cheburnet
 ---
 
 Не получается — [issue на GitHub](https://github.com/andreiyurik/cheburnet-router/issues/new/choose)
-или [Telegram @industrialprofi](https://t.me/industrialprofi).
+или [Telegram @andrei_yurik](https://t.me/andrei_yurik).

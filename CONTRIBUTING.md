@@ -7,7 +7,7 @@
 
 - **Расскажите, где застряли при установке.** Это самая ценная обратная связь: цель проекта —
   чтобы роутер настраивал обычный человек, а не только программист. Пишите в
-  [Telegram @industrialprofi](https://t.me/industrialprofi) или заводите
+  [Telegram @andrei_yurik](https://t.me/andrei_yurik) или заводите
   [issue](https://github.com/andreiyurik/cheburnet-router/issues).
 - **Сообщите о баге** — приложите диагностику из панели (кнопка «Собрать диагностику»; пароли и
   ключи из неё вырезаются автоматически, см. [Troubleshooting](docs/kb/reference/troubleshooting.md)).

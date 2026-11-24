@@ -1,32 +1,42 @@
 <div align="center">
 
-<img src="assets/cheburashka.png" alt="cheburnet-router" width="160">
+<img src="assets/cheburashka.png" alt="cheburnet-router" width="140">
 
 # cheburnet-router
 
-### Раздельное туннелирование и максимально ПРОСТАЯ установка из коробки: домашние сайты — напрямую, остальное — через VPN (AmneziaWG). Автоматически.
-
-**Домашние сайты и сервисы — напрямую**, с полной скоростью и вашим настоящим IP. **Всё
-остальное — через зашифрованный VPN.** Работает сразу на всех устройствах дома: телефоны,
-ноутбуки, Smart TV — без приложений на каждом. Настраивается один раз через браузер, минут
-за десять.
+**Раздельный VPN для всего дома на роутере с OpenWrt.**<br>
+Выбранные вами сайты идут напрямую, всё остальное — через зашифрованный туннель AmneziaWG.<br>
+Настраивается один раз через браузер, без приложений на каждом устройстве.
 
 [![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12%2B-blue?logo=openwrt)](https://openwrt.org/)
 [![Release](https://img.shields.io/github/v/release/andreiyurik/cheburnet-router?color=3bc272)](https://github.com/andreiyurik/cheburnet-router/releases/latest)
 [![Tests](https://github.com/andreiyurik/cheburnet-router/actions/workflows/test.yml/badge.svg)](https://github.com/andreiyurik/cheburnet-router/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
-[![Telegram](https://img.shields.io/badge/Telegram-@industrialprofi-26A5E4?logo=telegram)](https://t.me/industrialprofi)
+[![Telegram](https://img.shields.io/badge/Telegram-@andrei__yurik-26A5E4?logo=telegram)](https://t.me/andrei_yurik)
+[![Поддержать](https://img.shields.io/badge/Поддержать-CloudTips-e25c4a?logo=githubsponsors&logoColor=white)](https://pay.cloudtips.ru/p/61fe8ef3)
 
-### [Установка](#установка) · [Что нужно и сколько стоит](#что-нужно-и-сколько-стоит) · [Протокол](#протокол-amneziawg) · [Совместимое железо](#совместимое-железо) · [FAQ](#faq) · [Помощь](#нужна-помощь) · [Поддержать ♥](#поддержать-проект)
+[Установка](#установка) · [Что нужно](#что-нужно-и-сколько-стоит) · [Почему можно доверять](#почему-этому-можно-доверять) · [Железо](#совместимое-железо) · [FAQ](#faq) · [Помощь](#нужна-помощь) · [Поддержать ♥](#поддержать-проект)
 
 <sub><a href="README.en.md">English summary</a></sub>
 
-<a href="assets/web-mgmt.png"><picture>
+<table>
+<tr>
+<td align="center" width="50%">
+<picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/web-mgmt-dark.png">
-  <img src="assets/web-mgmt.png" alt="Веб-панель управления роутером" width="620">
-</picture></a>
-
-<sub>Веб-панель <code>/cheburnet/</code> — с одного взгляда видно, работает ли туннель; режим «дома / в поездке» и свой список сайтов под рукой, перезапуск сервисов, семейный фильтр и смена протокола — в свёрнутых разделах</sub>
+  <img src="assets/web-mgmt.png" alt="Панель управления: статус туннеля, режим «Дома / В поездке», список сайтов напрямую" width="300">
+</picture>
+<br><sub><b>Панель управления</b> — работает ли туннель, видно сразу</sub>
+</td>
+<td align="center" width="50%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/web-installer-dark.png">
+  <img src="assets/web-installer.png" alt="Мастер настройки: VPN-конфиг, пароль роутера, Wi-Fi" width="300">
+</picture>
+<br><sub><b>Мастер настройки</b> — конфиг, пароль и Wi-Fi, остальное он сделает сам</sub>
+</td>
+</tr>
+</table>
 
 </div>
 
@@ -36,14 +46,35 @@
 
 Одно подключение к Wi-Fi — и на **всех** устройствах в доме сразу:
 
-| Проблема | С cheburnet-router |
+| Без cheburnet-router | С cheburnet-router |
 |---|---|
-| Под VPN местные сайты тормозят, банки ловят капчи и блокируют вход. | Домашняя зона и ваш список сайтов — напрямую, с полной скоростью и вашим настоящим IP. |
-| VPN-приложение надо ставить на каждое устройство. На Smart TV — вообще никак. | Настроили роутер один раз — покрыты все устройства в доме. |
+| Через VPN местные сайты тормозят и просят капчу. | Ваш список сайтов идёт напрямую: полная скорость и ваш настоящий IP. |
+| VPN-приложение нужно на каждом устройстве, а на Smart TV его не поставить. | Настроили роутер один раз — защищены все устройства в доме. |
 | Обычный WireGuard легко распознаётся по сигнатуре. | **AmneziaWG** маскирует сетевую сигнатуру и работает в ядре со скоростью WireGuard. [Подробнее](#протокол-amneziawg). |
-| VPN-прошивки требуют мощный роутер. | Работает в ядре Linux, без тяжёлых процессов — хватает роутера со 128 МБ RAM. |
-| Провайдер видит ваши DNS-запросы, реклама лезет на каждом экране. | Шифрованный DNS и блокировка рекламы для всей сети сразу. Есть и [семейный фильтр](#семейный-режим). |
-| VPN отвалился — трафик утёк в открытую сеть. | Kill-switch: по умолчанию трафик всегда идёт через VPN, утечки не будет. |
+| VPN-прошивкам нужен мощный роутер. | Всё работает в ядре Linux без тяжёлых процессов — хватает роутера со 128 МБ RAM. |
+| Провайдер видит ваши DNS-запросы, реклама на каждом экране. | Шифрованный DNS и блокировка рекламы для всей сети. Есть и [семейный фильтр](#семейный-режим). |
+| VPN отвалился — трафик ушёл в открытую сеть. | Kill-switch: без туннеля трафик не уходит в открытую сеть. |
+
+---
+
+## Почему этому можно доверять
+
+- **Открытый код под лицензией MIT.** Каждую строку можно прочитать. Пакет собирается в CI из этого
+  репозитория и публикуется в [Releases](https://github.com/andreiyurik/cheburnet-router/releases).
+- **Никакой телеметрии.** Роутер ничего не отправляет автору. В сеть он ходит только за пакетами
+  OpenWrt, за готовым списком сайтов и к выбранному вами DNS-резолверу. Диагностику вы собираете сами,
+  смотрите перед отправкой, а пароли и ключи из неё вырезаются автоматически.
+- **Ничего не ломает.** До любых изменений мастер проверяет железо роутера. Если установка не удалась
+  или VPN-сервер не ответил, роутер сам возвращается в исходное состояние.
+- **Без утечек.** Если туннель упал, kill-switch не выпускает трафик в открытую сеть. Аварийный режим
+  «Выключить защиту» включается только вами и возвращается одной кнопкой.
+- **Проверяется на каждом изменении.** CI гоняет юнит-тесты движка, разделение трафика и kill-switch
+  на живом ядре Linux и установку в виртуальном OpenWrt (QEMU). Откат, перезагрузку и аварийный режим
+  проверяют отдельные QEMU-тесты, полный цикл — прогон на физическом роутере.
+- **Стандартные технологии.** AmneziaWG, dnsmasq, nftables, policy routing — то же, что в любом
+  Linux. Никаких закрытых бинарников: каждый шаг маршрутизации виден и [описан в документации](docs/).
+- **Автор на связи.** Я веду проект сам и отвечаю всем — в [issues](https://github.com/andreiyurik/cheburnet-router/issues)
+  и в [Telegram](https://t.me/andrei_yurik).
 
 ---
 
@@ -170,10 +201,10 @@ sh /tmp/cheburnet.sh
 
 <div align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/web-installer-dark.png">
-  <img src="assets/web-installer.png" alt="Веб-мастер установки" width="560">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/web-success-dark.png">
+  <img src="assets/web-success.png" alt="Экран завершения установки: роутер настроен" width="320">
 </picture>
-<sub>Веб-мастер — загрузка <code>.conf</code> VPN-сервера</sub>
+<br><sub>Через 1–3 минуты — готово. Если что-то пошло не так, роутер сам вернётся в исходное состояние</sub>
 </div>
 
 После установки на том же адресе открывается **панель управления**: статус, смена VPN-конфига
@@ -350,7 +381,7 @@ AmneziaWG — блок «Серверы» или «Замена сервера»
 **Issue лучше лички:** ответ останется на виду и поможет следующему с той же проблемой. Аккаунт
 GitHub бесплатный, регистрация — минута.
 
-### [Написать в Telegram: @industrialprofi](https://t.me/industrialprofi)
+### [Написать в Telegram: @andrei_yurik](https://t.me/andrei_yurik)
 
 Если issue заводить неудобно или вопрос личный — пишите в Telegram, отвечу так же.
 
@@ -363,25 +394,37 @@ GitHub бесплатный, регистрация — минута.
 
 ## Поддержать проект
 
-Я делаю всё один — код, документацию, ответы в Telegram, разбор багов у конкретных людей. Это часы
-после основной работы, и именно поддержка определяет, сколько таких часов я могу находить.
-Каждый донат и каждая звезда конвертируются напрямую: в новые возможности, больше тестов на
-реальном железе и более быстрые ответы на вопросы. Проект бесплатный и таким останется. Если он
-вам помог — **поблагодарить автора можно донатом**.
+cheburnet-router бесплатный, с открытым кодом, и таким останется. Я делаю его один: код, тесты на
+реальном железе, документацию и ответы на вопросы — в свободное от основной работы время.
+
+**Если роутер вам помогает, поддержите проект донатом.** Это прямо превращается во время на новые
+функции, тесты на новых моделях роутеров и быстрые ответы.
 
 <div align="center">
 
-<a href="https://pay.cloudtips.ru/p/61fe8ef3"><img src="assets/donate-cloudtips.png" alt="QR-код для доната через CloudTips" width="180"></a>
+<a href="https://pay.cloudtips.ru/p/61fe8ef3"><img src="https://img.shields.io/badge/Поддержать_проект-карта_или_СБП-e25c4a?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Поддержать проект: карта или СБП через CloudTips" height="44"></a>
 
-**[CloudTips — карта / СБП](https://pay.cloudtips.ru/p/61fe8ef3)** · TON: `UQC2KsPX-Ad9P8x_VbN3GHbpacOMvYPIbZvLppb-sxJ88KfV` · Bitcoin: `bc1qen3tutepyqjtsn7meggcertp6x4m0492vkg4m2`
+<a href="https://pay.cloudtips.ru/p/61fe8ef3"><img src="assets/donate-cloudtips.png" alt="QR-код для доната через CloudTips" width="160"></a>
 
-Без денег тоже можно помочь: звезда на GitHub, репорт бага, рассказать другу. Подробнее — [support.md](docs/support.md).
+<sub>Ссылка: <a href="https://pay.cloudtips.ru/p/61fe8ef3">pay.cloudtips.ru/p/61fe8ef3</a> · любая сумма</sub>
 
 </div>
 
-[Ещё нет VPN-сервера? Amnezia Premium со скидкой 15% по промокоду CHEBURNET15 →](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15)
+<details>
+<summary>Криптовалюта</summary>
 
-*Партнёрская ссылка: вам −15% к цене, проекту — поддержка. Это не влияет на код — подойдёт конфиг любого провайдера.*
+<br>
+
+- TON: `UQC2KsPX-Ad9P8x_VbN3GHbpacOMvYPIbZvLppb-sxJ88KfV`
+- Bitcoin: `bc1qen3tutepyqjtsn7meggcertp6x4m0492vkg4m2`
+
+</details>
+
+**Без денег тоже можно помочь:** поставить ⭐ на GitHub, сообщить о баге, рассказать другу.
+Подробнее — [support.md](docs/support.md).
+
+> Ещё нет VPN-сервера? [Amnezia Premium со скидкой 15% по промокоду CHEBURNET15 →](https://storage.googleapis.com/amnezia/amnezia.org?m-path=premium&arf=EB5KDKXCJYQYP4MG&coupon=CHEBURNET15)
+> Это партнёрская ссылка: вам −15% к цене, проекту — поддержка. На код она не влияет: подойдёт конфиг любого провайдера.
 
 ---
 

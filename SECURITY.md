@@ -4,7 +4,7 @@
 
 **Не заводите публичный issue.** Напишите напрямую:
 
-- Telegram: [@industrialprofi](https://t.me/industrialprofi)
+- Telegram: [@andrei_yurik](https://t.me/andrei_yurik)
 - или через GitHub: вкладка **Security → Report a vulnerability** (приватный отчёт).
 
 Отвечаю в течение нескольких дней. Расскажите, что нашли, как воспроизвести и чем это грозит

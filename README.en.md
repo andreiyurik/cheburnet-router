@@ -17,7 +17,7 @@ web panel without reinstalling.
 
 <a href="assets/web-mgmt.png"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/web-mgmt-dark.png">
-  <img src="assets/web-mgmt.png" alt="Web panel" width="620">
+  <img src="assets/web-mgmt.png" alt="Web panel" width="320">
 </picture></a>
 
 </div>
@@ -72,6 +72,6 @@ Contributions welcome — [CONTRIBUTING.md](CONTRIBUTING.md). Security reports �
 [SECURITY.md](SECURITY.md). Questions and problems — please
 [open an issue](https://github.com/andreiyurik/cheburnet-router/issues/new/choose) (preferred: the
 answer stays where the next person will find it), or write to
-[Telegram @industrialprofi](https://t.me/industrialprofi).
+[Telegram @andrei_yurik](https://t.me/andrei_yurik).
 
 [MIT License](LICENSE)

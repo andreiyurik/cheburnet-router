@@ -50,7 +50,7 @@
   <a
     bind:this={ref}
     data-slot="button"
-    class={cn(base, BUTTON_VARIANTS[variant], BUTTON_SIZES[size], className)}
+    class={cn(base, variant !== 'link' && 'no-underline', BUTTON_VARIANTS[variant], BUTTON_SIZES[size], className)}
     href={disabled ? undefined : href}
     aria-disabled={disabled}
     {...restProps}

@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Спасибо! Чем конкретнее описание, тем быстрее починится.
-        Если проще написать в чате — [Telegram @industrialprofi](https://t.me/industrialprofi).
+        Если проще написать в чате — [Telegram @andrei_yurik](https://t.me/andrei_yurik).
 
   - type: textarea
     id: what

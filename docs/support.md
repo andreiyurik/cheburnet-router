@@ -20,7 +20,7 @@ QR-код и способы задонатить (CloudTips, TON, Bitcoin) — �
 
 ## Контакты
 
-- Telegram: [@industrialprofi](https://t.me/industrialprofi) — отвечаю всем лично
+- Telegram: [@andrei_yurik](https://t.me/andrei_yurik) — отвечаю всем лично
 - Issues: [github.com/andreiyurik/cheburnet-router/issues](https://github.com/andreiyurik/cheburnet-router/issues)
 
 Спасибо, что поддерживаете open-source.

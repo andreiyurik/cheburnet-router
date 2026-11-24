@@ -104,7 +104,7 @@ cheburnet поднимет свой AmneziaWG-туннель и проблема
 
 ## Не помогает / совсем ничего не работает
 
-Напиши в Telegram: [@industrialprofi](https://t.me/industrialprofi).
+Напиши в Telegram: [@andrei_yurik](https://t.me/andrei_yurik).
 
 Приложи:
 - Модель роутера и провайдера.

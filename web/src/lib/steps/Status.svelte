@@ -43,6 +43,7 @@
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import LogIn from '@lucide/svelte/icons/log-in';
   import LogOut from '@lucide/svelte/icons/log-out';
+  import Heart from '@lucide/svelte/icons/heart';
 
   // onReinstall — запустить мастер заново (с preflight).
   let { onReinstall } = $props();
@@ -624,10 +625,10 @@
 
       <!-- Свой список — главная настройка продукта: поменять сайт не должно стоить переустановки. -->
       <Field label="Сайты напрямую — ваш список"
-             hint="Зона (ru) покрывает все сайты в ней; отдельные — своей строкой. Остальное идёт через туннель.">
+             hint="Домен (example.com) покрывает и все его поддомены, каждый сайт — своей строкой. Остальное идёт через туннель.">
         {#if loggedIn && domainsLoaded}
           <Textarea bind:value={userDomainsText} rows="3" disabled={busy}
-                    placeholder={'ru\nexample.com'} />
+                    placeholder={'example.com\nexample.org'} />
         {:else}
           <Textarea rows="3" disabled
                     placeholder={loggedIn ? 'Загружаю список…' : 'Войдите, чтобы увидеть и изменить список'} />
@@ -794,6 +795,21 @@
     </Card.Root>
     <p class="mt-2 px-1 text-sm text-muted-foreground">Проект и документация —
       <a href={SUPPORT.page} target="_blank" rel="noreferrer">на GitHub</a>.</p>
+
+    <SectionTitle>Поддержать проект</SectionTitle>
+    <Card.Root variant="flush">
+      <Item.Root class="rounded-none">
+        <Item.Media variant="icon" class="text-primary"><Heart /></Item.Media>
+        <Item.Content>
+          <Item.Title class="text-base font-semibold">cheburnet бесплатный и делается одним человеком</Item.Title>
+          <Item.Description>Если роутер вам помогает, поддержите разработку — это время на новые функции и ответы на вопросы.</Item.Description>
+        </Item.Content>
+        <Item.Footer>
+          <Button variant="outline" href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">Поддержать донатом</Button>
+          <Button variant="ghost" href={SUPPORT.page} target="_blank" rel="noreferrer">Звезда на GitHub</Button>
+        </Item.Footer>
+      </Item.Root>
+    </Card.Root>
 
     <SectionTitle>Обслуживание</SectionTitle>
     <Card.Root variant="flush">

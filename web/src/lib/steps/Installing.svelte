@@ -228,14 +228,14 @@
         </Empty.Header>
       </Empty.Root>
       <Item.Root variant="muted">
-                <Item.Content>
-          <Item.Title class="font-semibold">Понравилось?</Item.Title>
-          <Item.Description>
-            <a href={SUPPORT.page} target="_blank" rel="noreferrer">Звезда на GitHub</a> или
-            <a href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">донат</a>.
-            Вопрос или идея — <a href={SUPPORT.telegramUrl} target="_blank" rel="noreferrer">{SUPPORT.telegram}</a>.
-          </Item.Description>
+        <Item.Content>
+          <Item.Title class="font-semibold">Всё получилось? Поддержите проект</Item.Title>
+          <Item.Description>cheburnet бесплатный и делается одним человеком.</Item.Description>
         </Item.Content>
+        <Item.Footer>
+          <Button variant="outline" href={SUPPORT.donateUrl} target="_blank" rel="noreferrer">Поддержать донатом</Button>
+          <Button variant="ghost" href={SUPPORT.page} target="_blank" rel="noreferrer">Звезда на GitHub</Button>
+        </Item.Footer>
       </Item.Root>
       <Button size="lg" class="w-full" onclick={onDone}>Открыть панель управления</Button>
     {:else if phase === 'fail'}
