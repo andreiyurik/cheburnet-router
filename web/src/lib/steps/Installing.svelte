@@ -13,7 +13,8 @@
 
   // args — { awg_conf, root_password, [ssid, wifi_key], domains, token } для метода install.
   // onDone — установка завершилась успешно. onRetry — вернуться на Setup при ошибке.
-  let { args, onDone, onRetry } = $props();
+  // resume — установка уже идёт на роутере (страницу перезагрузили): только поллинг, без install.
+  let { args, resume = false, onDone, onRetry } = $props();
 
   let phase = $state('starting'); // starting | running | ok | fail
   let step = $state('');
@@ -54,7 +55,7 @@
   // прогресс тянем поллингом install_progress (см. engine/ubus: фон+poll).
   async function start() {
     try {
-      await cheburnet('install', args);
+      if (!resume) await cheburnet('install', args);
       phase = 'running';
       poll();
       timer = setInterval(poll, 2000);
@@ -206,9 +207,11 @@
           </p>
         {/if}
       {/if}
-      <Button variant="outline" disabled={cancelling} onclick={cancel}>
-        {cancelling ? 'Отменяю…' : 'Отменить установку'}
-      </Button>
+      {#if args.token}
+        <Button variant="outline" disabled={cancelling} onclick={cancel}>
+          {cancelling ? 'Отменяю…' : 'Отменить установку'}
+        </Button>
+      {/if}
     {:else if phase === 'ok'}
       <!-- Экран успеха: маскот «выпрыгивает», сверху осыпаются войлочные конфетти цветами темы.
            Всё чистый CSS, одноразовое (forwards), при prefers-reduced-motion — статика. -->

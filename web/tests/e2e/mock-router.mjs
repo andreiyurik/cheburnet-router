@@ -20,6 +20,7 @@ const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css
 // Состояние «роутера»: до установки → в процессе → установлен.
 let installed = false;
 let installPolls = 0;
+let installing = false; // install запущен, исход ещё не отдан (status.installing)
 // Режим «health-check не прошёл»: движок откатился, done-маркер fail + reason=health.
 // Включается POST /__fail-health — проверка адресной диагностики UI.
 let failHealth = false;
@@ -94,6 +95,7 @@ function ubusReply(method, args, session) {
     case 'status':
       return [0, {
         installed,
+        installing,
         wireless_present: true,
         dns_providers: PROVIDERS,
         dns_provider: 'adguard',
@@ -201,6 +203,7 @@ function ubusReply(method, args, session) {
     case 'install':
       if (args.token !== TOKEN) return [0, { error: 'неверный install-токен' }];
       installPolls = 0;
+      installing = true;
       lastInstall = args;
       // Движок пишет пропущенные проверки в install.json → панель их показывает.
       if (args.accept_risk === true) forced = ['flash', 'ram'];
@@ -229,6 +232,7 @@ function ubusReply(method, args, session) {
       // Даёт UI показать усиленный текст предупреждения про обрыв связи именно здесь.
       if (installPolls < 3 && !failHealth)
         return [0, { done: false, step: 'health-check', log: 'проверка связи через туннель…' }];
+      installing = false;
       if (failHealth)
         return [0, { done: true, result: 'fail', reason: 'health', step: 'health-check',
                      log: 'install: откат — health-check не пройден\ninstall: откат выполнен' }];
@@ -245,6 +249,7 @@ createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/__reset') {
     installed = false;
     installPolls = 0;
+    installing = false;
     failHealth = false;
     vpnDown = false;
     protocol = 'awg';

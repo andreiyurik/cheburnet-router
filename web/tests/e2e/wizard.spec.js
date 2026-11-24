@@ -73,6 +73,25 @@ test('мастер: полный проход от проверки до пан�
   await expect(page.getByRole('button', { name: 'Дома' })).toHaveAttribute('aria-pressed', 'true');
 });
 
+// Телефон перешёл на новый Wi-Fi, вкладка перезагрузилась посреди установки: мастер обязан
+// продолжить показывать прогресс, а не начинать с проверки роутера.
+test('мастер: перезагрузка страницы во время установки подхватывает прогресс', async ({ page }) => {
+  await page.goto('/cheburnet/?token=TESTTOKEN');
+  await page.getByRole('button', { name: 'Продолжить' }).click();
+  await page.getByLabel('VPN-конфиг').fill(AWG_CONF);
+  await page.getByLabel('Пароль администратора (root)').fill('secret-pass-1');
+  await page.getByLabel('Повторите пароль').fill('secret-pass-1');
+  await page.getByLabel('Имя сети (SSID)').fill('TestWifi');
+  await page.getByLabel('Пароль Wi-Fi').fill('wifi-pass-1');
+  await page.getByRole('button', { name: 'Установить' }).click();
+  await page.getByRole('button', { name: 'Установить' }).click();
+  await expect(page.getByText('Шаг 4 из 4')).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByText('Шаг 4 из 4')).toBeVisible();
+  await expect(page.getByText('Готово! Роутер настроен')).toBeVisible({ timeout: 15_000 });
+});
+
 // Full-тир заморожен (ADR 0010): выбора туннеля в мастере нет — сразу поле .conf AmneziaWG, на любом железе.
 test('мастер: выбора протокола нет, установка уходит с protocol=awg', async ({ page, request }) => {
   await page.goto('/cheburnet/?token=TESTTOKEN');

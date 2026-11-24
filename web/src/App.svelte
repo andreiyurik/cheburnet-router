@@ -45,6 +45,7 @@
   // читается экраном Installing.
   let installArgs = $state(null);
   let lanConflict = $state(null); // ответ check_lan_conflict при конфликте
+  let resumeInstall = $state(false);
 
   // При загрузке спрашиваем статус: установлен → сразу панель; иначе — проверяем пересечение
   // LAN/WAN-подсетей (его надо чинить ДО мастера, preflight такое не пропустит) → preflight.
@@ -56,6 +57,14 @@
       wirelessPresent = s.wireless_present ?? null;
       dnsProviders = s.dns_providers ?? [];
       dnsProviderDefault = s.dns_provider ?? '';
+      // Установка уже идёт (вкладку перезагрузили при смене Wi-Fi): install.json к этому моменту
+      // записан, и без этой ветки человек попадал бы в панель посреди установки.
+      if (s.installing) {
+        installArgs = { ssid: s.ssid, token: urlToken };
+        resumeInstall = true;
+        step = 'installing';
+        return;
+      }
       if (s.installed) {
         step = 'status';
         return;
@@ -112,9 +121,9 @@
   {:else if step === 'setup'}
     <Setup onSubmit={toConfirm} onBack={() => (step = 'preflight')} {wirelessPresent} {dnsProviders} {dnsProviderDefault} {acceptRisk} {urlToken} initial={installArgs} />
   {:else if step === 'confirm'}
-    <Confirm args={installArgs} {dnsProviders} onBack={() => (step = 'setup')} onConfirm={() => (step = 'installing')} />
+    <Confirm args={installArgs} {dnsProviders} onBack={() => (step = 'setup')} onConfirm={() => { resumeInstall = false; step = 'installing'; }} />
   {:else if step === 'installing'}
-    <Installing args={installArgs} onDone={() => (step = 'status')} onRetry={() => (step = 'setup')} />
+    <Installing args={installArgs} resume={resumeInstall} onDone={() => (step = 'status')} onRetry={() => { step = resumeInstall ? 'preflight' : 'setup'; resumeInstall = false; }} />
   {:else if step === 'status'}
     <Status onReinstall={() => (step = 'preflight')} />
   {/if}

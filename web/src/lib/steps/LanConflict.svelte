@@ -47,7 +47,7 @@
         <li>Переподключитесь к роутеру (Wi-Fi/кабель): устройство получит адрес из новой подсети.
           Если не получило — выключите и включите Wi-Fi (или переткните кабель).</li>
         <li>Откройте мастер по новому адресу:
-          <strong><a href={`http://${applied}/cheburnet/`}>http://{applied}/cheburnet/</a></strong></li>
+          <strong><a href={`http://${applied}/cheburnet/?token=${encodeURIComponent(token.trim())}`}>http://{applied}/cheburnet/</a></strong></li>
       </ol>
     {:else}
       <p>
