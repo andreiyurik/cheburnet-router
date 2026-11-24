@@ -13,8 +13,9 @@ let url = (length(ARGV) > 0 && length(ARGV[0]) > 0) ? ARGV[0] : DEFAULT_SOURCE;
 let cache = (length(ARGV) > 1) ? ARGV[1] : "/etc/cheburnet/direct-list";
 
 let tmp = cache + ".tmp";
-// -T обязателен: без таймаута busybox-wget/uclient-fetch висят на мёртвом соединении, а нас ждёт rpcd.
-sh(sprintf("uclient-fetch -T 15 -q -O '%s' '%s' 2>/dev/null || wget -T 15 -q -O '%s' '%s' 2>/dev/null",
+// Таймауты обязательны: без них загрузчик висит на мёртвом соединении, а нас ждёт rpcd.
+// curl первым: uclient-fetch виснет на хостах GitHub (см. bootstrap.sh fetch).
+sh(sprintf("curl -fsSL --connect-timeout 15 -m 60 -o '%s' '%s' 2>/dev/null || uclient-fetch -T 15 -q -O '%s' '%s' 2>/dev/null",
 	tmp, url, tmp, url));
 
 let text = readfile(tmp);

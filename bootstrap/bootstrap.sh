@@ -31,6 +31,7 @@ PKG_FILE="${CHEBURNET_PKG:-cheburnet.apk}"
 # Инсталлятор kmod-amneziawg. По умолчанию — НАША vendored-копия (pinned, ревьюится в нашем репо),
 # а не master awg-openwrt: воспроизводимость и один origin доверия. Обновление копии — vendor/README.md.
 AWG_INSTALL_URL="${CHEBURNET_AWG_INSTALL_URL:-$SRC_BASE/vendor/amneziawg-install.sh}"
+WGET_SHIM_URL="${CHEBURNET_WGET_SHIM_URL:-$SRC_BASE/bootstrap/wget-via-curl.sh}"
 
 # env-override только для тестов (tests/bootstrap-test.sh) — в проде всегда дефолт.
 ETC="${CHEBURNET_ETC:-/etc/cheburnet}"
@@ -54,13 +55,16 @@ retry() {
     done
 }
 
-# fetch URL DEST — uclient-fetch штатен на OpenWrt; wget — fallback. Пустой файл считаем провалом.
-# Таймауты обязательны: без них busybox-wget/uclient-fetch ВИСНУТ на мёртвом соединении (нет
-# интернета на WAN / GitHub недоступен) вместо честного провала — ретрай тогда не срабатывает.
+# fetch URL DEST — curl, запасной путь uclient-fetch. Пустой файл считаем провалом.
+# ШРАМ (2026-11): uclient-fetch виснет на github.com (релизы, kmod), curl на том же mbedTLS проходит.
+# Таймауты обязательны: без них загрузчик ВИСНЕТ на мёртвом соединении, и ретрай не срабатывает.
 fetch() {
-    uclient-fetch -T 15 -qO "$2" "$1" 2>/dev/null || wget -T 15 -qO "$2" "$1" || return 1
+    curl -fsSL --connect-timeout 15 -m 300 -o "$2" "$1" 2>/dev/null \
+        || uclient-fetch -T 15 -qO "$2" "$1" 2>/dev/null || return 1
     [ -s "$2" ] || return 1
 }
+
+curl_install() { apk update >/dev/null 2>&1 && apk add curl >/dev/null 2>&1; }
 
 # awg_ok PKG — установлен ли пакет PKG (по факту в apk-базе, не по коду выхода инсталлятора).
 awg_ok() { apk list --installed 2>/dev/null | grep -q "^$1-[0-9]"; }
@@ -76,12 +80,24 @@ trap cleanup EXIT
 command -v apk >/dev/null 2>&1 \
     || die "нужен OpenWrt 25.12 или новее — в более старых нет пакетного менеджера apk. Обновите прошивку роутера (docs/00-flash-openwrt.md) и запустите установку снова."
 
+# curl — единственное, что ставим до скачивания: без него не скачать с github.com (см. fetch).
+# Берётся из штатного feed OpenWrt (downloads.openwrt.org), который отвечает и штатному apk.
+if ! command -v curl >/dev/null 2>&1; then
+    log "ставлю curl — им скачиваются файлы с GitHub"
+    retry 3 3 curl_install \
+        || die "не установить curl из репозитория OpenWrt. Частая причина: у самого РОУТЕРА нет интернета — проверьте, что кабель провайдера в порту WAN. Если интернет есть — см. docs/install-blocked.md"
+fi
+
 # --- 1. Скачать ВСЁ до установки чего-либо: fail-closed, без половинчатой установки ---------------
 # Если хоть один артефакт недоступен (нет Release, нет сети, битое зеркало) — умираем ДО того,
 # как на роутере что-то изменилось. Урок ревью: kmod-до-проверки-пакета оставлял полуустановку.
 log "скачиваю установочные файлы"
 retry 3 2 fetch "$AWG_INSTALL_URL" "$WORK/awg-install.sh" \
     || die "не скачать awg-инсталлятор ($AWG_INSTALL_URL). Частая причина: у самого РОУТЕРА нет интернета — проверьте, что кабель провайдера в порту WAN и интернет через роутер работает. Если интернет есть — сервер недоступен из вашей сети, см. docs/install-blocked.md"
+mkdir -p "$WORK/bin"
+retry 3 2 fetch "$WGET_SHIM_URL" "$WORK/bin/wget" \
+    || die "не скачать вспомогательный файл установщика ($WGET_SHIM_URL). См. docs/install-blocked.md"
+chmod +x "$WORK/bin/wget"
 retry 3 2 fetch "$RELEASE_BASE/$PKG_FILE" "$WORK/cheburnet.apk" \
     || die "не скачать пакет ($RELEASE_BASE/$PKG_FILE). Частая причина: у самого РОУТЕРА нет интернета (кабель провайдера — в порт WAN). Если интернет есть — см. docs/install-blocked.md"
 
@@ -99,7 +115,7 @@ log "ставлю kmod-amneziawg (через awg-openwrt, подбор под я
 # (его apk update/add тоже ловят флап), поэтому гейтим на факте, а не на коде выхода, и ретраим.
 _awg_i=1
 while :; do
-    sh "$WORK/awg-install.sh" -n -e || true
+    PATH="$WORK/bin:$PATH" sh "$WORK/awg-install.sh" -n -e || true
     awg_ok kmod-amneziawg && awg_ok amneziawg-tools && break
     [ "$_awg_i" -ge 3 ] \
         && die "AmneziaWG (kmod + tools) не установились — нет сборки kmod под вашу OpenWrt/ядро или сеть недоступна (см. лог awg-openwrt выше)"

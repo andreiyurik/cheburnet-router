@@ -56,10 +56,10 @@ done
 
 # AmneziaWG — и туннель, и preflight-deps: ставим тем же путём, что bootstrap на роутере.
 echo "→ AmneziaWG (vendored awg-инсталлятор, как bootstrap)"
-vm_scp "$REPO_ROOT/vendor/amneziawg-install.sh" "/tmp/awg-install.sh"
+vm_awg_prepare || exit 1
 awg_ok=0
 for attempt in 1 2 3; do
-    vm_ssh "sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
+    vm_ssh "PATH=/tmp/awgbin:\$PATH sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
     if vm_ssh "apk list --installed 2>/dev/null | grep -q '^kmod-amneziawg-[0-9]'"; then awg_ok=1; break; fi
     echo "    попытка $attempt не удалась (скачивание ассета), повтор через 15с"
     sleep 15

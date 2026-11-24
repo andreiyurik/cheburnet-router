@@ -340,6 +340,16 @@ print("\n".join(c["id"] for c in r["checks"] if not c["ok"]))' || true
 }
 
 # vm_check_dns() — nslookup в VM или exit 1. Без интернета apk update/add бессмысленны.
+# vm_awg_prepare — vendored awg-инсталлятор тем же путём, что bootstrap: curl и wget-via-curl на PATH
+# (запуск: PATH=/tmp/awgbin:$PATH sh /tmp/awg-install.sh -n -e). Нужен выполненный apk update.
+vm_awg_prepare() {
+    apk_try "apk add curl" || { echo "  ✗ не встал curl"; return 1; }
+    vm_scp "$REPO_ROOT/vendor/amneziawg-install.sh" /tmp/awg-install.sh
+    vm_ssh "mkdir -p /tmp/awgbin"
+    vm_scp "$REPO_ROOT/bootstrap/wget-via-curl.sh" /tmp/awgbin/wget
+    vm_ssh "chmod +x /tmp/awgbin/wget"
+}
+
 # vm_github_diag — почему VM не скачала ассет с GitHub: тихий `wget -q` инсталлятора прячет причину,
 # и отказ сети выглядел как «нет сборки под эту версию OpenWrt».
 vm_github_diag() {

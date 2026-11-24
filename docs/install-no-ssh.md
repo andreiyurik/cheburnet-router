@@ -52,7 +52,7 @@
 - **Description:** `Установить cheburnet`
 - **Command:**
   ```
-  wget -qO /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && sh /tmp/cheburnet-setup.sh
+  apk update && apk add curl && curl -fsSLo /tmp/cheburnet-setup.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh && sh /tmp/cheburnet-setup.sh
   ```
 - Галочку **Allow the user to provide additional command line arguments** можно не ставить.
 

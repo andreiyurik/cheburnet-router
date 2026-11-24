@@ -30,14 +30,16 @@ define Package/cheburnet
   # Движок и data-plane. dnsmasq-full — ради nftset; https-dns-proxy — шифрованный DNS
   # (и блокировка рекламы/контента — через выбор фильтрующего DoH-резолвера, не локальным
   # списком); kmod-amneziawg + amneziawg-tools — туннель; nftables/ip-full — пометка и policy
-  # routing; uhttpd-mod-ubus — мост браузер→ubus для веб-мастера.
+  # routing; uhttpd-mod-ubus — мост браузер→ubus для веб-мастера; curl — загрузка с GitHub
+  # (uclient-fetch там виснет, см. bootstrap.sh fetch).
   DEPENDS:= \
 	+ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus \
 	+rpcd +rpcd-mod-file \
 	+dnsmasq-full +https-dns-proxy \
 	+kmod-amneziawg +amneziawg-tools \
 	+nftables +ip-full \
-	+uhttpd +uhttpd-mod-ubus
+	+uhttpd +uhttpd-mod-ubus \
+	+curl
 endef
 
 define Package/cheburnet/description

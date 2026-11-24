@@ -74,7 +74,8 @@ ls /etc/hotplug.d/iface/99-cheburnet    # «No such file» = хук восста
 Проще всего вернуть пакет, выполнить шаг 1 и удалить снова:
 
 ```sh
-wget -O /tmp/cheburnet.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh
+apk update && apk add curl
+curl -fLo /tmp/cheburnet.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh
 sh /tmp/cheburnet.sh
 ucode -R /usr/share/cheburnet/engine/install/reset.uc
 apk del cheburnet

@@ -40,10 +40,10 @@ for pkg in ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus nftables ip-full \
 done
 
 echo "→ AmneziaWG (vendored инсталлятор, как на роутере)"
-vm_scp "$REPO_ROOT/vendor/amneziawg-install.sh" "/tmp/awg-install.sh"
+vm_awg_prepare || exit 1
 awg_ok=0
 for _ in 1 2 3; do
-    vm_ssh "sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
+    vm_ssh "PATH=/tmp/awgbin:\$PATH sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
     if vm_ssh "modprobe amneziawg 2>/dev/null; lsmod | grep -q '^amneziawg'"; then awg_ok=1; break; fi
 done
 [ "$awg_ok" = "1" ] || { echo "  ✗ kmod-amneziawg не встал"; exit 1; }

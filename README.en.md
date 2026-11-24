@@ -54,7 +54,8 @@ from your own VPS or any compatible provider.
 ssh-keygen -R 192.168.1.1; ssh root@192.168.1.1
 ```
 ```sh
-wget -O /tmp/cheburnet.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh
+apk update && apk add curl
+curl -fLo /tmp/cheburnet.sh https://raw.githubusercontent.com/andreiyurik/cheburnet-router/master/bootstrap/bootstrap.sh
 sh /tmp/cheburnet.sh
 ```
 

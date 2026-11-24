@@ -24,6 +24,7 @@ cd "$REPO" || exit 1
 # POSIX sh — всё что идёт на роутер (busybox-ash) или тонкий host-glue без bash-фич.
 POSIX_FILES=(
     bootstrap/bootstrap.sh
+    bootstrap/wget-via-curl.sh
     engine/run-tests.sh
     package/cheburnet/files/rpcd-cheburnet.sh
     tests/poc/split-routing-netns.sh

@@ -57,7 +57,7 @@ echo "  свободно до установки: $((FREE_START / 1024)) МБ"
 # bootstrap на роутере (см. блок ниже).
 # Локальный adblock убран: блокировка рекламы/контента — через выбор фильтрующего DoH-резолвера,
 # не локальным списком (см. ADR — DNS-фильтрация). Поэтому adblock-lean в DEPENDS больше нет.
-CORE_DEPS="ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus rpcd rpcd-mod-file nftables ip-full https-dns-proxy uhttpd uhttpd-mod-ubus"
+CORE_DEPS="ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus rpcd rpcd-mod-file nftables ip-full https-dns-proxy uhttpd uhttpd-mod-ubus curl"
 AWG_DEPS="kmod-amneziawg amneziawg-tools"
 
 echo "→ Ставлю CORE-зависимости (assert: каждая ставится)"
@@ -98,13 +98,13 @@ echo "→ AmneziaWG тем же путём, что на роутере (vendored
 #
 # rc инсталлятора игнорируем осознанно — как в bootstrap.sh: upstream делает exit 1, когда нет
 # ассета luci-proto (нам он не нужен). Проверяем ФАКТ установки нужных двух пакетов.
-vm_scp "$REPO_ROOT/vendor/amneziawg-install.sh" "/tmp/awg-install.sh"
+vm_awg_prepare || exit 1
 # Ретраим САМ ИНСТАЛЛЯТОР, а не только apk: он тянет ассет с GitHub, и фильтрующая сеть рвёт
 # запрос («Failed to send request: Operation not permitted»). Прогон при этом падал с диагнозом
 # «нет сборки под эту версию OpenWrt» — то есть указывал на upstream при полностью рабочей сборке.
 AWG_OK=0
 for attempt in 1 2 3; do
-    vm_ssh "sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
+    vm_ssh "PATH=/tmp/awgbin:\$PATH sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
     AWG_OK=1
     for pkg in $AWG_DEPS; do
         vm_ssh "apk list --installed 2>/dev/null | grep -q '^$pkg-[0-9]'" || AWG_OK=0

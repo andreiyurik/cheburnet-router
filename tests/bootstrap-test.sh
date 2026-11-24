@@ -19,7 +19,7 @@ ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; PASS=$((PASS + 1)); }
 bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
 # make_env DIR — фейковый PATH-каталог со стабами. Поведение крутится файлами-ручками:
-#   .fetch_fails   — сколько первых вызовов uclient-fetch «падают» (сетевой флап)
+#   .fetch_fails   — сколько первых вызовов загрузчика «падают» (сетевой флап)
 #   .installed     — вывод `apk list --installed` (какие пакеты «стоят»)
 #   .awg_rc        — код выхода фейкового awg-инсталлятора (который «скачивается»)
 #   .lan_ip        — что вернёт `uci get network.lan.ipaddr` (пусто = uci падает)
@@ -31,23 +31,25 @@ make_env() {
     : > "$dir/.installed"; : > "$dir/.apk_calls"
     echo 0 > "$dir/.awg_rc"; echo "192.168.1.1" > "$dir/.lan_ip"
 
-    # uclient-fetch -T 15 -qO DEST URL: отдаёт awg-инсталлятор или «пакет», уважая .fetch_fails.
-    cat > "$dir/uclient-fetch" <<EOF
+    # Загрузчик (curl -o DEST URL / uclient-fetch -qO DEST URL): отдаёт файлы, уважая .fetch_fails.
+    cat > "$dir/curl" <<EOF
 #!/bin/sh
 dest=""; url=""
 while [ \$# -gt 0 ]; do
-    case "\$1" in -T) shift ;; -qO) dest="\$2"; shift ;; *) url="\$1" ;; esac
+    case "\$1" in -T|-m|--connect-timeout) shift ;; -o|-qO) dest="\$2"; shift ;; -*) ;; *) url="\$1" ;; esac
     shift
 done
 n=\$(cat "$dir/.fetch_n"); n=\$((n + 1)); echo "\$n" > "$dir/.fetch_n"
 [ "\$n" -le "\$(cat "$dir/.fetch_fails")" ] && exit 1
 case "\$url" in
   *amneziawg-install*) printf '#!/bin/sh\nexit %s\n' "\$(cat "$dir/.awg_rc")" > "\$dest" ;;
+  *wget-via-curl*)     printf '#!/bin/sh\nexit 0\n' > "\$dest" ;;
   *cheburnet.apk*)     echo "fake-apk-payload" > "\$dest" ;;
   *)                   exit 1 ;;
 esac
 exit 0
 EOF
+    cp "$dir/curl" "$dir/uclient-fetch"
 
     # apk: list --installed из ручки, update/add — журналируем и выходим 0.
     cat > "$dir/apk" <<EOF
@@ -65,11 +67,11 @@ v=\$(cat "$dir/.lan_ip")
 echo "\$v"
 EOF
 
-    # wget — всегда провал: fetch() предпочитает uclient-fetch, а фолбэк на РЕАЛЬНЫЙ wget хоста
-    # утащил бы настоящие файлы из сети и сломал герметичность (поймано первым же прогоном).
+    # wget — всегда провал: РЕАЛЬНЫЙ wget хоста утащил бы настоящие файлы из сети и сломал
+    # герметичность (поймано первым же прогоном). curl фейковый по той же причине.
     printf '#!/bin/sh\nexit 1\n' > "$dir/wget"
     printf '#!/bin/sh\nexit 0\n' > "$dir/sleep" # ретраи без реальных пауз
-    chmod +x "$dir"/uclient-fetch "$dir"/apk "$dir"/uci "$dir"/sleep "$dir"/wget
+    chmod +x "$dir"/curl "$dir"/uclient-fetch "$dir"/apk "$dir"/uci "$dir"/sleep "$dir"/wget
 }
 
 # run_bootstrap DIR → код выхода; stdout+stderr в $DIR/out.log; ETC изолирован в $DIR/etc.

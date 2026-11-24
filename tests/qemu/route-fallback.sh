@@ -49,10 +49,10 @@ for pkg in ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus nftables ip-full; do
 done
 
 echo "→ AmneziaWG тем же путём, что на роутере (vendored awg-инсталлятор)"
-vm_scp "$REPO_ROOT/vendor/amneziawg-install.sh" "/tmp/awg-install.sh"
+vm_awg_prepare || exit 1
 awg_ok=0
 for attempt in 1 2 3; do
-    vm_ssh "sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
+    vm_ssh "PATH=/tmp/awgbin:\$PATH sh /tmp/awg-install.sh -n -e > /tmp/awg-install.log 2>&1 || true"
     if vm_ssh "modprobe amneziawg 2>/dev/null; lsmod | grep -q '^amneziawg'"; then awg_ok=1; break; fi
     echo "  … попытка $attempt не дала модуль, повтор"
 done
