@@ -43,16 +43,23 @@ function assemble(user_domains, imported_text, opts) {
 	let imported = parse_list(imported_text);
 
 	let candidates = [];
-	for (let i = 0; i < length(user); i++) push(candidates, user[i]);
-	for (let i = 0; i < length(imported); i++) push(candidates, imported[i]);
+	for (let i = 0; i < length(user); i++) push(candidates, { raw: user[i], imported: false });
+	for (let i = 0; i < length(imported); i++) push(candidates, { raw: imported[i], imported: true });
 
 	let seen = {}, domains = [], rejected = [], dups = 0;
 	for (let i = 0; i < length(candidates); i++) {
-		let d = normalize_domain(candidates[i]);
+		let raw = candidates[i].raw;
+		let d = normalize_domain(raw);
 		if (length(d) == 0)
 			continue;
 		if (!is_valid_domain(d)) {
-			push(rejected, { raw: candidates[i], reason: "not an ASCII LDH/punycode domain" });
+			push(rejected, { raw: raw, reason: "not an ASCII LDH/punycode domain" });
+			continue;
+		}
+		// Целая зона напрямую (TLD) — только осознанный выбор пользователя: строка «com» в чужом
+		// списке молча развернула бы fail-safe для всех доменов зоны.
+		if (candidates[i].imported && index(d, ".") < 0) {
+			push(rejected, { raw: raw, reason: "single-label name (whole zone) is not accepted from an imported list" });
 			continue;
 		}
 		if (seen[d]) { dups++; continue; }

@@ -3,6 +3,7 @@
 
 import { test, eq, ok, deep_eq, summary } from "../../../lib/assert.uc";
 import { build_doh_plan, listen_prefix } from "../doh.uc";
+import { starts_with } from "../../../lib/uci.uc";
 
 function has(arr, s) {
 	for (let i = 0; i < length(arr); i++) if (arr[i] == s) return true;
@@ -62,14 +63,29 @@ test("dnsmasq upstream: уже настроено → пустой diff", () => 
 	deep_eq(p.dnsmasq_ops, []);
 });
 
-// --- чужой upstream пользователя не трогаем ---
-test("чужой upstream-сервер (не 127.0.0.1#) сохраняется", () => {
+// --- чужой upstream пользователя сохраняем, но только ПОСЛЕ наших ---
+test("чужой upstream после наших — не трогаем", () => {
+	let p = build_doh_plan({
+		hdp_sections: [],
+		servers: [ "127.0.0.1#5053", "127.0.0.1#5054", "8.8.8.8" ],
+		options: { strictorder: "1" },
+	}, null);
+	deep_eq(p.dnsmasq_ops, [], "наши впереди и в порядке, чужой 8.8.8.8 не тронут");
+});
+test("чужой upstream ВПЕРЕДИ наших → переставляется в конец (иначе strict-order обходит DoH)", () => {
 	let p = build_doh_plan({
 		hdp_sections: [],
 		servers: [ "8.8.8.8", "127.0.0.1#5053", "127.0.0.1#5054" ],
 		options: { strictorder: "1" },
 	}, null);
-	deep_eq(p.dnsmasq_ops, [], "наши на месте и в порядке, чужой 8.8.8.8 не тронут");
+	deep_eq(p.dnsmasq_ops, [
+		"del_list dhcp.@dnsmasq[0].server='8.8.8.8'",
+		"del_list dhcp.@dnsmasq[0].server='127.0.0.1#5053'",
+		"del_list dhcp.@dnsmasq[0].server='127.0.0.1#5054'",
+		"add_list dhcp.@dnsmasq[0].server='127.0.0.1#5053'",
+		"add_list dhcp.@dnsmasq[0].server='127.0.0.1#5054'",
+		"add_list dhcp.@dnsmasq[0].server='8.8.8.8'",
+	]);
 });
 
 // --- замена дефолтной секции пакета (конфликт по порту) ---
@@ -149,7 +165,10 @@ test("dnsmasq upstream: наш устаревший порт удаляется,
 	// навсегда («годы без обслуживания» → перемежающийся медленный DNS).
 	ok(has(p.dnsmasq_ops, "del_list dhcp.@dnsmasq[0].server='127.0.0.1#5054'"));
 	ok(has(p.dnsmasq_ops, "add_list dhcp.@dnsmasq[0].server='127.0.0.1#5053'"));
-	ok(!has(p.dnsmasq_ops, "del_list dhcp.@dnsmasq[0].server='8.8.8.8'"), "чужой upstream сохраняем");
+	let adds = filter(p.dnsmasq_ops, (op) => starts_with(op, "add_list"));
+	deep_eq(adds, [ "add_list dhcp.@dnsmasq[0].server='127.0.0.1#5053'",
+		"add_list dhcp.@dnsmasq[0].server='127.0.0.1#5054'",
+		"add_list dhcp.@dnsmasq[0].server='8.8.8.8'" ], "чужой upstream сохранён, но после наших");
 });
 
 // Резервный экземпляр обязан получить СВОЕГО владельца: по нему (и только по нему) firewall

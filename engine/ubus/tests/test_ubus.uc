@@ -104,6 +104,17 @@ test("validate: install со всеми полями → ok, value содерж�
 	}, "value без junk");
 });
 
+test("validate: routing_opts — только mode из enum, прочие ключи отвергаются", () => {
+	let base = { awg_conf: "c", root_password: "s3cretpass", token: "t" };
+	eq(validate_request("install", { ...base, routing_opts: { mode: "travel" } }).ok, true, "travel");
+	eq(validate_request("install", { ...base, routing_opts: {} }).ok, true, "пустой объект");
+	let inj = validate_request("install", { ...base, routing_opts: { mark: "0x1; reboot" } });
+	eq(inj.ok, false, "mark снаружи не принимается");
+	eq(inj.error, "routing_opts.mark is not allowed");
+	let bad = validate_request("install", { ...base, routing_opts: { mode: "Travel" } });
+	eq(bad.ok, false, "mode вне enum — ошибка, а не молчаливый home");
+});
+
 // accept_risk — согласие владельца на пропуск soft-проверок железа. Граница обязана быть строгой
 // по ТИПУ: строка "false"/"0" не должна проезжать как согласие (импурный слой сверяет === true,
 // но лучше отбить мусор здесь — с внятной ошибкой).

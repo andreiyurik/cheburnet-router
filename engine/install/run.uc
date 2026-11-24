@@ -10,7 +10,7 @@ import { sh, run_stdin } from "../lib/proc.uc";
 import { enabled_steps, snapshot_scope, dirty_steps, decide_outcome,
          tunnel_info, disabled_tunnels, default_protocol, handshake_state,
          uses_singbox, tunnel_conf } from "./install.uc";
-import { detect_wan } from "../lib/wan.uc";
+import { detect_wan, wait_wan_default } from "../lib/wan.uc";
 import { evaluate, soft_failed_ids } from "../preflight/preflight.uc";
 import { config_path as sb_config_path } from "../steps/singbox/singbox.uc";
 import { commit_conf } from "../profiles/store.uc";
@@ -123,6 +123,9 @@ function rollback_all(steps, cfg) {
 // Реализация одна — install/reapply.uc (её же зовёт hotplug-хук после ребута), чтобы «после
 // отката» не расходилось с «после ребута».
 function reapply_data_plane() {
+	// ШРАМ (аудит): сразу после network restart WAN ещё на DHCP → reapply выходил с кодом 2, и
+	// kill-switch с hotplug-хуком не возвращались до тика сторожа (до 5 мин).
+	wait_wan_default(20);
 	if (int(trim(sh(sprintf("ucode -R %s/install/reapply.uc >/dev/null 2>&1; echo $?", ENGINE)))) != 0)
 		warn("install: не удалось вернуть firewall прежней системы — примените режим заново в панели\n");
 }

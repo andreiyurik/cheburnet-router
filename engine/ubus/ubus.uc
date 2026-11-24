@@ -12,7 +12,8 @@ import { protocol_ids } from "../install/install.uc";
 const PROTOCOL_IDS = protocol_ids();
 
 // Реестр методов RPC. Один метод = одна запись (порядок стабилен → стабильны list/ACL).
-//   args  — { name, type, required?, enum?, minlen?, maxlen? }; type ∈ string|array|object|bool.
+//   args  — { name, type, required?, enum?, minlen?, maxlen?, keys? }; type ∈ string|array|object|bool.
+//           keys (для object) — { ключ: [enum] }: другие ключи и значения вне enum отвергаются.
 //   access— read | write (ubus-разделение прав в ACL).
 //   auth  — anon = доступен из LAN до установки (мутации гейтятся токеном); admin = только
 //           авторизованной сессии.
@@ -40,7 +41,8 @@ const REGISTRY = [
 		{ name: "wifi_key",      type: "string", minlen: 8, maxlen: 63 }, // секрет → payload 600
 		{ name: "dns_provider",  type: "string", enum: PROVIDER_IDS }, // фильтрация = выбор резолвера
 		{ name: "domains",       type: "array" },
-		{ name: "routing_opts",  type: "object" },
+		// ИНВАРИАНТ: снаружи — только mode; mark/wan_gw/таблицы уходят в shell (ip rule) и в hotplug.
+		{ name: "routing_opts",  type: "object", keys: { mode: [ "home", "travel" ] } },
 		// accept_risk: осознанный пропуск SOFT-провалов preflight (флеш/RAM). HARD не пропускает
 		// никто (preflight.uc).
 		{ name: "accept_risk",   type: "bool" },
@@ -192,6 +194,15 @@ function validate_request(method, args) {
 
 		if (p.enum && index(p.enum, v) < 0)
 			return { ok: false, error: sprintf("%s must be one of: %s", p.name, join(", ", p.enum)) };
+
+		if (p.keys) {
+			for (let k in v) {
+				if (!exists(p.keys, k))
+					return { ok: false, error: sprintf("%s.%s is not allowed", p.name, k) };
+				if (index(p.keys[k], v[k]) < 0)
+					return { ok: false, error: sprintf("%s.%s must be one of: %s", p.name, k, join(", ", p.keys[k])) };
+			}
+		}
 
 		// Границы длины строки (только для строк): синхронная отбраковка слишком коротких/длинных
 		// значений (пароль, SSID) — пользователь получает ответ сразу, а не на середине установки.

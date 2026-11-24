@@ -32,6 +32,12 @@ test("assemble: мусор → rejected, не падаем (fail-safe)", () => {
 	eq(r.stats.rejected, 2);
 	eq(length(r.rejected), 2);
 });
+test("assemble: зона из одного слова из импорта → rejected, от пользователя — принимается", () => {
+	let r = assemble([ "example" ], "com\nok.example\n", null);
+	deep_eq(r.domains, [ "example", "ok.example" ]);
+	eq(r.stats.rejected, 1);
+	eq(r.rejected[0].raw, "com");
+});
 test("assemble: пустые входы → пустой результат", () => {
 	let r = assemble(null, null, null);
 	deep_eq(r.domains, []);

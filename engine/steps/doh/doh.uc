@@ -108,23 +108,23 @@ function build_doh_plan(current, opts) {
 	}
 
 	// dnsmasq upstream: server = listen_addr#port каждого резолвера, В ПОРЯДКЕ каталога. Чужие
-	// upstream-серверы пользователя не трогаем — работаем только со своими (listen_addr#).
-	// ПОРЯДОК ЗНАЧИМ (strict-order), поэтому сверяем СПИСКОМ, а не множеством: разошёлся порядок —
-	// переписываем свои записи целиком. Совпал — не трогаем вовсе (идемпотентность).
+	// upstream-серверы пользователя сохраняем, но ПОСЛЕ своих: при strict-order стоящий впереди
+	// 8.8.8.8 получал бы все запросы открытым текстом мимо DoH. Сверяем СПИСКОМ (порядок значим):
+	// разошёлся — переписываем весь список, совпал — не трогаем (идемпотентность).
 	let desired = [];
 	for (let i = 0; i < length(R); i++)
 		push(desired, sprintf("%s#%d", o.listen_addr, R[i].port));
 	let cur_servers = (current && current.servers) ? current.servers : [];
-	let owned = [];
+	let full = [ ...desired ];
 	for (let i = 0; i < length(cur_servers); i++)
-		if (starts_with(cur_servers[i], o.listen_addr + "#"))
-			push(owned, cur_servers[i]);
+		if (!starts_with(cur_servers[i], o.listen_addr + "#"))
+			push(full, cur_servers[i]);
 	let dops = [], sect = o.dnsmasq_section;
-	if (join("\n", owned) != join("\n", desired)) {
-		for (let i = 0; i < length(owned); i++)
-			push(dops, sprintf("del_list dhcp.%s.server='%s'", sect, owned[i]));
-		for (let i = 0; i < length(desired); i++)
-			push(dops, sprintf("add_list dhcp.%s.server='%s'", sect, desired[i]));
+	if (join("\n", cur_servers) != join("\n", full)) {
+		for (let i = 0; i < length(cur_servers); i++)
+			push(dops, sprintf("del_list dhcp.%s.server='%s'", sect, cur_servers[i]));
+		for (let i = 0; i < length(full); i++)
+			push(dops, sprintf("add_list dhcp.%s.server='%s'", sect, full[i]));
 	}
 	// strict-order — идемпотентный set (см. ИНВАРИАНТ в шапке).
 	let cur_opts = (current && current.options) ? current.options : {};
